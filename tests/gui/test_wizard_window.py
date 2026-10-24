@@ -1,0 +1,445 @@
+import asyncio
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from twinspace.core.models import AppInfo
+from twinspace.gui.services.clone_service import CloneService
+from twinspace.gui.services.probe_service import ProbeService
+from twinspace.gui.windows.wizard import WizardWindow
+from twinspace.recipes.models import Recipe
+
+
+def test_wizard_window_navigation(tmp_path):
+    async def _test():
+        clone_service = CloneService(state_file=tmp_path / "clones.yaml")
+        probe_service = ProbeService()
+
+        wizard = WizardWindow(clone_service=clone_service, probe_service=probe_service)
+        assert wizard.current_step == 1
+        assert wizard.btn_prev.enabled is False
+
+        # Mock app info for Step 1
+        wizard.input_app_path.value = "/Applications/WeChat.app"
+        mock_info = AppInfo(
+            path=Path("/Applications/WeChat.app"),
+            bundle_id="com.tencent.xinWeChat",
+            app_name="WeChat",
+            executable=Path("/Applications/WeChat.app/Contents/MacOS/WeChat"),
+            has_sandbox=False,
+        )
+
+        with patch("twinspace.core.app_inspector.AppInspector.inspect", return_value=mock_info):
+            await wizard.go_next()
+            assert wizard.current_step == 2
+            assert wizard.app_info is not None
+            assert wizard.app_info.bundle_id == "com.tencent.xinWeChat"
+
+            # Step 2 -> 3
+            await wizard.go_next()
+            assert wizard.current_step == 3
+            assert wizard.input_clone_name.value != ""
+
+            # Step 3 -> 4
+            await wizard.go_next()
+            assert wizard.current_step == 4
+
+            # Step 4 -> 5
+            await wizard.go_next()
+            assert wizard.current_step == 5
+
+            # Step 5 -> 6
+            await wizard.go_next()
+            assert wizard.current_step == 6
+
+            # Step 6 -> 7
+            await wizard.go_next()
+            assert wizard.current_step == 7
+            assert "Clone" in wizard.btn_next.text or "克隆" in wizard.btn_next.text or "🚀" in wizard.btn_next.text
+
+    asyncio.run(_test())
+
+
+def test_wizard_browse_handlers():
+    async def _test():
+        from twinspace.core.i18n import t
+        wizard = WizardWindow()
+        mock_open = AsyncMock(return_value=Path("/Applications/Safari.app"))
+        mock_folder = AsyncMock(return_value=Path("/Users/test/Applications"))
+
+        with patch.object(wizard, "open_file_dialog", mock_open), \
+             patch.object(wizard, "select_folder_dialog", mock_folder):
+            await wizard._on_browse_app(None)
+            assert wizard.input_app_path.value == "/Applications/Safari.app"
+            mock_open.assert_called_once_with(
+                title=t("dialog_select_app_title"),
+                file_types=["app"],
+                initial_directory=Path("/Applications"),
+            )
+
+            await wizard._on_browse_dest(None)
+            assert wizard.input_dest_dir.value == "/Users/test/Applications"
+
+            await wizard._on_browse_data(None)
+            assert wizard.input_data_dir.value == "/Users/test/Applications"
+
+    asyncio.run(_test())
+
+
+
+
+def test_wizard_name_auto_sync_and_manual_override():
+    wizard = WizardWindow()
+
+    # 1. Typing in clone_name automatically updates display_name
+    wizard.input_clone_name.value = "GoogleSijidege"
+    assert wizard.input_display_name.value == "GoogleSijidege"
+
+    # 2. Typing a further modification to clone_name keeps syncing
+    wizard.input_clone_name.value = "GoogleSijidege2"
+    assert wizard.input_display_name.value == "GoogleSijidege2"
+
+    # 3. User manually overrides display_name
+    wizard.input_display_name.value = "Custom Google Name"
+    assert wizard.input_clone_name.value == "GoogleSijidege2"
+    assert wizard.input_display_name.value == "Custom Google Name"
+
+    # 4. Editing clone_name does NOT overwrite the custom display_name
+    wizard.input_clone_name.value = "GoogleSijidege3"
+    assert wizard.input_clone_name.value == "GoogleSijidege3"
+    assert wizard.input_display_name.value == "Custom Google Name"
+
+    # 5. Resetting display_name back to match clone_name re-enables sync
+    wizard.input_display_name.value = "GoogleSijidege3"
+    wizard.input_clone_name.value = "GoogleSijidege4"
+    assert wizard.input_display_name.value == "GoogleSijidege4"
+
+
+@pytest.mark.parametrize("custom_icon", [False, True])
+def test_wizard_execute_clone_bundle_id_resolution(tmp_path: Path, custom_icon):
+    async def _test():
+        clone_service = CloneService(state_file=tmp_path / "clones.yaml")
+        wizard = WizardWindow(clone_service=clone_service)
+
+        wizard.app_info = AppInfo(
+            path=Path("/Applications/WeChat.app"),
+            bundle_id="com.tencent.xinWeChat",
+            app_name="WeChat",
+            executable=Path("/Applications/WeChat.app/Contents/MacOS/WeChat"),
+            has_sandbox=False,
+        )
+        wizard.recipe = Recipe(bundle_id="com.tencent.xinWeChat", app_name="WeChat", strategy="hard_clone")
+        wizard.icon_path = Path(__file__).parents[2] / "resource/images/logo.icns" if custom_icon else None
+        wizard.close = MagicMock()
+        wizard.input_clone_name.value = "WeChat3"
+        wizard.input_dest_dir.value = str(tmp_path / "Apps")
+        wizard.input_data_dir.value = str(tmp_path / "Data" / "WeChat3")
+
+        created_task = None
+        async def mock_create_clone(task):
+            nonlocal created_task
+            created_task = task
+            return MagicMock()
+
+        wizard.clone_service.create_clone = mock_create_clone
+        wizard.info_dialog = AsyncMock()
+
+        await wizard._execute_clone()
+        assert created_task is not None
+        assert created_task.new_bundle_id == "com.tencent.xinWeChat.twinspace.3"
+        assert created_task.icon_path == wizard.icon_path
+
+    asyncio.run(_test())
+
+
+def test_wizard_execute_clone_ios_app_shows_error(tmp_path: Path):
+    async def _test():
+        clone_service = CloneService(state_file=tmp_path / "clones.yaml")
+        wizard = WizardWindow(clone_service=clone_service)
+
+        wizard.app_info = AppInfo(
+            path=Path("/Applications/小宇宙.app"),
+            bundle_id="app.podcast.cosmos",
+            app_name="小宇宙",
+            executable=Path("/Applications/小宇宙.app/Wrapper/Podcast.app/Podcast"),
+            has_sandbox=True,
+            is_ios_app=True,
+        )
+        wizard.recipe = Recipe(bundle_id="app.podcast.cosmos", app_name="小宇宙", strategy="hard_clone")
+        wizard.input_clone_name.value = "小宇宙2"
+        wizard.input_dest_dir.value = str(tmp_path / "Apps")
+        wizard.input_data_dir.value = str(tmp_path / "Data" / "小宇宙2")
+
+        mock_create = AsyncMock()
+        wizard.clone_service.create_clone = mock_create
+        wizard.error_dialog = AsyncMock()
+
+        await wizard._execute_clone()
+        mock_create.assert_not_called()
+        wizard.error_dialog.assert_called_once()
+        error_title, error_message = wizard.error_dialog.call_args[0]
+        assert "iOS on Mac Wrapper" in error_message or "不支持 iOS on Mac Wrapper 应用" in error_message
+
+    asyncio.run(_test())
+
+
+def test_wizard_step1_ios_app_shows_error_dialog(tmp_path: Path):
+    async def _test():
+        clone_service = CloneService(state_file=tmp_path / "clones.yaml")
+        wizard = WizardWindow(clone_service=clone_service)
+        wizard.input_app_path.value = "/Applications/小宇宙.app"
+        wizard.error_dialog = AsyncMock()
+
+        mock_info = AppInfo(
+            path=Path("/Applications/小宇宙.app"),
+            bundle_id="app.podcast.cosmos",
+            app_name="小宇宙",
+            executable=Path("/Applications/小宇宙.app/Wrapper/Podcast.app/Podcast"),
+            has_sandbox=True,
+            is_ios_app=True,
+        )
+
+        with patch("twinspace.core.app_inspector.AppInspector.inspect", return_value=mock_info):
+            await wizard.go_next()
+            assert wizard.current_step == 1
+            wizard.error_dialog.assert_called_once()
+            _, err_msg = wizard.error_dialog.call_args[0]
+            assert "iOS on Mac Wrapper" in err_msg or "不支持 iOS on Mac Wrapper 应用" in err_msg
+
+    asyncio.run(_test())
+
+
+def test_wizard_step1_non_builtin_app_triggers_probe(tmp_path: Path):
+    async def _test():
+        clone_service = CloneService(state_file=tmp_path / "clones.yaml")
+        probe_service = ProbeService()
+        wizard = WizardWindow(clone_service=clone_service, probe_service=probe_service)
+        wizard.input_app_path.value = "/Applications/CustomBrowser.app"
+
+        mock_info = AppInfo(
+            path=Path("/Applications/CustomBrowser.app"),
+            bundle_id="com.custom.browser",
+            app_name="CustomBrowser",
+            executable=Path("/Applications/CustomBrowser.app/Contents/MacOS/CustomBrowser"),
+            has_sandbox=False,
+        )
+
+        mock_probed_recipe = Recipe(
+            bundle_id="com.custom.browser",
+            app_name="CustomBrowser",
+            strategy="soft_clone",
+            app_type="chromium",
+            launch_args=["--user-data-dir={{TWINSPACE_DATA_DIR}}"],
+        )
+
+        from twinspace.core.app_prober import ProbeResult
+        mock_probe_result = ProbeResult(
+            app_info=mock_info,
+            has_sandbox=False,
+            frameworks=["Chromium Framework.framework"],
+            strategy="soft_clone",
+            reason="Chromium detected",
+            recipe=mock_probed_recipe,
+        )
+
+        with patch("twinspace.core.app_inspector.AppInspector.inspect", return_value=mock_info), \
+             patch.object(probe_service, "probe_app", return_value=mock_probe_result) as mock_probe_app:
+            await wizard.go_next()
+            assert wizard.current_step == 2
+            assert wizard._recipe_from_probe is True
+            assert wizard.recipe.strategy == "soft_clone"
+            assert wizard.recipe.app_type == "chromium"
+            mock_probe_app.assert_called_once_with(mock_info.path)
+
+    asyncio.run(_test())
+
+
+def test_wizard_proxy_auth_configuration_and_keychain(tmp_path: Path):
+    async def _test():
+        from twinspace.core.keychain import (
+            clear_mock_storage,
+            get_clone_proxy_password,
+            set_mock_mode,
+        )
+
+        set_mock_mode(True)
+        clear_mock_storage()
+
+        state_file = tmp_path / "clones.yaml"
+        clone_service = CloneService(state_file=state_file)
+        wizard = WizardWindow(clone_service=clone_service)
+        wizard.info_dialog = AsyncMock()
+
+        # Mock app info for Step 1
+        wizard.input_app_path.value = "/Applications/WeChat.app"
+        mock_info = AppInfo(
+            path=Path("/Applications/WeChat.app"),
+            bundle_id="com.tencent.xinWeChat",
+            app_name="WeChat",
+            executable=Path("/Applications/WeChat.app/Contents/MacOS/WeChat"),
+            has_sandbox=False,
+        )
+
+        with patch("twinspace.core.app_inspector.AppInspector.inspect", return_value=mock_info):
+            # Step 1 -> Step 2
+            await wizard.go_next()
+            # Step 2 -> Step 3
+            await wizard.go_next()
+            wizard.input_clone_name.value = "WeChatProxyClone"
+            # Step 3 -> Step 4
+            await wizard.go_next()
+            # Step 4 -> Step 5
+            await wizard.go_next()
+            # Step 5 -> Step 6
+            await wizard.go_next()
+            assert wizard.current_step == 6
+
+            # Configure Proxy with Auth in Step 6
+            wizard.switch_proxy.value = True
+            assert wizard.select_proxy_type.enabled is True
+            wizard.switch_proxy_auth.value = True
+            assert wizard.input_proxy_user.enabled is True
+            assert wizard.input_proxy_pass.enabled is True
+
+            wizard.select_proxy_type.value = "http"
+            wizard.input_proxy_host.value = "proxy.company.com"
+            wizard.input_proxy_port.value = "8888"
+            wizard.input_proxy_user.value = "worker_1"
+            wizard.input_proxy_pass.value = "super_secret_proxy_pass"
+
+            # Step 6 -> Step 7 (Summary)
+            await wizard.go_next()
+            assert wizard.current_step == 7
+            # Password must be redacted with *** in summary
+            assert "worker_1:***@proxy.company.com:8888" in wizard.label_summary.text
+            assert "super_secret_proxy_pass" not in wizard.label_summary.text
+
+            # Execute clone
+            created_task = None
+            async def mock_create_clone(task):
+                nonlocal created_task
+                created_task = task
+                return MagicMock()
+
+            wizard.clone_service.create_clone = mock_create_clone
+            wizard.error_dialog = AsyncMock()
+            wizard.info_dialog = AsyncMock()
+
+            await wizard.go_next()
+
+            # Verify task had proxy auth credentials passed
+            assert created_task is not None
+            assert created_task.recipe.proxy.enabled is True
+            assert created_task.recipe.proxy.username == "worker_1"
+            assert created_task.recipe.proxy.password == "super_secret_proxy_pass"
+
+            # Now verify clone_service.create_clone behavior with the task
+            with patch("twinspace.core.engines.HardCloneEngine.execute"), \
+                 patch("twinspace.core.engines.SoftCloneEngine.execute"):
+                real_service = CloneService(state_file=state_file)
+                rec = await real_service.create_clone(created_task)
+                assert rec.proxy_summary == "http://worker_1@proxy.company.com:8888"
+                assert "super_secret_proxy_pass" not in state_file.read_text(encoding="utf-8")
+                assert get_clone_proxy_password("WeChatProxyClone") == "super_secret_proxy_pass"
+
+    asyncio.run(_test())
+
+
+def test_wizard_step6_validation_error(tmp_path: Path):
+    async def _test():
+        wizard = WizardWindow()
+        wizard.error_dialog = AsyncMock()
+        wizard.current_step = 6
+        wizard.switch_proxy.value = True
+        wizard.input_proxy_host.value = "127.0.0.1"
+        wizard.input_proxy_port.value = "99999"  # invalid port
+
+        await wizard.go_next()
+        assert wizard.current_step == 6
+        wizard.error_dialog.assert_awaited_once()
+
+        wizard.error_dialog.reset_mock()
+        wizard.input_proxy_port.value = "1080"
+        wizard.switch_proxy_auth.value = True
+        wizard.input_proxy_user.value = "invalid user with spaces"
+
+        await wizard.go_next()
+        assert wizard.current_step == 6
+        wizard.error_dialog.assert_awaited_once()
+
+    asyncio.run(_test())
+
+
+def test_wizard_icon_selection_reset_and_cancel(tmp_path):
+    async def _test():
+        import toga
+        wizard = WizardWindow()
+        original = toga.Image(Path(__file__).parents[2] / "resource/images/logo.png")
+        custom_path = Path(__file__).parents[2] / "resource/images/logo.icns"
+        wizard._original_icon = original
+        wizard._on_reset_icon(None)
+        assert wizard.icon_preview.image is original
+        assert wizard.icon_path is None
+        assert not wizard.btn_reset_icon.enabled
+
+        with patch.object(wizard, "open_file_dialog", AsyncMock(return_value=custom_path)):
+            await wizard._on_browse_icon(None)
+        assert wizard.icon_path == custom_path
+        assert wizard.icon_preview.image.path == custom_path
+        assert wizard.btn_reset_icon.enabled
+
+        wizard.current_step = 4
+        await wizard.go_prev()
+        assert wizard.icon_path == custom_path
+        with patch.object(wizard, "open_file_dialog", AsyncMock(return_value=None)):
+            await wizard._on_browse_icon(None)
+        assert wizard.icon_path == custom_path
+
+        corrupt = tmp_path / "corrupt.icns"
+        corrupt.write_bytes(b"not an icon")
+        for invalid in (tmp_path / "missing.icns", custom_path.with_suffix(".png"), corrupt):
+            wizard.error_dialog = AsyncMock()
+            with patch.object(wizard, "open_file_dialog", AsyncMock(return_value=invalid)):
+                await wizard._on_browse_icon(None)
+            wizard.error_dialog.assert_awaited_once()
+            assert wizard.icon_path == custom_path
+
+        wizard._on_reset_icon(None)
+        assert wizard.icon_path is None
+        assert wizard.icon_preview.image is original
+        assert not wizard.btn_reset_icon.enabled
+
+    asyncio.run(_test())
+
+
+def test_wizard_original_icon_and_source_change():
+    wizard = WizardWindow()
+    wizard.app_info = AppInfo(
+        path=Path("/System/Applications/Calculator.app"),
+        bundle_id="com.apple.calculator", app_name="Calculator",
+        executable=Path("/System/Applications/Calculator.app/Contents/MacOS/Calculator"),
+        has_sandbox=False,
+    )
+    wizard._load_original_icon()
+    assert wizard.icon_preview.image is not None
+    assert wizard.icon_preview.image.width > 0
+    original = wizard.icon_preview.image
+    wizard.icon_path = Path("/custom.icns")
+    wizard._load_original_icon()
+    assert wizard.icon_path == Path("/custom.icns")
+    assert wizard.icon_preview.image is original
+
+    wizard.app_info.path = Path("/System/Applications/TextEdit.app")
+    wizard._load_original_icon()
+    assert wizard.icon_path is None
+    assert wizard.icon_preview.image is not None
+    assert wizard.icon_preview.image is not original
+
+
+def test_wizard_load_original_icon_handles_none_app_info():
+    wizard = WizardWindow()
+    wizard.app_info = None
+    wizard._load_original_icon()  # Must not raise AttributeError
+    assert wizard._original_icon is None
+

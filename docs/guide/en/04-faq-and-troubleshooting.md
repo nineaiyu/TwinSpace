@@ -1,0 +1,212 @@
+# Chapter 4: FAQ & Diagnostic Troubleshooting
+
+This chapter answers frequently asked questions regarding data privacy, account safety, storage paths, and macOS permissions. It also provides a step-by-step guide for using the built-in **Doctor** diagnostic tool and copying diagnostic data from the Clone Details dialog to submit a GitHub Issue.
+
+---
+
+## 📑 Table of Contents
+
+- [Frequently Asked Questions (FAQ)](#frequently-asked-questions-faq)
+  - [1. Will creating a clone affect my original app's data?](#1-will-creating-a-clone-affect-my-original-apps-data)
+  - [2. Where is cloned data stored, and how do I back it up?](#2-where-is-cloned-data-stored-and-how-do-i-back-it-up)
+  - [3. Will my account get banned for multi-instancing?](#3-will-my-account-get-banned-for-multi-instancing)
+  - [4. Do I need Administrator (Root / Sudo) privileges?](#4-do-i-need-administrator-root--sudo-privileges)
+  - [5. What should I do if macOS says "App is damaged and can't be opened"?](#5-what-should-i-do-if-macos-says-app-is-damaged-and-cant-be-opened)
+  - [6. How do I change the clone's icon?](#6-how-do-i-change-the-clones-icon)
+  - [7. How do communication clones (e.g., WeChat, QQ) display Menu Bar icons and receive background messages?](#7-how-do-communication-clones-eg-wechat-qq-display-menu-bar-icons-and-receive-background-messages)
+- [System Diagnostics (Doctor Tab)](#system-diagnostics-doctor-tab)
+- [Reporting Issues to GitHub (Step-by-Step Guide)](#reporting-issues-to-github-step-by-step-guide)
+  - [Step 1: Open Clone Details](#step-1-open-clone-details)
+  - [Step 2: Copy Application Information from Clone Details](#step-2-copy-application-information-from-clone-details)
+  - [Step 3: Submit Issue on GitHub](#step-3-submit-issue-on-github)
+- [Community & Support](#community--support)
+
+---
+
+## ❓ Frequently Asked Questions (FAQ)
+
+### 1. Will creating a clone affect my original app's data?
+**No. Never.**
+
+TwinSpace enforces strict physical and container-level isolation:
+
+* The primary application continues reading and writing to its original standard paths (such as `~/Library/Application Support/` or `~/Library/Containers/<OriginalBundleID>`).
+* The clone operates exclusively inside its own isolated folder (e.g., `~/TwinSpace/Data/<CloneName>/`).
+* Both instances run concurrently without database locking, preference collisions, or cache pollution.
+
+---
+
+### 2. Where is cloned data stored, and how do I back it up?
+By default, all user data (databases, local chat archives, cache, cookies, and preferences) is stored in:
+`~/TwinSpace/Data/<CloneName>/`
+
+```text
+~/TwinSpace/
+├── config.yaml           # User configuration & preferences
+├── clones.yaml           # Registry of all created clones
+├── recipes/              # User custom recipe directory
+└── Data/
+    ├── WeChat2/          # WeChat clone data sandbox
+    │   ├── Home/         # Isolated $HOME directory
+    │   └── Tmp/          # Isolated $TMPDIR directory
+    └── Telegram-Work/    # Telegram clone data sandbox
+```
+
+#### How to Back Up or Migrate:
+* **To Back Up**: Copy or compress the `~/TwinSpace/Data/<CloneName>` folder to an external backup drive or cloud storage.
+* **To Migrate to a New Mac**: Copy your entire `~/TwinSpace/` directory to the new Mac, install TwinSpace, and clone your apps using the same names. Your accounts and chat histories will be immediately recognized!
+
+---
+
+### 3. Will my account get banned for multi-instancing?
+**TwinSpace operates strictly at the macOS operating system environment level.**
+
+* **No Reverse-Engineering / Code Injection**: TwinSpace does **not** use runtime code hooking (such as Frida, Cycript, or dynamic dylib injection) and does **not** tamper with in-memory application logic or network packets.
+* **Pure Environment Deception**: The application runs completely unmodified; it is simply presented with an isolated `$HOME` directory and custom bundle identifier.
+* **Anti-Fingerprint Proxy Isolation**: By configuring a dedicated HTTP or SOCKS5 proxy per clone, each instance can connect via a distinct IP address, preventing IP-level association across multiple accounts.
+
+> [!IMPORTANT]
+> While TwinSpace provides safe, clean OS-level sandbox isolation, you must still comply with the terms of service of individual platforms (e.g., avoiding abusive mass messaging or unauthorized bot automation).
+
+---
+
+### 4. Do I need Administrator (Root / Sudo) privileges?
+* **When installing to `~/TwinSpace/Apps` (Default & Recommended)**: **Zero administrator privileges or passwords required.** Everything runs in standard user space.
+* **When installing to system `/Applications`**: macOS will prompt you once via standard native system dialog for authorization to write to the global application folder.
+
+---
+
+### 5. What should I do if macOS says "App is damaged and can't be opened"?
+This is caused by macOS Gatekeeper flagging modified application bundles with the quarantine extended attribute (`com.apple.quarantine`).
+
+#### Solution:
+Open Terminal and run the quarantine removal command:
+```bash
+xattr -cr "/path/to/YourClonedApp.app"
+```
+Or simply select the clone inside TwinSpace and click **"Update"** to allow TwinSpace to automatically strip quarantine attributes and refresh the ad-hoc signature.
+
+---
+
+### 6. How do I change the clone's icon?
+1. Open Finder and locate your clone in `~/TwinSpace/Apps`.
+2. Select the app and press `Cmd + I` (Get Info).
+3. Drag any `.icns` or `.png` image file onto the small application icon at the top-left of the Info inspector window.
+
+---
+
+### 7. How do communication clones (e.g., WeChat, QQ) display Menu Bar icons and receive background messages?
+
+Instant messaging apps like WeChat and QQ support residing in the macOS top Menu Bar (Status Bar) and receiving incoming messages in the background.
+
+#### 1. Enabling the Menu Bar Status Icon:
+* After launching and logging into the cloned WeChat, press `Cmd + ,` or navigate to **WeChat -> Settings / Preferences**.
+* In the **General** settings tab, verify and enable **"Show WeChat in Menu Bar"** (在菜单栏显示微信图标).
+* The TwinSpace engine automatically seeds your primary app's initial preferences on first launch; if this option was enabled in your main app, the clone will inherit it immediately.
+
+#### 2. Background Message Reception & Notifications:
+* **Background Long-Polling Connection**: Because clones use ad-hoc re-signing, Apple's push notification service (APNs) cannot directly route to clones. Instead, WeChat maintains its own active TCP/WebSocket connection (`LongLink`) in the background to receive private and group messages in real time.
+* **Keep Running in the Background**: When finished chatting, simply click the red close button (`x`) on the main window. The clone will remain active in the Menu Bar and background; **do not press `Cmd + Q` to terminate it**.
+* **Alerts & Badges**: When a new message arrives, the Menu Bar icon displays an unread indicator/red dot, the Dock icon badge updates, and alert sounds play.
+* **Notification Permissions**: When prompted with "Allow notifications for WeChat", click "Allow". You can also verify notification permissions in macOS **System Settings -> Notifications**.
+
+> [!TIP]
+> **Under the Hood**: Communication apps like WeChat and Telegram rely on TwinSpace's **`dylib` native in-process injection mode** (keep `auto` or select `dylib` when cloning). This avoids `execv` process replacement, which alters process version (`PIDVersion`) and breaks macOS Notification Center (`usernoted`) and Menu Bar status item (`MenuBarAgent`) registration. If `launcher` mode is accidentally selected, notifications and menu bar status icons may be silently suppressed by macOS.
+
+---
+
+## 🩺 System Diagnostics (Doctor Tab)
+
+If you encounter unexpected behavior during cloning or signing, run our built-in system diagnostic check:
+
+```text
++-------------------------------------------------------------+
+|  🩺 System Doctor                                           |
+|                                                             |
+|  System Environment Checks:                                 |
+|  [✔] macOS Architecture: Apple Silicon (arm64)              |
+|  [✔] Xcode Command Line Tools: Installed (/Library/...)     |
+|  [✔] Code Signing Utility (codesign): Available             |
+|  [✔] Plist Processor (PlistBuddy): Available                |
+|  [✔] Application Directory Permissions: Writable            |
+|  [✔] Data Directory Permissions: Writable                   |
+|                                                             |
+|  [ Re-run Diagnostics 🔄 ]                                  |
++-------------------------------------------------------------+
+```
+
+1. Click **"Doctor"** (`🩺`) in the TwinSpace sidebar navigation.
+2. The Doctor probe automatically validates:
+   * **Xcode Command Line Tools (`xcode-select -p`)**: Ensures Apple developer tools are installed for code signing.
+   * **Codesign & PlistBuddy**: Verifies system binary utilities.
+   * **Storage Directory Access**: Checks read/write permissions for `~/TwinSpace/Apps` and `~/TwinSpace/Data`.
+3. If any item shows an error or warning, follow the on-screen resolution tips (e.g., running `xcode-select --install`).
+
+---
+
+## 🐛 Reporting Issues to GitHub (Step-by-Step Guide)
+
+If you find an application that fails to clone, or crashes upon opening after cloning, please report it to our GitHub repository:
+
+### Step 1: Open Clone Details
+1. Open the TwinSpace main window.
+2. In either **Card Grid View** or **Table View**, select the problematic clone.
+3. Click the **"Details"** (`ℹ️` / `详情`) button to open the Clone Details dialog.
+
+```text
++-------------------------------------------------------------+
+|  ℹ️ Clone Details - WeChat2                                 |
+|                                                             |
+|  Basic Information:                                         |
+|  • Source App:      /Applications/WeChat.app                |
+|  • Bundle ID:       com.tencent.xinWeChat                   |
+|  • New Bundle ID:   com.tencent.xinWeChat.twinspace.WeChat2  |
+|  • Strategy:        hard_clone                              |
+|  • Destination:     /Users/username/TwinSpace/Apps/WeChat2.app|
+|  • Data Directory:  /Users/username/TwinSpace/Data/WeChat2   |
+|  • Proxy:           http://127.0.0.1:7890                   |
+|                                                             |
+|  Injected Parameters & Environment:                         |
+|  • Launch Args:     --user-data-dir=...                     |
+|  • Env Vars:        HOME=..., TMPDIR=...                    |
+|  • Exec Command:    env HOME=... /path/to/WeChat.bin        |
+|                                                             |
+|  [ Close ]                                                  |
++-------------------------------------------------------------+
+```
+
+---
+
+### Step 2: Copy Application Information from Clone Details
+The Clone Details dialog displays all critical runtime parameters:
+
+* **Basic Information**: Exact source path, mutated bundle identifier, strategy, and directory destinations.
+* **Launch Arguments**: Injected command-line parameters.
+* **Environment Variables**: Injected `$HOME`, `$TMPDIR`, and proxy configurations.
+* **Execution Command**: The exact startup command.
+
+Simply select and copy the configuration and environment text from the dialog.
+
+---
+
+### Step 3: Submit Issue on GitHub
+1. Navigate to the official TwinSpace Issues page:
+   👉 **[https://github.com/nineaiyu/TwinSpace/issues](https://github.com/nineaiyu/TwinSpace/issues)**
+2. Click **"New Issue"**.
+3. Fill out the issue template with:
+   * **App Name & Version**: e.g., WeChat v3.8.7.
+   * **macOS Version & Chip**: e.g., macOS 14.5 Sonoma on M2 Max.
+   * **Cloning Strategy**: `hard_clone` or `soft_clone`.
+   * **Clone Details Information**: Paste the text copied from the Clone Details dialog directly into the issue description, along with any error messages from the TwinSpace **Logs** tab.
+
+Our core maintainers will review the issue and release an updated recipe or fix in the next version!
+
+---
+
+## 🤝 Community & Support
+
+* **GitHub Repository**: [https://github.com/nineaiyu/TwinSpace](https://github.com/nineaiyu/TwinSpace)
+* **Release Downloads**: [https://github.com/nineaiyu/TwinSpace/releases](https://github.com/nineaiyu/TwinSpace/releases)
+* **Issues & Feedback**: [https://github.com/nineaiyu/TwinSpace/issues](https://github.com/nineaiyu/TwinSpace/issues)
+
+Thank you for using TwinSpace! 🚀

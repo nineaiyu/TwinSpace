@@ -1,0 +1,146 @@
+"""Release Notes Viewer Window with dynamic language switching."""
+
+import subprocess
+from pathlib import Path
+from typing import Optional
+
+import toga
+from toga.style import Pack
+from toga.style.pack import CENTER, COLUMN, ROW
+
+from twinspace.core.i18n import get_language, normalize_lang_code, t
+from twinspace.core.resources import get_release_notes_path
+from twinspace.gui.theme import Theme
+
+LANGUAGE_DISPLAY_NAMES: list[tuple[str, str]] = [
+    ("zh", "简体中文 (Simplified Chinese)"),
+    ("en", "English"),
+]
+
+
+from twinspace.gui.patch_cocoa import configure_cocoa_window
+
+
+class ReleaseNotesWindow(toga.Window):
+    """Dedicated window for browsing multilingual TwinSpace Release Notes."""
+
+    def __init__(self, initial_lang: Optional[str] = None):
+        super().__init__(
+            title=t("release_notes_window_title"),
+            size=(780, 580),
+        )
+        configure_cocoa_window(self, floating=False)
+
+        self.current_lang = normalize_lang_code(initial_lang or get_language())
+        self.current_path: Optional[Path] = None
+        self.selection_lang: Optional[toga.Selection] = None
+        self.text_content: Optional[toga.MultilineTextInput] = None
+
+        # Build UI Components
+        self._build_ui()
+        self.load_release_notes(self.current_lang)
+
+    def _build_ui(self):
+        root_box = toga.Box(style=Pack(direction=COLUMN, flex=1, background_color=Theme.BG_WINDOW))
+
+        # Main Text Display Box (created before Selection to prevent callback race)
+        content_box = toga.Box(style=Pack(direction=COLUMN, flex=1, margin=(0, 20, 20, 20)))
+
+        self.text_content = toga.MultilineTextInput(
+            readonly=True,
+            style=Pack(
+                flex=1,
+                font_family="monospace",
+                font_size=12,
+                background_color="#141414",
+                color="#E8E8E8",
+            ),
+        )
+        content_box.add(self.text_content)
+
+        # Top Control Bar
+        top_bar = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin=(16, 20, 10, 20)))
+
+        label_lang = toga.Label(
+            t("release_notes_lang_label"),
+            style=Pack(font_weight="bold", font_size=13, margin_right=10, color=Theme.TEXT_PRIMARY),
+        )
+        top_bar.add(label_lang)
+
+        # Build dropdown selection items
+        display_items = [name for _, name in LANGUAGE_DISPLAY_NAMES]
+        lang_codes = [code for code, _ in LANGUAGE_DISPLAY_NAMES]
+        default_item = display_items[0]
+        if self.current_lang in lang_codes:
+            idx = lang_codes.index(self.current_lang)
+            default_item = display_items[idx]
+
+        self.selection_lang = toga.Selection(
+            items=display_items,
+            value=default_item,
+            on_change=self._on_lang_changed,
+            style=Pack(width=270, margin_right=12),
+        )
+        top_bar.add(self.selection_lang)
+
+        # Spacer
+        spacer = toga.Box(style=Pack(flex=1))
+        top_bar.add(spacer)
+
+        # Open in external editor button
+        self.btn_open_external = toga.Button(
+            t("release_notes_btn_open_external"),
+            on_press=self.on_open_in_external_editor,
+            style=Pack(margin_right=8, height=30, font_size=13),
+        )
+        top_bar.add(self.btn_open_external)
+
+        # Close button
+        self.btn_close = toga.Button(
+            t("release_notes_btn_close"),
+            on_press=lambda w: self.close(),
+            style=Pack(height=30, font_size=13),
+        )
+        top_bar.add(self.btn_close)
+
+        root_box.add(top_bar)
+        root_box.add(content_box)
+
+        self.content = root_box
+
+    def _on_lang_changed(self, widget: toga.Selection):
+        if not hasattr(self, "text_content") or self.text_content is None:
+            return
+        display_val = widget.value
+        for code, name in LANGUAGE_DISPLAY_NAMES:
+            if name == display_val:
+                self.switch_language(code)
+                break
+
+    def switch_language(self, lang_code: str):
+        """Switch active displayed language and reload notes."""
+        self.current_lang = normalize_lang_code(lang_code)
+        self.load_release_notes(self.current_lang)
+
+    def load_release_notes(self, lang_code: str):
+        """Load markdown content into text viewer."""
+        if not hasattr(self, "text_content") or self.text_content is None:
+            return
+        path = get_release_notes_path(lang_code)
+        self.current_path = path
+        if path and path.exists():
+            try:
+                content = path.read_text(encoding="utf-8")
+                self.text_content.value = content
+            except Exception as e:
+                self.text_content.value = f"Error loading release notes: {e}"
+        else:
+            self.text_content.value = t("release_notes_err_not_found", path=str(path or ""))
+
+    def on_open_in_external_editor(self, widget: toga.Button):
+        """Open current markdown release notes file in macOS default app."""
+        if self.current_path and self.current_path.exists():
+            try:
+                subprocess.Popen(["open", str(self.current_path)])
+            except Exception:
+                pass

@@ -1,0 +1,178 @@
+"""Clone inspector for resolving injected launch parameters and environment variables."""
+
+import plistlib
+import re
+import shlex
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from twinspace.core.locale import build_language_wrapper_snippet, resolve_language_config
+from twinspace.core.logger import get_logger
+from twinspace.core.state import CloneRecord
+from twinspace.recipes.loader import RecipeLoader
+
+logger = get_logger("core.clone_inspector")
+
+
+@dataclass
+class InjectedDetails:
+    launch_args: list[str] = field(default_factory=list)
+    env_vars: dict[str, str] = field(default_factory=dict)
+    exec_command: str = ""
+    source_type: str = "recipe_fallback"  # "wrapper_script" | "recipe_fallback"
+    injection_strategy: str = "auto"  # "dylib" | "launcher" | "auto"
+
+
+class CloneInspector:
+    """Extracts and resolves runtime injected launch arguments, environment variables, and exec commands."""
+
+    @classmethod
+    def inspect(cls, record: CloneRecord) -> InjectedDetails:
+        """Inspect a clone record, trying on-disk wrapper script first and falling back to recipe reconstruction."""
+        dest_path = Path(record.dest_path)
+        macos_dir = dest_path / "Contents" / "MacOS"
+
+        if macos_dir.exists() and macos_dir.is_dir():
+            candidates: list[Path] = []
+
+            # 1. Try resolving main executable name from Info.plist first
+            plist_path = dest_path / "Contents" / "Info.plist"
+            if plist_path.is_file():
+                try:
+                    with plist_path.open("rb") as f:
+                        plist_data = plistlib.load(f)
+                    exe_name = plist_data.get("CFBundleExecutable")
+                    if exe_name:
+                        candidate = macos_dir / exe_name
+                        if candidate.is_file():
+                            candidates.append(candidate)
+                except Exception as e:
+                    logger.debug(f"Failed to read Info.plist for '{dest_path}': {e}")
+
+            # 2. Add other candidate scripts in MacOS directory
+            for child in macos_dir.iterdir():
+                if (
+                    child not in candidates
+                    and child.is_file()
+                    and not child.name.startswith(".")
+                    and not child.name.endswith(".bin")
+                ):
+                    candidates.append(child)
+
+            for target_file in candidates:
+                if target_file.exists() and target_file.is_file():
+                    try:
+                        # Skip large files or Mach-O binaries to avoid high memory/CPU usage
+                        if target_file.stat().st_size > 2 * 1024 * 1024:
+                            continue
+                        with open(target_file, "rb") as bf:
+                            magic = bf.read(4)
+                        # Mach-O 32-bit / 64-bit / Universal binary magic headers
+                        if magic in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"):
+                            continue
+                        content = target_file.read_text(encoding="utf-8", errors="ignore")
+                        if content.startswith("#!/bin/bash") or "exec " in content:
+                            details = cls.parse_wrapper_script(content)
+                            if details.exec_command or details.env_vars or details.launch_args:
+                                details.injection_strategy = cls._detect_strategy(dest_path, macos_dir, record)
+                                return details
+                    except Exception as e:
+                        logger.debug(f"Failed to read wrapper script {target_file}: {e}")
+
+        details = cls.reconstruct_from_recipe(record)
+        details.injection_strategy = cls._detect_strategy(dest_path, macos_dir, record)
+        return details
+
+    @classmethod
+    def _detect_strategy(cls, dest_path: Path, macos_dir: Path, record: CloneRecord) -> str:
+        dylib_file = dest_path / "Contents" / "Frameworks" / "libtwinspace_env.dylib"
+        if dylib_file.exists():
+            return "dylib"
+        if macos_dir.exists() and macos_dir.is_dir():
+            if any(f.name.endswith(".bin") for f in macos_dir.iterdir()):
+                return "launcher"
+        if getattr(record, "strategy", "") == "soft_clone":
+            return "launcher"
+        rec_strat = getattr(record, "injection_strategy", "auto")
+        return rec_strat if rec_strat != "auto" else "launcher"
+
+    @classmethod
+    def parse_wrapper_script(cls, script_content: str) -> InjectedDetails:
+        """Parse bash wrapper script content to extract exports and exec command."""
+        env_vars: dict[str, str] = {}
+        launch_args: list[str] = []
+        exec_command = ""
+
+        for line in script_content.splitlines():
+            line_str = line.strip()
+            if line_str.startswith("export "):
+                export_match = re.match(r"^export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$", line_str)
+                if export_match:
+                    k, v = export_match.group(1), export_match.group(2).strip()
+                    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                        v = v[1:-1]
+                    # Dereference simple variable reference like $HTTP_PROXY
+                    if v.startswith("$") and v[1:] in env_vars:
+                        v = env_vars[v[1:]]
+                    env_vars[k] = v
+
+            elif line_str.startswith("exec "):
+                exec_command = line_str[5:].strip()
+                try:
+                    cleaned_cmd = re.sub(r'\s+"?\$@"?\s*$', "", exec_command).strip()
+                    tokens = shlex.split(cleaned_cmd)
+                    if tokens:
+                        launch_args = tokens[1:]
+                except Exception as e:
+                    logger.debug(f"Failed to split exec command tokens: {e}")
+
+        return InjectedDetails(
+            launch_args=launch_args,
+            env_vars=env_vars,
+            exec_command=exec_command,
+            source_type="wrapper_script",
+        )
+
+    @classmethod
+    def reconstruct_from_recipe(cls, record: CloneRecord) -> InjectedDetails:
+        """Fallback reconstruction using Recipe and CloneRecord properties."""
+        recipe = RecipeLoader.match(record.bundle_id, app_path=record.source_path)
+        env_vars: dict[str, str] = {}
+        launch_args: list[str] = []
+
+        # 1. Environment injection from recipe
+        for k, v in recipe.environment_injection.items():
+            env_vars[k] = v.replace("{{TWINSPACE_DATA_DIR}}", record.data_dir)
+
+        # 2. Language settings
+        app_type = recipe.app_type or "cocoa"
+        _, lang_args = build_language_wrapper_snippet(record.language, app_type=app_type)
+        cfg = resolve_language_config(record.language)
+        env_vars["LANG"] = cfg.posix_lang
+        env_vars["LC_ALL"] = cfg.posix_lang
+
+        # 3. Proxy
+        if record.proxy_enabled and record.proxy_summary:
+            from twinspace.validation import redact_url_credentials
+            clean_proxy = redact_url_credentials(record.proxy_summary)
+            env_vars["HTTP_PROXY"] = clean_proxy
+            env_vars["HTTPS_PROXY"] = clean_proxy
+            env_vars["http_proxy"] = clean_proxy
+            env_vars["https_proxy"] = clean_proxy
+
+        # 4. Launch args from recipe + lang args
+        for arg in recipe.launch_args:
+            launch_args.append(arg.replace("{{TWINSPACE_DATA_DIR}}", record.data_dir))
+        launch_args.extend(lang_args)
+
+        # 5. Exec command estimate
+        src_bin = f"{record.source_path}/Contents/MacOS/{record.source_app}"
+        args_str = f" {' '.join(shlex.quote(a) for a in launch_args)}" if launch_args else ""
+        exec_command = f'exec "{src_bin}"{args_str} "$@"'
+
+        return InjectedDetails(
+            launch_args=launch_args,
+            env_vars=env_vars,
+            exec_command=exec_command,
+            source_type="recipe_fallback",
+        )

@@ -1,0 +1,245 @@
+"""Unit tests for semantic version management and scripts/manage_version.py."""
+
+import re
+
+import pytest
+
+import scripts.manage_version as mv
+from twinspace import __version__
+
+
+def test_twinspace_version_semver_format():
+    """Verify package __version__ strictly follows x.y.z format."""
+    assert re.match(r"^\d+\.\d+\.\d+$", __version__)
+    assert __version__ == mv.get_current_version()
+
+
+def test_parse_version_valid():
+    v = mv.parse_version("0.1.0")
+    assert v.major == 0
+    assert v.minor == 1
+    assert v.patch == 0
+    assert str(v) == "0.1.0"
+
+    v2 = mv.parse_version("12.34.56")
+    assert v2.major == 12
+    assert v2.minor == 34
+    assert v2.patch == 56
+
+
+@pytest.mark.parametrize("invalid_str", ["", "1", "1.0", "1.0.0.0", "v1.0.0", "1.0.a", "1.0.-1"])
+def test_parse_version_invalid(invalid_str):
+    with pytest.raises(ValueError, match="Invalid version format"):
+        mv.parse_version(invalid_str)
+
+
+def test_bump_version():
+    v = mv.parse_version("0.1.0")
+    assert str(mv.bump_version(v, "patch")) == "0.1.1"
+    assert str(mv.bump_version(v, "minor")) == "0.2.0"
+    assert str(mv.bump_version(v, "major")) == "1.0.0"
+
+    v_complex = mv.parse_version("1.9.9")
+    assert str(mv.bump_version(v_complex, "patch")) == "1.9.10"
+    assert str(mv.bump_version(v_complex, "minor")) == "1.10.0"
+    assert str(mv.bump_version(v_complex, "major")) == "2.0.0"
+
+
+def test_bump_version_invalid_type():
+    v = mv.parse_version("0.1.0")
+    with pytest.raises(ValueError, match="Invalid bump type"):
+        mv.bump_version(v, "build")
+
+
+def test_version_target_read_and_update(tmp_path):
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "twinspace"\nversion = "0.1.0"\n', encoding="utf-8")
+
+    init_file = tmp_path / "src" / "twinspace" / "__init__.py"
+    init_file.parent.mkdir(parents=True)
+    init_file.write_text('__version__ = "0.1.0"\n', encoding="utf-8")
+
+    targets = mv.get_version_targets(root=tmp_path)
+    assert len(targets) == 2
+
+    assert targets[0].read_version() == "0.1.0"
+    assert targets[1].read_version() == "0.1.0"
+
+    # Test dry run
+    assert mv.apply_version("0.2.0", root=tmp_path, dry_run=True) == 0
+    assert targets[0].read_version() == "0.1.0"
+    assert targets[1].read_version() == "0.1.0"
+
+    # Test real update
+    assert mv.apply_version("0.2.0", root=tmp_path, dry_run=False) == 0
+    assert targets[0].read_version() == "0.2.0"
+    assert targets[1].read_version() == "0.2.0"
+
+
+def test_show_versions_synced(tmp_path, capsys):
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nversion = "0.1.0"\n', encoding="utf-8")
+    init_file = tmp_path / "src" / "twinspace" / "__init__.py"
+    init_file.parent.mkdir(parents=True)
+    init_file.write_text('__version__ = "0.1.0"\n', encoding="utf-8")
+
+    code = mv.show_versions(root=tmp_path)
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "synchronized at v0.1.0" in captured.out
+
+
+def test_show_versions_mismatch(tmp_path, capsys):
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nversion = "0.1.0"\n', encoding="utf-8")
+    init_file = tmp_path / "src" / "twinspace" / "__init__.py"
+    init_file.parent.mkdir(parents=True)
+    init_file.write_text('__version__ = "0.2.0"\n', encoding="utf-8")
+
+    code = mv.show_versions(root=tmp_path)
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "Version mismatch or missing definitions detected!" in captured.out
+
+
+def test_main_cli_show(capsys):
+    ret = mv.main(["--show"])
+    assert ret in (0, 1)
+    captured = capsys.readouterr()
+    assert "=== TwinSpace Version Status ===" in captured.out
+    assert "pyproject.toml" in captured.out
+    assert "ReleaseNote.md" in captured.out
+    assert "ReleaseNote_zh.md" in captured.out
+
+
+def test_release_note_targets_count_and_languages():
+    targets = mv.get_release_note_targets()
+    assert len(targets) == 2
+    filenames = [t.filename for t in targets]
+    assert "ReleaseNote.md" in filenames
+    assert "ReleaseNote_zh.md" in filenames
+
+    # All real docs/release/ files must exist and contain past versions
+    latest_ver = targets[0].read_latest_version()
+    assert latest_ver is not None
+    for t in targets:
+        assert t.exists(), f"File {t.filename} should exist"
+        assert t.read_latest_version() == latest_ver
+        assert t.has_version("0.3.0")
+        assert t.has_version("0.2.0")
+        assert t.has_version("0.1.0")
+        assert not t.has_version("9.9.9")
+
+
+def test_check_release_notes_current():
+    synced, missing = mv.check_release_notes("0.3.0")
+    assert synced is True
+    assert missing == []
+
+
+def test_check_release_notes_missing():
+    synced, missing = mv.check_release_notes("9.9.9")
+    assert synced is False
+    assert len(missing) == 2
+
+
+def test_release_note_target_tmp_path(tmp_path):
+    rel_dir = tmp_path / "docs" / "release"
+    rel_dir.mkdir(parents=True)
+    rn_en = rel_dir / "ReleaseNote.md"
+    rn_en.write_text("# Release Notes\n\n## [v1.0.0] - 2026-08-20\n\n- Feature\n", encoding="utf-8")
+
+    target = mv.ReleaseNoteTarget("ReleaseNote.md", "English", rn_en)
+    assert target.exists() is True
+    assert target.read_latest_version() == "1.0.0"
+    assert target.has_version("1.0.0") is True
+    assert target.has_version("2.0.0") is False
+
+    target_missing = mv.ReleaseNoteTarget("NonExist.md", "English", rel_dir / "NonExist.md")
+    assert target_missing.exists() is False
+    assert target_missing.read_latest_version() is None
+    assert target_missing.has_version("1.0.0") is False
+
+
+def test_main_cli_check_notes(capsys):
+    ret = mv.main(["--check-notes", "0.3.0"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "All 2 ReleaseNotes in docs/release/ contain entry for v0.3.0" in captured.out
+
+    ret_fail = mv.main(["--check-notes", "9.9.9"])
+    assert ret_fail == 1
+    captured_fail = capsys.readouterr()
+    assert "Missing v9.9.9 entry in 2 ReleaseNotes file(s)" in captured_fail.out
+
+
+def test_plist_version_target(tmp_path):
+    import plistlib
+
+    plist_file = tmp_path / "Info.plist"
+    data = {
+        "CFBundleShortVersionString": "1.0.0",
+        "CFBundleVersion": "1",
+    }
+    with open(plist_file, "wb") as f:
+        plistlib.dump(data, f)
+
+    target = mv.PlistVersionTarget(plist_file, "Test Info.plist")
+    assert target.read_version() == "1.0.0"
+
+    # Dry run should not modify
+    assert target.update_version("1.2.0", dry_run=True) is True
+    assert target.read_version() == "1.0.0"
+
+    # Real update
+    assert target.update_version("1.2.0", dry_run=False) is True
+    assert target.read_version() == "1.2.0"
+    with open(plist_file, "rb") as f:
+        updated = plistlib.load(f)
+    assert updated["CFBundleShortVersionString"] == "1.2.0"
+    assert updated["CFBundleVersion"] == "1.2.0"
+
+    # Non-existent file
+    missing_target = mv.PlistVersionTarget(tmp_path / "nonexistent.plist", "Missing")
+    assert missing_target.read_version() is None
+    assert missing_target.update_version("1.2.0") is False
+
+
+def test_build_artifact_targets_and_apply_version(tmp_path):
+    import plistlib
+
+    # Setup mock project with pyproject.toml, src/__init__.py, and build/ artifacts
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nversion = "1.0.0"\n[tool.briefcase]\nversion = "1.0.0"\n', encoding="utf-8")
+
+    init_file = tmp_path / "src" / "twinspace" / "__init__.py"
+    init_file.parent.mkdir(parents=True)
+    init_file.write_text('__version__ = "1.0.0"\n', encoding="utf-8")
+
+    app_dir = tmp_path / "build" / "twinspace" / "macos" / "app"
+    plist_file = app_dir / "TwinSpace.app" / "Contents" / "Info.plist"
+    plist_file.parent.mkdir(parents=True)
+    with open(plist_file, "wb") as f:
+        plistlib.dump({"CFBundleShortVersionString": "1.0.0", "CFBundleVersion": "1"}, f)
+
+    welcome_file = app_dir / "installer" / "resources" / "welcome.html"
+    welcome_file.parent.mkdir(parents=True)
+    welcome_file.write_text("<html><h1>TwinSpace 0.9.2</h1></html>", encoding="utf-8")
+
+    build_targets = mv.get_build_artifact_targets(root=tmp_path)
+    assert len(build_targets) == 2
+    assert build_targets[0].read_version() == "1.0.0"
+    assert build_targets[1].read_version() == "0.9.2"
+
+    # Apply version
+    assert mv.apply_version("1.3.0", root=tmp_path, dry_run=False) == 0
+
+    assert build_targets[0].read_version() == "1.3.0"
+    assert build_targets[1].read_version() == "1.3.0"
+    with open(plist_file, "rb") as f:
+        pl = plistlib.load(f)
+    assert pl["CFBundleShortVersionString"] == "1.3.0"
+    assert pl["CFBundleVersion"] == "1.3.0"
+    assert "TwinSpace 1.3.0" in welcome_file.read_text(encoding="utf-8")
+
+

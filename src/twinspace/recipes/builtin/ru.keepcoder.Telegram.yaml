@@ -1,0 +1,10 @@
+bundle_id: ru.keepcoder.Telegram
+app_name: Telegram
+strategy: hard_clone
+app_type: cocoa
+strip_sandbox: true
+environment_injection:
+  HOME: '{{TWINSPACE_DATA_DIR}}/Home'
+  TMPDIR: '{{TWINSPACE_DATA_DIR}}/Tmp'
+symlink_whitelist:
+- Library/Keychains

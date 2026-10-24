@@ -1,0 +1,393 @@
+"""Unit tests for twinspace.core.i18n module and language switching (English and Chinese)."""
+
+import os
+from unittest.mock import patch
+
+import pytest
+from click.testing import CliRunner
+
+from twinspace.cli.main import cli
+from twinspace.core.i18n import (
+    SUPPORTED_LANGUAGES,
+    detect_system_language,
+    is_chinese,
+    normalize_lang_code,
+    set_language,
+    t,
+)
+from twinspace.core.models import AppInfo
+from twinspace.recipes.models import Recipe
+
+
+@pytest.fixture
+def mock_app_info(tmp_path) -> AppInfo:
+    app_dir = tmp_path / "WeChat.app"
+    app_dir.mkdir(parents=True, exist_ok=True)
+    return AppInfo(
+        path=app_dir,
+        bundle_id="com.tencent.xinWeChat",
+        app_name="WeChat",
+        executable=app_dir / "Contents" / "MacOS" / "WeChat",
+        has_sandbox=True,
+    )
+
+
+@pytest.fixture
+def mock_hard_recipe() -> Recipe:
+    return Recipe(
+        bundle_id="com.tencent.xinWeChat",
+        app_name="WeChat",
+        strategy="hard_clone",
+        environment_injection={"HOME": "{{TWINSPACE_DATA_DIR}}/Home"},
+    )
+
+
+
+@pytest.fixture(autouse=True)
+def reset_i18n_lang():
+    """Ensure clean language state before and after each test."""
+    set_language(None)
+    yield
+    set_language(None)
+
+
+def test_normalize_lang_code():
+    assert normalize_lang_code("zh-Hans-CN") == "zh"
+    assert normalize_lang_code("zh_CN") == "zh"
+    assert normalize_lang_code("zh-Hant-TW") == "zh"
+    assert normalize_lang_code("zh_TW") == "zh"
+    assert normalize_lang_code("zh_HK") == "zh"
+    # Unsupported locales fall back to English.
+    assert normalize_lang_code("ja-JP") == "en"
+    assert normalize_lang_code("ja") == "en"
+    assert normalize_lang_code("ko-KR") == "en"
+    assert normalize_lang_code("ko") == "en"
+    assert normalize_lang_code("de-DE") == "en"
+    assert normalize_lang_code("de") == "en"
+    assert normalize_lang_code("fr-FR") == "en"
+    assert normalize_lang_code("fr") == "en"
+    assert normalize_lang_code("ru-RU") == "en"
+    assert normalize_lang_code("ru") == "en"
+    assert normalize_lang_code("es-ES") == "en"
+    assert normalize_lang_code("es") == "en"
+    assert normalize_lang_code("en-US") == "en"
+    assert normalize_lang_code("unknown_lang") == "en"
+
+
+def test_i18n_override_env():
+    for lang, expected in (
+        ("zh", "zh"),
+        ("zh_TW", "zh"),
+        ("ja", "en"),
+        ("ko", "en"),
+        ("de", "en"),
+        ("fr", "en"),
+        ("ru", "en"),
+        ("es", "en"),
+        ("en", "en"),
+    ):
+        with patch.dict(os.environ, {"TWINSPACE_LANG": lang}):
+            assert detect_system_language() == expected
+
+
+def test_i18n_macos_apple_languages():
+    cases = [
+        ('(\n    "zh-Hans-CN",\n    "en-US"\n)', "zh"),
+        ('(\n    "zh-Hant-TW",\n    "en-US"\n)', "zh"),
+        ('(\n    "ja-JP",\n    "en-US"\n)', "en"),
+        ('(\n    "ko-KR",\n    "en-US"\n)', "en"),
+        ('(\n    "de-DE",\n    "en-US"\n)', "en"),
+        ('(\n    "fr-FR",\n    "en-US"\n)', "en"),
+        ('(\n    "ru-RU",\n    "en-US"\n)', "en"),
+        ('(\n    "es-ES",\n    "en-US"\n)', "en"),
+        ('(\n    "en-US",\n    "zh-Hans-CN"\n)', "en"),
+    ]
+    for apple_langs, expected in cases:
+        with patch.dict(os.environ, {"TWINSPACE_LANG": "", "LANG": "", "LC_ALL": "", "LC_MESSAGES": ""}), \
+             patch("twinspace.core.i18n.get_configured_language", return_value="auto"), \
+             patch("subprocess.check_output") as mock_sub:
+            mock_sub.return_value = apple_langs
+            assert detect_system_language() == expected
+
+
+def test_i18n_macos_apple_locale():
+    cases = [
+        ("zh_CN", "zh"),
+        ("zh_TW", "zh"),
+        ("ja_JP", "en"),
+        ("ko_KR", "en"),
+        ("de_DE", "en"),
+        ("fr_FR", "en"),
+        ("ru_RU", "en"),
+        ("es_ES", "en"),
+        ("en_US", "en"),
+    ]
+    for locale, expected in cases:
+        with patch.dict(os.environ, {"TWINSPACE_LANG": "", "LANG": "", "LC_ALL": "", "LC_MESSAGES": ""}), \
+             patch("twinspace.core.i18n.get_configured_language", return_value="auto"), \
+             patch("subprocess.check_output", side_effect=[Exception("no AppleLanguages"), locale]):
+            assert detect_system_language() == expected
+
+
+def test_i18n_env_lang_fallback():
+    cases = [
+        ("zh_CN.UTF-8", "zh"),
+        ("zh_TW.UTF-8", "zh"),
+        ("ja_JP.UTF-8", "en"),
+        ("ko_KR.UTF-8", "en"),
+        ("de_DE.UTF-8", "en"),
+        ("fr_FR.UTF-8", "en"),
+        ("ru_RU.UTF-8", "en"),
+        ("es_ES.UTF-8", "en"),
+        ("en_US.UTF-8", "en"),
+    ]
+    for env_val, expected in cases:
+        with patch.dict(os.environ, {"LANG": env_val, "TWINSPACE_LANG": "", "LC_ALL": "", "LC_MESSAGES": ""}), \
+             patch("twinspace.core.i18n.get_configured_language", return_value="auto"), \
+             patch("subprocess.check_output", side_effect=Exception("no defaults")):
+            assert detect_system_language() == expected
+
+
+def test_i18n_translation_lookup_all_languages():
+    # Unsupported locales fall back to the English message.
+    expected_clone_names = {
+        "en": "Clone name",
+        "zh": "分身名称",
+        "zh_TW": "分身名称",
+        "ja": "Clone name",
+        "ko": "Clone name",
+        "de": "Clone name",
+        "fr": "Clone name",
+        "ru": "Clone name",
+        "es": "Clone name",
+    }
+    for lang, expected in expected_clone_names.items():
+        set_language(lang)
+        assert t("wizard_prompt_clone_name") == expected
+
+    set_language("zh")
+    assert is_chinese() is True
+    set_language("zh_TW")
+    assert is_chinese() is True
+    set_language("ja")
+    assert is_chinese() is False
+
+
+def test_wizard_all_languages(tmp_path, mock_app_info: AppInfo, mock_hard_recipe: Recipe):
+    test_cases = [
+        ("en", "TwinSpace Wizard", "Clone name"),
+        ("zh", "TwinSpace 小向导", "分身名称"),
+        # Unsupported locales fall back to English.
+        ("ja", "TwinSpace Wizard", "Clone name"),
+    ]
+
+    for lang, expected_title, expected_prompt in test_cases:
+        runner = CliRunner(env={"TWINSPACE_LANG": lang})
+        inputs = f"{mock_app_info.path}\n\n\n\n\n\n\n\n"
+
+        with patch("twinspace.cli.cmd_wizard.AppInspector.inspect", return_value=mock_app_info), \
+             patch("twinspace.cli.cmd_wizard.RecipeLoader.match", return_value=mock_hard_recipe), \
+             patch("twinspace.cli.cmd_wizard.AppInspector.next_available_name", return_value=("WeChat2", 2)), \
+             patch("twinspace.cli.cmd_wizard.HardCloneEngine.execute"), \
+             patch("twinspace.cli.cmd_wizard.StateManager.add"):
+
+            result = runner.invoke(cli, ["wizard"], input=inputs)
+            assert result.exit_code == 0
+            assert expected_title in result.output
+            assert expected_prompt in result.output
+
+
+def test_new_data_dir_i18n_keys():
+    for lang in ("en", "zh"):
+        set_language(lang)
+        msg = t("clone_err_data_dir_not_supported", app_name="Zed")
+        assert "Zed" in msg
+        assert t("wizard_prompt_data_dir") != ""
+        assert "/tmp/test" in t("wizard_confirm_data_dir", data_dir="/tmp/test")
+        assert "/tmp/test" in t("remove_prompt_delete_data", data_dir="/tmp/test")
+
+
+def test_gui_i18n_keys_present_in_all_languages():
+    from twinspace.core.i18n import MESSAGES, SUPPORTED_LANGUAGES_MAP
+    assert len(SUPPORTED_LANGUAGES_MAP) == 3  # auto + zh + en
+    required_prefixes = ("nav_", "topbar_", "btn_", "card_", "view_", "win_", "dialog_", "probe_", "doctor_", "logs_", "settings_")
+    gui_keys = [k for k in MESSAGES.keys() if any(k.startswith(p) for p in required_prefixes)]
+    assert len(gui_keys) >= 30, f"Expected at least 30 GUI keys, found {len(gui_keys)}"
+    for key in gui_keys:
+        for lang in SUPPORTED_LANGUAGES:
+            assert lang in MESSAGES[key], f"Key '{key}' missing translation for language '{lang}'"
+            assert len(MESSAGES[key][lang].strip()) > 0, f"Key '{key}' has empty translation for '{lang}'"
+
+
+def test_configured_language_persistence(tmp_path, monkeypatch):
+    from twinspace.core import config
+    from twinspace.core.i18n import (
+        detect_system_language,
+        get_configured_language,
+        save_configured_language,
+    )
+    
+    test_cfg_file = tmp_path / "config.yaml"
+    monkeypatch.setattr(config, "DEFAULT_CONFIG_FILE", test_cfg_file)
+    monkeypatch.setattr(config, "DEFAULT_TWINSPACE_DIR", tmp_path)
+    monkeypatch.delenv("TWINSPACE_LANG", raising=False)
+    
+    # Default is auto
+    assert get_configured_language() == "auto"
+    
+    # Save Chinese
+    save_configured_language("zh")
+    assert get_configured_language() == "zh"
+    assert detect_system_language() == "zh"
+    
+    # Reset back to auto
+    save_configured_language("auto")
+    assert get_configured_language() == "auto"
+
+
+def test_tray_i18n_keys():
+    from twinspace.core.i18n import set_language, t
+
+    keys = [
+        "settings_card_tray",
+        "settings_switch_minimize_to_tray",
+        "settings_hint_minimize_to_tray",
+        "tray_menu_show",
+        "tray_menu_quit",
+    ]
+    for lang in SUPPORTED_LANGUAGES:
+        set_language(lang)
+        for k in keys:
+            val = t(k)
+            assert val != k, f"Missing translation for key '{k}' in language '{lang}'"
+            assert len(val) > 0
+
+
+def test_no_duplicate_i18n_keys():
+    """Ensure MESSAGES dictionary definition in i18n.py has no duplicate dictionary keys."""
+    import ast
+    from pathlib import Path
+
+    i18n_path = Path(__file__).parent.parent / "src" / "twinspace" / "core" / "i18n.py"
+    tree = ast.parse(i18n_path.read_text(encoding="utf-8"))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", None) == "MESSAGES":
+            keys = [k.value for k in node.value.keys if isinstance(k, ast.Constant)]
+            seen = set()
+            dups = []
+            for k in keys:
+                if k in seen:
+                    dups.append(k)
+                seen.add(k)
+            assert not dups, f"Found duplicate keys in MESSAGES: {dups}"
+
+
+def test_settings_storage_labels_all_languages():
+    """Verify settings storage labels format properly with both path and dir arguments."""
+    from twinspace.core.i18n import set_language, t
+
+    test_path = "/Users/testuser/TwinSpace"
+    for lang in SUPPORTED_LANGUAGES:
+        set_language(lang)
+        root_txt = t("settings_label_root_dir", path=test_path)
+        apps_txt = t("settings_label_apps_dir", path=test_path + "/apps")
+        data_txt = t("settings_label_data_dir", path=test_path + "/data")
+
+        assert test_path in root_txt
+        assert "{path}" not in root_txt and "{dir}" not in root_txt
+        assert f"{test_path}/apps" in apps_txt
+        assert "{path}" not in apps_txt and "{dir}" not in apps_txt
+        assert f"{test_path}/data" in data_txt
+        assert "{path}" not in data_txt and "{dir}" not in data_txt
+
+
+def test_dialog_delete_data_confirm_msg_all_languages():
+    """Verify dialog_delete_data_confirm_msg uses actual newlines rather than literal '\\n'."""
+    from twinspace.core.i18n import set_language, t
+
+    test_path = "/Users/testuser/TwinSpace/Data/WeChat3"
+    for lang in SUPPORTED_LANGUAGES:
+        set_language(lang)
+        msg = t("dialog_delete_data_confirm_msg", path=test_path)
+        assert test_path in msg
+        assert "\\n" not in msg, f"Literal '\\n' found in dialog_delete_data_confirm_msg for lang '{lang}'"
+        assert "\n" in msg, f"Expected actual newline in dialog_delete_data_confirm_msg for lang '{lang}'"
+
+
+def test_doctor_install_i18n_keys():
+    """Verify all doctor repair and install dialog translation keys are present in all supported languages."""
+    from twinspace.core.i18n import set_language, t
+
+    keys = [
+        "doctor_btn_install_xcode",
+        "doctor_hint_xcode_select",
+        "doctor_dialog_install_title",
+        "doctor_dialog_install_msg",
+        "doctor_dialog_install_already_msg",
+        "doctor_dialog_install_error_msg",
+    ]
+    for lang in SUPPORTED_LANGUAGES:
+        set_language(lang)
+        for k in keys:
+            val = t(k, error="test_err")
+            assert val != k, f"Missing translation for key '{k}' in language '{lang}'"
+            assert len(val) > 0
+
+
+def test_batch_operation_i18n_keys():
+    """Verify all batch operation translation keys are present in all supported languages."""
+    from twinspace.core.i18n import set_language, t
+
+    keys = [
+        "btn_batch_update",
+        "btn_batch_delete",
+        "btn_updating_progress",
+        "btn_deleting_progress",
+        "dialog_batch_delete_confirm_title",
+        "dialog_batch_delete_confirm_msg",
+        "dialog_batch_delete_data_confirm_title",
+        "dialog_batch_delete_data_confirm_msg",
+        "dialog_batch_summary_title",
+        "dialog_batch_summary_msg",
+    ]
+    for lang in SUPPORTED_LANGUAGES:
+        set_language(lang)
+        for k in keys:
+            val = t(k, count=3, current=1, total=3, names="App1, App2", success=2, failed=1, errors="None")
+            assert val != k, f"Missing translation for key '{k}' in language '{lang}'"
+            assert len(val) > 0
+
+    # Specific format verification
+    set_language("zh")
+    assert "3" in t("btn_batch_update", count=3)
+    assert "3" in t("btn_batch_delete", count=3)
+    assert "1/3" in t("btn_updating_progress", current=1, total=3)
+    assert "2/3" in t("btn_deleting_progress", current=2, total=3)
+
+
+def test_recipe_delete_dialog_i18n_keys():
+    """Verify all recipe deletion confirmation dialog translation keys are present in all supported languages."""
+    from twinspace.core.i18n import set_language, t
+
+    keys = [
+        "dialog_recipe_delete_confirm_title",
+        "dialog_recipe_delete_confirm_msg",
+        "dialog_recipe_batch_delete_confirm_title",
+        "dialog_recipe_batch_delete_confirm_msg",
+        "dialog_recipe_batch_delete_confirm_mixed_title",
+        "dialog_recipe_batch_delete_confirm_mixed_msg",
+    ]
+    for lang in SUPPORTED_LANGUAGES:
+        set_language(lang)
+        for k in keys:
+            val = t(k, name="TestApp", count=3, custom_count=2, builtin_count=1, names="App1, App2")
+            assert val != k, f"Missing translation for key '{k}' in language '{lang}'"
+            assert len(val) > 0
+
+    set_language("zh")
+    assert "TestApp" in t("dialog_recipe_delete_confirm_msg", name="TestApp")
+    assert "3" in t("dialog_recipe_batch_delete_confirm_msg", count=3, names="App1, App2, App3")
+    assert "2" in t("dialog_recipe_batch_delete_confirm_mixed_msg", custom_count=2, builtin_count=1, names="App1, App2")
+
+

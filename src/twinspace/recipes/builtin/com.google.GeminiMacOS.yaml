@@ -1,0 +1,14 @@
+bundle_id: com.google.GeminiMacOS
+app_name: Gemini
+strategy: hard_clone
+app_type: cocoa
+strip_sandbox: true
+environment_injection:
+  HOME: '{{TWINSPACE_DATA_DIR}}/Home'
+  TMPDIR: '{{TWINSPACE_DATA_DIR}}/Tmp'
+  GEMINI_HOME: '{{TWINSPACE_DATA_DIR}}/Gemini'
+  GEMINI_CONFIG_DIR: '{{TWINSPACE_DATA_DIR}}/Gemini'
+  ANTIGRAVITY_HOME: '{{TWINSPACE_DATA_DIR}}/Gemini'
+symlink_whitelist:
+- Library/Keychains
+

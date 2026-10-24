@@ -1,0 +1,398 @@
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from twinspace.core.state import CloneRecord
+from twinspace.gui.services.clone_service import CloneService
+from twinspace.gui.views.clone_list import CloneListView
+from twinspace.gui.windows.clone_detail import CloneDetailWindow
+from twinspace.gui.windows.clone_edit import CloneEditWindow
+
+
+def test_clone_detail_window():
+    record = CloneRecord(
+        clone_name="WeChat2",
+        source_app="WeChat",
+        source_path="/Applications/WeChat.app",
+        bundle_id="com.tencent.xinWeChat",
+        strategy="hard_clone",
+        dest_path="/Users/test/Applications/WeChat2.app",
+        data_dir="/Users/test/TwinSpace/Data/WeChat2",
+        created_at="2026-08-19T20:00:00Z",
+        proxy_enabled=True,
+        proxy_summary="http://127.0.0.1:7890",
+        new_bundle_id="com.tencent.xinWeChat.clone1",
+    )
+    window = CloneDetailWindow(record=record)
+    assert window.label_clone_name.text == "WeChat2"
+    assert "com.tencent.xinWeChat" in window.label_bundle_id.text
+    assert "http://127.0.0.1:7890" in window.label_proxy.text
+
+
+def test_clone_edit_window_save():
+    record = CloneRecord(
+        clone_name="WeChat2",
+        source_app="WeChat",
+        source_path="/Applications/WeChat.app",
+        bundle_id="com.tencent.xinWeChat",
+        strategy="hard_clone",
+        dest_path="/Users/test/Applications/WeChat2.app",
+        data_dir="/Users/test/TwinSpace/Data/WeChat2",
+        created_at="2026-08-19T20:00:00Z",
+        proxy_enabled=False,
+        proxy_summary="",
+        new_bundle_id="com.tencent.xinWeChat.clone1",
+    )
+    on_save = AsyncMock()
+    window = CloneEditWindow(record=record, on_save=on_save)
+
+    window.switch_proxy.value = True
+    window.select_proxy_type.value = "socks5"
+    window.input_proxy_host.value = "127.0.0.1"
+    window.input_proxy_port.value = "1080"
+
+    updated = window.get_updated_record()
+    assert updated.proxy_enabled is True
+    assert "socks5://127.0.0.1:1080" in updated.proxy_summary
+
+
+def test_clone_edit_window_proxy_auth_keychain_lifecycle():
+    from twinspace.core.keychain import (
+        clear_mock_storage,
+        get_clone_proxy_password,
+        set_mock_mode,
+    )
+
+    set_mock_mode(True)
+    clear_mock_storage()
+
+    record = CloneRecord(
+        clone_name="AuthClone",
+        source_app="Slack",
+        source_path="/Applications/Slack.app",
+        bundle_id="com.tinyspeck.slackmacgap",
+        strategy="soft_clone",
+        dest_path="/Applications/AuthClone.app",
+        data_dir="/Data/AuthClone",
+        created_at="2026-08-18T00:00:00Z",
+        proxy_enabled=True,
+        proxy_summary="http://127.0.0.1:7890",
+    )
+    window = CloneEditWindow(record=record)
+    assert window.switch_proxy.value is True
+    assert window.switch_proxy_auth.value is False
+
+    # Enable auth and enter credentials
+    window.switch_proxy_auth.value = True
+    window.input_proxy_user.value = "admin_user"
+    window.input_proxy_pass.value = "secret_pass_999"
+
+    updated = window.get_updated_record()
+    assert updated.proxy_enabled is True
+    # proxy_summary should contain username but NOT password
+    assert updated.proxy_summary == "http://admin_user@127.0.0.1:7890"
+    # Password must be in Keychain
+    assert get_clone_proxy_password("AuthClone") == "secret_pass_999"
+
+    # Re-opening CloneEditWindow with updated record should prefill password from Keychain
+    window2 = CloneEditWindow(record=updated)
+    assert window2.switch_proxy.value is True
+    assert window2.switch_proxy_auth.value is True
+    assert window2.input_proxy_user.value == "admin_user"
+    assert window2.input_proxy_pass.value == "secret_pass_999"
+
+    # Disable proxy auth and save -> password should be deleted from Keychain
+    window2.switch_proxy_auth.value = False
+    updated2 = window2.get_updated_record()
+    assert updated2.proxy_summary == "http://127.0.0.1:7890"
+    assert get_clone_proxy_password("AuthClone") is None
+
+
+def test_clone_edit_window_validation_and_credential_changed():
+    async def _test():
+        from twinspace.core.keychain import clear_mock_storage, set_mock_mode
+        set_mock_mode(True)
+        clear_mock_storage()
+
+        record = CloneRecord(
+            clone_name="ValClone",
+            source_app="Slack",
+            source_path="/Applications/Slack.app",
+            bundle_id="com.tinyspeck.slackmacgap",
+            strategy="soft_clone",
+            dest_path="/Applications/ValClone.app",
+            data_dir="/Data/ValClone",
+            created_at="2026-08-18T00:00:00Z",
+            proxy_enabled=True,
+            proxy_summary="http://127.0.0.1:7890",
+        )
+        window = CloneEditWindow(record=record)
+        window.error_dialog = AsyncMock()
+        window.close = MagicMock()
+
+        # Case 1: Invalid port (non-integer or out of range)
+        window.input_proxy_port.value = "99999"
+        await window.on_save_press(None)
+        window.error_dialog.assert_awaited_once()
+        assert window.close.call_count == 0
+
+        # Case 2: Invalid credential character (e.g. space or quote)
+        window.error_dialog.reset_mock()
+        window.input_proxy_port.value = "8080"
+        window.switch_proxy_auth.value = True
+        window.input_proxy_user.value = "bad user name"
+        await window.on_save_press(None)
+        window.error_dialog.assert_awaited_once()
+        assert window.close.call_count == 0
+
+        # Case 3: Valid credentials and save callback
+        window.error_dialog.reset_mock()
+        window.input_proxy_user.value = "good_user"
+        window.input_proxy_pass.value = "secret123"
+        saved = []
+        async def mock_save(rec):
+            saved.append(rec)
+        window.on_save_callback = mock_save
+        await window.on_save_press(None)
+        window.error_dialog.assert_not_awaited()
+        window.close.assert_called_once()
+        assert len(saved) == 1
+        assert window.credential_changed is True
+
+    asyncio.run(_test())
+
+
+
+def test_clone_list_view_refresh(tmp_path):
+    async def _test():
+        state_file = tmp_path / "clones.yaml"
+        service = CloneService(state_file=state_file)
+        record = CloneRecord(
+            clone_name="TG2",
+            source_app="Telegram",
+            source_path="/Applications/Telegram.app",
+            bundle_id="ru.keepcoder.Telegram",
+            strategy="hard_clone",
+            dest_path=str(tmp_path / "TG2.app"),
+            data_dir=str(tmp_path / "data"),
+            created_at="2026-08-19T00:00:00Z",
+        )
+        service.state_manager.add(record)
+
+        view = CloneListView(clone_service=service)
+        await view.refresh_clones()
+        assert len(view._raw_clones) == 1
+        assert view.view_mode == "list"
+        assert len(view.table.data) == 1
+
+        # Toggle to grid mode
+        view.on_view_mode_changed("grid")
+        assert view.view_mode == "grid"
+
+        # Search filter
+        view.on_search_query_changed("NotMatching")
+        assert len(view._filtered_clones) == 0
+
+        view.on_search_query_changed("TG")
+        assert len(view._filtered_clones) == 1
+
+        # Clear search and test strategy filter
+        view.on_search_query_changed("")
+        view.on_filter_changed(CloneListView.FILTER_SOFT)
+        assert len(view._filtered_clones) == 0
+
+        view.on_filter_changed(CloneListView.FILTER_HARD)
+        assert len(view._filtered_clones) == 1
+
+        # Sort
+        view.on_sort_changed(CloneListView.SORT_NAME)
+        assert len(view._filtered_clones) == 1
+
+        # Table selection enables open_dir button
+        with patch.object(view, "get_selected_record", return_value=record):
+            view.on_table_select(view.table)
+            assert view.btn_launch_table.enabled is True
+            assert view.btn_open_dir_table.enabled is True
+
+        # Deselect disables open_dir button
+        with patch.object(view, "get_selected_record", return_value=None):
+            view.on_table_select(view.table)
+            assert view.btn_launch_table.enabled is False
+            assert view.btn_open_dir_table.enabled is False
+
+        # Test on_open_clone_dir when file exists
+        (tmp_path / "TG2.app").mkdir(exist_ok=True)
+        with patch("subprocess.Popen") as mock_popen:
+            await view.on_open_clone_dir(record)
+            mock_popen.assert_called_once_with(["open", "-R", str(tmp_path / "TG2.app")])
+
+        # Test on_update_clone with busy lock guard
+        with patch.object(service, "update_clone", new_callable=AsyncMock) as mock_up:
+            await view.on_update_clone(record)
+            mock_up.assert_awaited_once_with("TG2")
+
+        # When already busy, on_update_clone should no-op
+        view._busy_clones.add("TG2")
+        with patch.object(service, "update_clone", new_callable=AsyncMock) as mock_up:
+            await view.on_update_clone(record)
+            mock_up.assert_not_awaited()
+        view._busy_clones.clear()
+
+        # Test double-click (on_activate) on table row opens edit window
+        with patch.object(view, "on_edit_clone", new_callable=AsyncMock) as mock_edit:
+            await view.on_table_activate(view.table, row=view.table.data[0])
+            mock_edit.assert_awaited_once_with(record)
+
+    asyncio.run(_test())
+
+
+def test_clone_list_view_table_header_sort():
+    view = CloneListView()
+    view._raw_clones = [
+        CloneRecord(clone_name="Beta", source_app="App2", source_path="/Applications/App2.app", bundle_id="b.app", strategy="soft_clone", dest_path="/p2", data_dir="/d2", created_at="2026-08-20T10:00:00"),
+        CloneRecord(clone_name="Alpha", source_app="App1", source_path="/Applications/App1.app", bundle_id="a.app", strategy="hard_clone", dest_path="/p1", data_dir="/d1", created_at="2026-08-21T10:00:00"),
+    ]
+    view._apply_filter()
+
+    # Sort column 0 (Name) ASC
+    view.on_table_header_sort(0, view.table.columns[0], ascending=True)
+    assert [r.clone_name for r in view._filtered_clones] == ["Alpha", "Beta"]
+    assert view.top_bar.select_sort.value == view.sort_name
+
+    # Sort column 0 (Name) DESC
+    view.on_table_header_sort(0, view.table.columns[0], ascending=False)
+    assert [r.clone_name for r in view._filtered_clones] == ["Beta", "Alpha"]
+
+    # Sort column 1 (Source App) ASC
+    view.on_table_header_sort(1, view.table.columns[1], ascending=True)
+    assert [r.source_app for r in view._filtered_clones] == ["App1", "App2"]
+
+    # Sort column 2 (Strategy) ASC
+    view.on_table_header_sort(2, view.table.columns[2], ascending=True)
+    assert [r.strategy for r in view._filtered_clones] == ["hard_clone", "soft_clone"]
+
+    # Sort column 4 (Notes) ASC — both empty, order preserved
+    view.on_table_header_sort(4, view.table.columns[4], ascending=True)
+    assert len(view._filtered_clones) == 2  # no crash, stable
+
+    # Sort column 5 (Created At) DESC
+    view.on_table_header_sort(5, view.table.columns[5], ascending=False)
+    assert [r.clone_name for r in view._filtered_clones] == ["Alpha", "Beta"]
+    assert view.top_bar.select_sort.value == view.sort_newest
+
+    # Sort column 5 (Created At) ASC
+    view.on_table_header_sort(5, view.table.columns[5], ascending=True)
+    assert [r.clone_name for r in view._filtered_clones] == ["Beta", "Alpha"]
+    assert view.top_bar.select_sort.value == view.sort_oldest
+
+
+def test_clone_list_view_multi_selection():
+    view = CloneListView()
+    r1 = CloneRecord(clone_name="App1", source_app="A1", source_path="/p1", bundle_id="b1", strategy="hard_clone", dest_path="/d1", data_dir="/data1", created_at="2026-08-20T10:00:00")
+    r2 = CloneRecord(clone_name="App2", source_app="A2", source_path="/p2", bundle_id="b2", strategy="soft_clone", dest_path="/d2", data_dir="/data2", created_at="2026-08-20T11:00:00")
+    view._filtered_clones = [r1, r2]
+
+    # Case 1: 0 items selected
+    with patch.object(view, "get_selected_records", return_value=[]):
+        view.on_table_select(view.table)
+        assert view.btn_launch_table.enabled is False
+        assert view.btn_open_dir_table.enabled is False
+        assert view.btn_update_table.enabled is False
+        assert view.btn_edit_table.enabled is False
+        assert view.btn_detail_table.enabled is False
+        assert view.btn_delete_table.enabled is False
+
+    # Case 2: 1 item selected
+    with patch.object(view, "get_selected_records", return_value=[r1]):
+        view.on_table_select(view.table)
+        assert view.btn_launch_table.enabled is True
+        assert view.btn_open_dir_table.enabled is True
+        assert view.btn_update_table.enabled is True
+        assert view.btn_edit_table.enabled is True
+        assert view.btn_detail_table.enabled is True
+        assert view.btn_delete_table.enabled is True
+        assert "(" not in view.btn_update_table.text
+
+    # Case 3: 2 items selected (Multi-select)
+    with patch.object(view, "get_selected_records", return_value=[r1, r2]):
+        view.on_table_select(view.table)
+        assert view.btn_launch_table.enabled is False
+        assert view.btn_open_dir_table.enabled is False
+        assert view.btn_edit_table.enabled is False
+        assert view.btn_detail_table.enabled is False
+        assert view.btn_update_table.enabled is True
+        assert view.btn_delete_table.enabled is True
+        assert "2" in view.btn_update_table.text
+        assert "2" in view.btn_delete_table.text
+
+
+def test_clone_list_view_get_selected_records_parsing():
+    view = CloneListView()
+    r1 = CloneRecord(clone_name="App1", source_app="A1", source_path="/p1", bundle_id="b1", strategy="hard_clone", dest_path="/d1", data_dir="/data1", created_at="2026-08-20T10:00:00")
+    r2 = CloneRecord(clone_name="App2", source_app="A2", source_path="/p2", bundle_id="b2", strategy="soft_clone", dest_path="/d2", data_dir="/data2", created_at="2026-08-20T11:00:00")
+    view._filtered_clones = [r1, r2]
+
+    # None selection
+    assert view.get_selected_records(None) == []
+
+    # Single tuple
+    assert view.get_selected_records(("App1", "A1", "hard_clone")) == [r1]
+
+    # Multiple tuples / list
+    assert view.get_selected_records([("App1",), ("App2",)]) == [r1, r2]
+
+    # Single Row object mock
+    mock_row1 = MagicMock()
+    mock_row1.Name = "App1"
+    mock_row2 = MagicMock()
+    mock_row2.clone_name = "App2"
+    assert view.get_selected_records([mock_row1, mock_row2]) == [r1, r2]
+
+
+def test_clone_list_view_batch_update_flow(tmp_path):
+    async def _test():
+        state_file = tmp_path / "clones.yaml"
+        service = CloneService(state_file=state_file)
+        r1 = CloneRecord(clone_name="A1", source_app="App1", source_path="/p1", bundle_id="b1", strategy="hard_clone", dest_path="/d1", data_dir="/data1", created_at="2026-08-20T10:00:00")
+        r2 = CloneRecord(clone_name="A2", source_app="App2", source_path="/p2", bundle_id="b2", strategy="soft_clone", dest_path="/d2", data_dir="/data2", created_at="2026-08-20T11:00:00")
+        service.state_manager.add(r1)
+        service.state_manager.add(r2)
+
+        view = CloneListView(clone_service=service)
+        await view.refresh_clones()
+
+        with patch.object(service, "update_clone", new_callable=AsyncMock) as mock_up:
+            await view.on_update_clone([r1, r2])
+            assert mock_up.await_count == 2
+            mock_up.assert_any_await("A1")
+            mock_up.assert_any_await("A2")
+
+    asyncio.run(_test())
+
+
+def test_clone_list_view_batch_delete_flow(tmp_path):
+    async def _test():
+        state_file = tmp_path / "clones.yaml"
+        service = CloneService(state_file=state_file)
+        r1 = CloneRecord(clone_name="A1", source_app="App1", source_path="/p1", bundle_id="b1", strategy="hard_clone", dest_path="/d1", data_dir="/data1", created_at="2026-08-20T10:00:00")
+        r2 = CloneRecord(clone_name="A2", source_app="App2", source_path="/p2", bundle_id="b2", strategy="soft_clone", dest_path="/d2", data_dir="/data2", created_at="2026-08-20T11:00:00")
+        service.state_manager.add(r1)
+        service.state_manager.add(r2)
+
+        view = CloneListView(clone_service=service)
+        mock_app = MagicMock()
+        mock_win = MagicMock()
+        mock_win.confirm_dialog = AsyncMock(side_effect=[True, True])
+        mock_app.main_window = mock_win
+        view.app_instance = mock_app
+        await view.refresh_clones()
+
+        with patch.object(service, "remove_clone", new_callable=AsyncMock) as mock_rm:
+            await view.on_delete_clone([r1, r2])
+            assert mock_rm.await_count == 2
+            mock_rm.assert_any_await("A1", with_data=True)
+            mock_rm.assert_any_await("A2", with_data=True)
+
+    asyncio.run(_test())
+
+
+

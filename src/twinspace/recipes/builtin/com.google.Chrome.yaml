@@ -1,0 +1,10 @@
+bundle_id: com.google.Chrome
+app_name: Chrome
+# Soft clone keeps Google's signature for Keychain ACL compatibility; the
+# per-clone --user-data-dir is what isolates cookies, logins and extensions.
+strategy: soft_clone
+app_type: chromium
+launch_args:
+- --user-data-dir={{TWINSPACE_DATA_DIR}}
+- --no-first-run
+- --no-default-browser-check

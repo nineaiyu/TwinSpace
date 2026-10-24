@@ -1,0 +1,9 @@
+bundle_id: com.kakao.KakaoTalkMac
+app_name: KakaoTalk
+strategy: hard_clone
+app_type: cocoa
+strip_sandbox: true
+injection_strategy: auto
+environment_injection:
+  HOME: '{{TWINSPACE_DATA_DIR}}/Home'
+  TMPDIR: '{{TWINSPACE_DATA_DIR}}/Tmp'

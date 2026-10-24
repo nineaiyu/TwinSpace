@@ -1,0 +1,955 @@
+[English](ReleaseNote.md) | 简体中文
+
+# TwinSpace 更新日志 (Release Notes)
+
+## [v1.0.0] - 2026-10-24
+
+### 🎉 首个独立开源发布
+- 首个从独立 TwinSpace 仓库发布的版本，提供重构品牌后的 `twinspace` 包、CLI 与 macOS 图形界面。
+- 界面、CLI、在线文档与更新日志的语言支持精简为简体中文和英文。
+- 重建中英双语在线使用手册，并根据浏览器语言自动跳转。
+- 新增 GitHub Actions 自动化：CI 测试工作流，以及由 tag 触发、自动发布 arm64 图形界面 `.dmg` 与 CLI 压缩包的发布工作流。
+
+## [v3.0.0] - 2026-10-24
+
+### 🚀 TwinSpace 品牌重构与隔离环境
+- 项目由 ATBClone 更名为 TwinSpace，新增 `twinspace` CLI，默认数据目录调整为 `~/TwinSpace`。
+- 新增多 App 隔离环境：Chrome、ZCode、WorkBuddy、CodeBuddy、Qoder、Trae 共用独立的 Chrome Profile 与环境数据根。
+- 支持为每个 App 单独自定义分身名称，并校验空名称、非法字符和重名。
+- 修复深色模式下多行日志文本区域颜色反转的问题。
+
+- 新增 CLI 环境命令、可移植 YAML 模板、批量更新与数据备份/恢复，并提供旧数据迁移。
+## [v2.3.0] - 2026-09-23
+
+### 🔄 侧边栏更新检查状态单行防抖与视觉布局加固
+- **杜绝界面垂直跳动与撑高**：
+  - 全面重构侧边栏底部版本更新检查的状态反馈机制，彻底解决在无网络、DNS 失败或连接超时等异常情况下，多行错误堆栈撑大底部容器导致的侧边栏高度跳动与视觉错位。
+  - 采用原生 Cocoa `NSLineBreakByTruncatingTail` 单行尾部省略模式配合固定高度标签，严格锁定侧边栏几何尺寸。
+  - 新增智能错误解析器（`format_update_error`），将复杂的底层 requests 异常提炼为简短明了的本地化单行提示（包括网络超时、连接异常、HTTP 状态码等）。
+  - 引入 5 秒自动淡出定时器，错误提示展示后平滑复原，保持侧边栏常态清爽整洁。
+
+### 🌐 多语言更新错误提示全量适配
+- **9 种语言精准覆盖**：
+  - 在全语言字典中补齐 4 项更新错误专用翻译字段（`update_error_short`、`update_error_timeout`、`update_error_network`、`update_error_http`）。
+
+### 🧪 自动化测试套件扩充与质量保障
+- **测试覆盖更完备**：
+  - 新增针对侧边栏更新异常格式化、单行截断与异步清理的专项测试套件（`test_sidebar_update.py`、`test_i18n_update_keys.py`）。
+  - 全量自动化测试用例扩充至 **659 项**，保持 100% 全部通过。
+
+---
+
+## [v2.2.1] - 2026-09-23
+
+### 🛡️ Electron 与 Chromium 辅助进程保护与 Mojo IPC 稳定性加固
+- **解决硬链接分身子进程崩溃循环（Crash Loop）**：
+  - 修复硬链接克隆在重命名独立进程名时，误将内部辅助程序（Helper App）和嵌套子应用重命名，导致 QQ / QQNT、VS Code、Slack 等应用的 Chromium Mojo IPC 及 Mach 端口通信中断的严重问题。
+  - 严格收敛 Electron / Chromium 架构的重命名边界：仅重命名顶层主程序（`CFBundleExecutable`）及引导启动器（Entry Launcher）。
+  - 全面豁免 `Frameworks`、`Resources`、`PlugIns` 下的所有辅助进程包（`*Helper*.app`）、插件及嵌套子应用（如 `QQEXGuild.app`），保持其二进制文件与 `Info.plist` 原貌不变。
+
+### 🔍 多层级 Electron 与 Chromium 架构指纹精准嗅探
+- **探测引擎全面升级**：
+  - `AppProber` 新增对 `QQNT.framework`、多种 asar 归档（`app.asar`、`electron.asar`、`application.asar`）以及辅助包文件模式的自动特征识别。
+  - 在克隆引擎执行脚本中注入 `is_chromium` 标志与即时文件树结构探测，提供双重兜底保障。
+
+### 📐 架构规范沉淀与 ADR 决策记录
+- **系统核心设计原则确立**：
+  - 建立根目录 `CONTEXT.md` 及 `docs/adr/0001-process-aliasing-scope-and-helper-preservation.md`，明确记录进程别名边界与辅助程序保护的设计决策。
+
+### 🧪 质量保障与自动化测试扩充
+- **测试覆盖更完备**：
+  - 新增辅助进程保护机制与 QQNT/asar 指纹识别的专项单元测试（`test_process_names.py`、`test_app_prober.py`）。
+  - 自动化测试用例扩充至 **649 项**，保持 100% 全部通过。
+
+---
+
+## [v2.2.0] - 2026-09-22
+
+### 📝 分身备注备忘与多维模糊搜索
+- **分身信息个性化备注**：
+  - 在分身数据模型（`CloneRecord`）与分身编辑窗口（`CloneEditWindow`）中新增专属 `notes` 备注字段，方便记录账号名称、用途场景、所属地区或网络环境等信息。
+  - 在分身列表视图（`CloneListView`）表格中新增独立的「备注」列，支持点击表头进行正序/倒序排列。
+  - 顶部工具栏搜索框全面支持对分身备注进行模糊搜索匹配，海量分身瞬间定位。
+  - 卡片视图（`CloneCard`）在有备注时自动展示备注摘要，一目了然。
+  - 完整提供 9 种语言的备注标签与输入占位符本地化支持。
+
+### 📐 主窗口与侧边栏布局人体工学优化
+- **界面空间与呼吸感提升**：
+  - 将主窗口默认尺寸扩充至 `1300 x 760`（原 1200 x 680），为卡片网格与多列表格提供更加宽敞舒展的展示空间。
+  - 左侧导航侧边栏宽度由 200px 扩展至 240px，使导航项标签、分身数量角标以及底部版本更新状态显示更从容自然。
+
+### 🔬 动态注入库 Clang 真实编译自动化验证
+- **底层 Hook 安全性加固**：
+  - 在单元测试套件中新增针对底层动态链接库真实调用 `clang` 编译器的端对端测试：
+    - Cocoa / POSIX interpose 拦截库（`libatbclone_hook`）。
+    - 飞书（Lark）与 ChatGPT 专用多开隔离动态库。
+    - 环境变量注入动态库（`libatbclone_env`）。
+  - 杜绝因语法、编译宏或头文件变动导致的底层动态库构建及加载异常。
+
+### 🧪 自动化测试套件扩充与跨显示器测试解耦
+- **测试鲁棒性进一步加强**：
+  - 解耦 GUI 集成测试中依赖具体物理显示器分辨率的窗口尺寸断言，确保在 CI 无头运行及不同分辨率外接显示屏下测试均稳定可靠。
+  - 全量自动化测试用例扩充至 **648 项**，保持 100% 全部通过。
+
+---
+
+## [v2.1.1] - 2026-09-18
+
+### 🔧 C 语言引导启动器变量作用域修复与编译加固
+- **解决飞书 / ChatGPT 等分身启动器编译报错**：
+  - 修复生成 C 语言 Launcher 源码时，由于 `hook_block` 插入的代码块与启动器自身的 `dir` 局部变量处于同一作用域导致的变量重定义编译错误（在为飞书、ChatGPT 等注入自定义动态库的应用生成分身时触发）。
+  - 在生成器中将 `hook_block` 逻辑包裹在独立的复合语句块 `{ ... }` 中，彻底消除变量命名冲突。
+  - 在单元测试中新增针对飞书和 ChatGPT 启动器真实调用 `clang` 编译的端到端测试，防止编译回归。
+
+### 🛡️ 进程重命名健壮性加固与非标应用包容错
+- **异常捕获与平滑降级**：
+  - 加固独立二进制可执行文件重命名与 `Info.plist` 同步逻辑，全面防御非标准应用包结构、缺失 plist 文件或损坏二进制等异常场景。
+  - 遇到异常时平滑降级并输出明确的告警日志，绝不中断分身克隆主流程。
+  - 补充针对畸形应用包与降级逻辑的专项测试用例。
+
+### 🎨 分身创建向导图标预览空指针防护
+- **界面稳定性提升**：
+  - 在创建向导（`WizardWindow`）图标预览异步加载逻辑中增加防御性空指针校验，防止快速扫描应用元数据不全时触发 UI 异常。
+
+### 🧪 质量保障与自动化测试套件扩充
+- **全方位测试覆盖**：
+  - 自动化测试用例扩充至 **645 项**，保持 100% 全部通过。
+
+---
+
+## [v2.1.0] - 2026-09-17
+
+### 🚀 硬链接分身独立进程命名与 Clash / 代理规则分流支持
+- **基于进程名的网络代理精准分流**：
+  - 硬链接（Hard Clone）克隆引擎现自动为分身生成唯一的独立二进制可执行文件名并同步修改 `CFBundleExecutable`（例如 `<应用名>_<分身名>`）。
+  - 完美支持 Clash、Surge、Loon、Stash、Quantumult X 等网络代理工具配置基于进程名的策略分流（如 `PROCESS-NAME,<分身进程名>,<节点/代理策略>`），实现不同分身独立分配不同出口 IP 或直连/代理。
+  - 深度兼容 Electron 与 Chromium 架构辅助程序（Helper App），保留原始辅助包路径，杜绝进程名碰撞并确保 IPC 进程间通信稳定。
+  - 在分身编辑、版本更新或重新生成时，自动完整保留独立进程名与自定义图标。
+
+### 🎨 分身创建向导支持自定义应用图标
+- **个性化视觉定制体验**：
+  - 在创建向导（`WizardWindow`）中新增自定义图标选择功能，支持导入 `.icns` 与 `.png` 格式图标。
+  - 向导内提供实时图标效果预览，并支持一键清除恢复默认图标。
+  - 底层引擎自动完成图标替换与资源目录（`Contents/Resources/`）配置，并在后续更新中持久化保留。
+  - 完整适配全部 9 种语言的图标选择、清除与提示文案。
+
+### 🔄 侧边栏底部升级常驻更新入口与进度指示
+- **全局可视更新交互**：
+  - 将“检查更新”功能从二级“设置”视图迁移至侧边栏底部常驻位置，操作更直观顺手。
+  - 配备动态刷新图标、实时版本反馈以及行内百分比下载进度条，状态机流转一目了然。
+  - 精简“设置”页面布局，使其更聚焦于核心通用配置项。
+
+### 🧪 质量保障与自动化测试套件扩充
+- **全方位测试覆盖**：
+  - 新增独立进程名命名校验、Helper 路径兼容性、更新图标持久化与侧边栏更新交互测试（`test_process_names.py`、`test_update_icon.py`）。
+  - 自动化测试用例扩充至 **642 项**，保持 100% 通过率。
+
+---
+
+## [v2.0.0] - 2026-09-17
+
+### 🏥 环境健康诊断 (Doctor) 与目录读写权限深度校验
+- **关键存储目录权限动态探测**：
+  - 全面升级环境诊断子系统（命令行 `atbclone doctor` 与 GUI `DoctorView` 视图），新增针对应用程序目录（`~/ATBClone/Apps`）与数据存储目录（`~/ATBClone/Data`）的实时读写权限校验。
+  - 采用安全临时探针文件主动探测读写权限，在分身生成与实例启动前提前拦截权限不足风险，杜绝静默失败。
+  - 提供细粒度状态反馈、详细系统报错信息与直观的权限修复指引（如 `chmod u+rwx <path>`）。
+  - 在 `core.config` 中新增 `check_directory_access()`、`get_apps_dir()` 与 `get_data_dir()` 核心工具函数。
+  - 在 i18n 模块中全面补充 9 种语言的诊断提示、状态标签与修复建议文案。
+
+### 📐 官方文档门户 KaTeX 数学公式渲染与排版优化
+- **数学公式排版支持**：
+  - 在官方文档站点（`clone.aitobox.com`）全部 9 个语言版本中深度集成 KaTeX 渲染引擎，完美支持技术原理章节的数学公式排版。
+  - 规范并修复 LaTeX 行间公式间距与渲染样式，提升技术文档阅读体验。
+
+### ⚡ 架构里程碑与质量保证 (v2.0.0 Milestone)
+- **APFS 高性能核心与并发安全**：
+  - 巩固 v2.0 架构基石：APFS 写时复制（`cp -Rc`）秒级零开销克隆、硬件 SIMD 字符串加速探测、跨进程 `flock` 文件锁与原子持久化。
+  - 扩充单元测试与 GUI 自动化用例（`test_cmd_doctor.py`、`test_config.py`、`test_probe_and_doctor_ui.py`）。
+  - 自动化测试套件扩充至 **614 项**，保持 100% 通过率。
+
+---
+
+## [v1.9.0] - 2026-09-16
+
+### ⚡ APFS 写时复制 (CoW) 秒级分身与内核性能飞跃
+- **零额外存储与瞬间复制**：
+  - 在 macOS APFS 文件系统上全面启用写时复制（`cp -Rc`）克隆机制，GB 级大型应用分身实现秒级即时生成，且初期不额外占用磁盘空间。
+  - 具备完善的降级机制：在非 APFS 卷或跨卷操作时平滑回退至传统递归复制（`cp -R`），并在回退前自动清理残留目录，彻底杜绝目录嵌套损坏。
+  - 引入硬件 SIMD 预过滤加速二进制字符串探测，大幅提升应用启动参数与环境变量分析性能。
+  - 智能跳过 Mach-O 二进制文件，杜绝脚本检测误报；安全剪裁代码签名 entitlements，避免签名文件损坏。
+
+### 🔒 跨进程并发锁与原子持久化安全加固
+- **彻底杜绝竞态与状态损坏**：
+  - 引入基于 `flock` 的跨进程文件锁，确保多实例并行分身与 CLI 命令并发执行时状态读写严格一致。
+  - 状态文件与配置文件全面采用原子写入机制（临时文件写入 + `fsync` 刷盘 + `os.replace` 替换），并严格收紧权限至 `0o600`，杜绝写入中断导致的数据损坏与未授权访问。
+  - Cocoa interpose 动态库 hook 中采用线程局部（thread-local）`fake_pw`，全面保障多线程运行安全。
+
+### 🖥️ GUI 规范深度打磨与生命周期内存优化
+- **界面体验与 macOS HIG 对齐**：
+  - 修复 `LogsView` 日志视图内存占用无限增长问题，实施环形缓冲限制与主线程安全调度。
+  - 完善应用退出生命周期，在 `_on_app_exit` 中自动注销实时日志监听器，释放后台资源。
+  - 规范窗口层级结构：将向导（Wizard）、分身编辑、规则编辑及详情窗口恢复至 macOS 标准窗口层级（`0`），彻底解决次级弹窗在切屏时常驻置顶浮于其他应用之上的违和感。
+  - 优化深色模式（Dark Mode）对比度，持久化记录自定义分身根目录（`base_dir`），并确保 Keychain 代理凭据在分身删除时自动彻底清理。
+  - 统一中文产品官方名称为 **ATB分身助手**。
+
+### 📚 官方 9 国语言文档站与质量保证
+- **全新文档门户（`clone.aitobox.com`）**：
+  - 基于 Zensical 主题构建全新静态文档网站，并通过 GitHub Pages 自动化流水线实现无缝同步发布。
+  - 全面扩展覆盖 9 种语言的完整文档矩阵，统一跨语言导航并补充界面实操演示截图。
+  - 新增 22 项回归与专项测试，自动化测试套件扩充至 **610 项**，保持 100% 通过率。
+
+---
+
+## [v1.8.0] - 2026-09-13
+
+### 📢 导航侧边栏新增 ATBCmder 推广卡片与 [AD] 标识
+- **生态工具联动与界面升级**：
+  - 在导航侧边栏中间自适应空白区域新增 ATBCmder（`https://aitobox.com/atbcmder`）推广卡片。
+  - 遵循 macOS 原生设计规范，配备半透明圆角卡片背景、醒目的 `[AD]` 广告标签、高分辨率应用图标、多语言副标题与外链跳转按钮。
+  - 完整接入 9 国语言国际化系统，支持设置中切换语言时卡片标题、描述及操作按钮文案即时刷新。
+  - 新增 ATBCmder 图标资源及资源定位函数，具备完善的兜底容错机制。
+
+### 🛡️ CI/CD 发布说明归档保护与打包流程加固
+- **自动化发布稳定性提升**：
+  - 修复 `build_cli.sh` 清理 `dist/` 目录时意外误删已提取的 `dist/release_notes.md` 导致 GitHub Releases 缺少说明的问题。
+  - 在 `scripts/build_release_packages.sh` 中增加发布说明自动备份与安全恢复机制。
+  - 在 `.github/workflows/release.yml` 中增加 Git Tag 注释及提交历史兜底生成机制，彻底杜绝发布说明丢失。
+
+### 🧪 质量保障与自动化测试
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 588 项并保持 100% 通过率，全面覆盖侧边栏卡片布局、外链点击跳转、多语言动态刷新及发布打包脚本。
+
+---
+
+## [v1.7.0] - 2026-09-13
+
+### 🔄 应用内自动检查更新与静默安装子系统
+- **端到端自动化升级链路**：
+  - 新增 `UpdateService` 服务，自动拉取 GitHub 发布清单 `latest.json` 并通过语义化版本对比智能检测新版本。
+  - 支持架构自适应下载匹配（Apple Silicon arm64 与 Intel x86_64 DMG），支持流式分块下载与实时百分比进度回调。
+  - 自动校验下载 DMG 文件的 SHA256 校验和，与发布清单严格比对，杜绝损坏或篡改包的安装风险。
+  - 完整继承全局网络代理配置（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`），保障受限网络环境下的稳定更新。
+  - 原生静默就地覆盖安装：基于隔离临时挂载点挂载 DMG，替换目标 `ATBClone.app`，自动清理 macOS Gatekeeper 隔离属性（`xattr -cr`），并安全卸载挂载卷。
+
+### ⚙️ GUI 设置界面更新交互流
+- **可视化更新状态推进**：
+  - 在 `SettingsView` 设置界面新增“检查更新”按钮及实时状态反馈指示。
+  - 提供多阶段可视化状态切换：检查中 → 发现新版本（展示版本号及更新日志）/ 已是最新 → 下载中（实时进度百分比）→ 安装中 → 安装完成 / 重启提示。
+  - 完善的网络超时、HTTP 异常及校验和不符等友好错误提示。
+
+### 🌐 9 国语言国际化完整适配
+- **更新提示多语言支持**：
+  - 在全部 9 种支持语言中完整补齐更新按钮、状态标签、进度提示与对话框文案。
+
+### 📦 CI/CD 发布清单自动化生成 (`latest.json`)
+- **自动化发布元数据**：
+  - 升级 `scripts/build_release_packages.sh`，自动提取发布日志、计算 DMG SHA256 校验和并生成 `dist/latest.json`。
+  - 优化 `.github/workflows/release.yml` 自动同步上传 `latest.json`，并增强归档与重试机制。
+
+### 🧪 质量保障与自动化测试
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 585 项，全面覆盖 UpdateService 业务逻辑、UI 状态流、校验和匹配及 i18n 完整性，保持 100% 通过率。
+
+---
+
+## [v1.6.0] - 2026-09-13
+
+### 🪟 托盘退出死锁消除与应用退出生命周期加固
+- **解决最小化托盘退出卡死问题**：
+  - 彻底修复应用最小化至托盘时，通过托盘菜单或 Dock 栏右键菜单点击“退出”导致程序死锁、无法正常退出的缺陷。
+  - 在 `ATBCloneApp` 中引入 `_is_exiting` 退出保护标志位，确保 `_on_window_close` 窗口关闭拦截在退出流程中立即放行，绝不阻断进程终止。
+  - 移除 `exit_application()` 中在退出前过早调用 `set_macos_dock_visible(True)` 的逻辑，杜绝恢复 Dock 栏激活策略触发 Cocoa 事件循环重入与窗口关闭拦截循环。
+  - 加固 Dock 栏退出（`_on_app_exit`）与托盘退出（`exit_application`）双链路，确保托盘服务干净卸载并实现秒级平稳退出。
+
+---
+
+## [v1.5.1] - 2026-09-13
+
+### 💬 内置 KakaoTalk 分身规则
+- **开箱即用的原生多开支持**：
+  - 新增 KakaoTalk（`com.kakao.KakaoTalkMac`）内置配方，采用 Cocoa 硬克隆策略，支持沙盒剥离与独立数据目录（`HOME`/`TMPDIR`）隔离。
+  - 内置应用规则库扩展至 34+ 款常用软件。
+  - 补充说明验证范围（已验证双开同时运行及系统通知功能）。
+
+### 🚀 GitHub Actions arm64 自动发布与打包工作流
+- **持续部署与发布工程化**：
+  - 新增 `.github/workflows/release.yml`，在推送版本 Tag（`v*`）时自动触发发布流程。
+  - 自动编译并打包 CLI 独立二进制压缩包（`ATBCloneCli-arm64.tar.gz`）与 GUI 安装镜像（`ATBClone-*.dmg`），并附带 SHA256 校验和。
+  - 新增 `scripts/build_release_packages.sh` 统一发布打包脚本。
+  - 修复 `scripts/build_cli.sh` 与 `scripts/build_release_packages.sh` 中 bash `set -u` 空数组展开报错问题。
+
+### 🛡️ GUI 构建脚手架与弱网韧性增强
+- **不完整构建自动恢复**：
+  - 增强 `scripts/build_gui.sh` 脚手架完整性检查，全面校验 `Python.framework`、可执行文件 `ATBClone` 与 `Stub`。
+  - 在因网络不畅导致资源下载残缺时，自动清理并重建损坏脚手架，保障构建成功率。
+
+### 🔒 开源安全策略规范 (SECURITY.md)
+- **负责任的漏洞披露**：
+  - 添加 `.github/SECURITY.md`，明确支持版本范围、私密漏洞提报通道、评估响应时限与受影响组件定义。
+
+### 🧪 质量保障与自动化测试
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 561 项，覆盖 KakaoTalk 配方、构建脚本鲁棒性与打包逻辑，保持 100% 通过率。
+
+---
+
+## [v1.5.0] - 2026-09-10
+
+### 🔐 代理认证与 Keychain 安全存储
+- **代理凭据支持与钥匙串安全存储**：
+  - `ProxyConfig` 数据模型新增 `username` 和 `password` 字段，全面支持带身份验证的 SOCKS5 与 HTTP 代理。
+  - 新增 `atbclone.core.keychain` 模块，代理密码默认优先存入 macOS 系统钥匙串（Keychain Services / `security` 工具），杜绝配置文件中明文泄露密码风险。
+  - CLI `clone`、`update` 及 `wizard` 命令新增 `--proxy-username` 与 `--proxy-password` 参数，并支持交互式终端安全密码输入。
+  - GUI 克隆向导（`WizardWindow`）、分身编辑窗口（`CloneEditWindow`）与全局设置（`SettingsView`）全面集成代理凭据输入与 Keychain 存储控制。
+  - 在 `clone_inspector`、CLI `list` 以及 GUI 卡片/详情/列表视图中统一接入凭据脱敏（`redact_url_credentials`），防止密码在终端输出或日志中泄露。
+
+### 🛠️ Xcode / CLT 编译器工具链自动适配
+- **动态探测与 SDK 架构匹配**：
+  - `CloneEngine` 引入 `_resolve_clang_command` 编译器动态嗅探机制。
+  - 自动通过 `xcrun --sdk macosx clang` 配对当前系统的 macOS SDK sysroot，彻底解决测试版 Xcode / Command Line Tools 架构目标（如 `arm64e.x1-macos`）与 SDK 不匹配导致的编译链接失败问题。
+
+### 💼 内置企业微信 (WeCom) 分身规则
+- **开箱即用的多开支持**：
+  - 新增企业微信（`com.tencent.WeWorkMac`）内置配方，支持独立数据目录隔离与环境变量注入。
+
+### 🛡️ 安全加固与防注入/防篡改守卫
+- **集中输入校验与防篡改防护**：
+  - 引入 `atbclone.validation` 校验模块，对 Bundle ID 实施严格正则白名单（`^[A-Za-z0-9][A-Za-z0-9._-]*$`），严密校验环境变量键名、代理参数与分身名称防路径穿越。
+  - `Recipe` 与 `ProxyConfig` 模型开启 `validate_assignment = True`，堵住直接赋值绕过校验的漏洞。
+  - `CloneTask.__post_init__` 作为 CLI、GUI 与 update 流程统一的中央安全校验关卡。
+  - 新增防篡改删除守卫（`validate_deletion_target`），禁止误删或被恶意篡改的系统目录（`/System`、`/usr`、`/Library`）、`$HOME` 根目录、过浅层级路径及非 `.app` 目标。
+  - `clones.yaml` 状态文件写入后强制设为 `0600` 权限。
+  - 克隆引擎 Shell 脚本与 C Launcher 源码全面采用 `shlex.quote` 及元字符（`$`、反引号、双引号）深度转义。
+
+### 🧪 CI 自动化与质量保障
+- **持续集成与测试套件扩充**：
+  - 添加 GitHub Actions 自动化 CI 工作流（`.github/workflows/test.yml`），限定 macOS 运行环境与 Python 3.12。
+  - 添加标准 PR 模板与 CI 状态徽章。
+  - 自动化测试用例扩充至 554 项，覆盖 Keychain 存储、安全校验拦截、编译器探测与 GUI 交互，保持 100% 通过率。
+
+---
+
+## [v1.4.0] - 2026-09-05
+
+### 🪶 飞书 / Lark 多实例互斥与数据目录深度隔离 (Fix #7)
+- **独占私有数据目录与进程单例锁拦截**：
+  - 为飞书/Lark（`com.electron.lark`）引入专用的 Cocoa 与 POSIX 路径拦截动态库（`libatbclone_feishu_hook.dylib`）。
+  - 拦截 `NSSearchPathForDirectoriesInDomains` 与底层文件路径解析，使主进程及内嵌 Chromium 引擎均在分身私有目录下创建 `LarkShell`、`SingletonLock` 及 `SingletonSocket`。
+  - 自动剥离分身 `Info.plist` 中的 `CFBundleURLTypes`，彻底杜绝系统外部协议（URL Scheme）冲突。
+  - 拦截机制严格收敛于飞书/Lark 配方，对其他应用完全透明且无侵入。
+
+### 🤖 OpenAI ChatGPT 桌面版与 Codex 账号数据隔离
+- **独立登录状态与深度链接净化**：
+  - 引入 `patch_chatgpt_isolation` 补丁机制并注入 `libatbclone_chatgpt_hook.dylib`，拦截 ChatGPT 桌面版（`com.openai.chat`）的 Application Support 与 Cache 目录。
+  - 修复 `CODEX_HOME` 初始化时误拷贝宿主 `~/.codex/auth.json` 导致共享登录态的问题，确保各分身拥有完全独立的账号会话凭证。
+  - 自动剥离 ChatGPT 分身的 `CFBundleURLTypes`，防止外部深度链接唤醒主应用。
+
+### 🧪 质量保障与自动化测试
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 485 项，覆盖飞书路径拦截、ChatGPT 账号隔离与配方验证。
+
+---
+
+## [v1.3.0] - 2026-09-05
+
+### 🔬 Mach-O 头部安全空间探测 (Headroom Probing)
+- **静态二进制头部空间校验**：
+  - 引入 `_check_macho_injection_headroom` 静态探测算法，在修改二进制前精确检测 Mach-O 加载命令区（`sizeofcmds`）与第一个 Section 之间的剩余填充间隙。
+  - 彻底规避头部紧凑型二进制因强制插入 `LC_LOAD_DYLIB` 导致的二进制损坏与崩溃风险。
+
+### 🎛️ 可配置的环境注入策略 (`auto` / `dylib` / `launcher`)
+- **全链路策略控制与优雅回退**：
+  - 在 Recipe 规范、CloneTask、CloneRecord、CLI（`--injection-strategy`）及 GUI（克隆向导、配方编辑器）中全面支持 `injection_strategy` 选项。
+  - **自动模式 (`auto`)**：智能探测 Mach-O 头部空隙，空间充裕时优先注入原生动态库；空间不足时自动且优雅地降级为原生 C Launcher 启动器并给出友好提示。
+  - **动态库模式 (`dylib`)**：强制实施 dylib 注入，空间不足或二进制不兼容时抛出明确且带有诊断信息的 `CloneError`。
+  - **启动器模式 (`launcher`)**：强制采用原生 Mach-O C Launcher 封装，完全不改动原始二进制。
+  - 在分身详情面板（`CloneDetailWindow`）及 CLI `inspect` 中实时展示实际执行生效的注入模式。
+
+### 📚 完整文档体系与使用手册升级
+- **深度原理解析与指引更新**：
+  - 全面更新 `docs/guide/` 中英文用户手册及项目主 README，详细阐述注入策略选型、动态库拦截架构以及安全空间探测原理。
+
+### 🧪 质量保障与自动化测试
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 479 项，覆盖头部探测、降级回退、CLI 参数校验与检视器检测。
+
+---
+
+## [v1.2.1] - 2026-09-05
+
+### 🧩 基于 @executable_path 的动态库解耦注入 (Fix #6)
+- **强化动态库拦截稳定性**：
+  - 将 `HardCloneEngine` 中的注入动态库引用路径由 `@rpath` 全面升级为基于可执行文件相对路径的 `@executable_path/../Frameworks/libatbclone_env.dylib`。
+  - 彻底摆脱对目标应用自身 Mach-O `LC_RPATH` 寻址列表的依赖，彻底杜绝在自定义、精简或非标 rpath 应用（如微信 WeChat 4.x 等特殊架构 Cocoa 应用）上的 dyld 加载崩溃与符号解析失败问题。
+  - 针对特殊多级架构目录（如 `Contents/Frameworks/ld/`）增加软链接兜底回退支持。
+
+### ⚙️ 构建中间产物与 Info.plist 版本全量自动同步
+- **消除版本漂移死角**：
+  - 升级 `scripts/manage_version.py`，新增基于标准库 `plistlib` 的 `PlistVersionTarget`，在版本巡检与升级时全自动检测并同步更新 `build/` 目录下的 `Info.plist`（包含 `CFBundleShortVersionString` 与 `CFBundleVersion`）以及安装器 `welcome.html`。
+  - 在 `scripts/manage_version.py --show` 中引入构建中间产物版本展示与 `[OUT OF SYNC]` 失步预警。
+  - 加固 `scripts/build_gui.sh`，确保在独立运行 GUI 打包时应用包主副版本号及安装器资源始终与 `pyproject.toml` 保持一致。
+
+### 🧪 质量保障与自动化测试
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 468 项，完整覆盖 @executable_path 注入校验、plistlib 读写及中间产物同步逻辑。
+
+---
+
+## [v1.2.0] - 2026-09-02
+
+### 🔔 原生动态库注入与 macOS 通知中心/菜单栏状态图标修复
+- **通知弹窗与托盘图标完美支持 (Fix #5)**：
+  - 在 `HardCloneEngine` 中启用原生 Mach-O 动态链接库（`.dylib`）拦截注入机制。
+  - 拦截并桥接 NSUserNotificationCenter 与 NSStatusItem 相关系统 API，彻底解决硬分身应用在 macOS Sonoma / Sequoia 上通知横幅不弹出及菜单栏状态图标丢失的问题。
+
+### 🌓 系统暗黑模式动态感知与视觉质感升级
+- **跟随系统明暗外观实时切换 (Fix #4)**：
+  - 引入 macOS 系统外观感知机制，GUI 界面实时响应系统深色/浅色模式切换，并无缝重绘主题色彩。
+- **卡片网格布局与文本对比度优化**：
+  - 优化主界面分身卡片网格间距并扩大默认窗口宽度，提供更充裕的展示空间。
+  - 提升日志查看窗口与版本更新日志（Release Notes）中的暗黑模式文字对比度，全面符合 WCAG 2.1 AA 标准。
+
+### 📖 文档更新与界面截图刷新
+- **路径规范与视觉资源同步**：
+  - 全面更新官方文档中的默认分身安装路径为 `~/ATBClone/Apps`。
+  - 刷新主界面高分辨率截图及版本管理工具相关描述。
+
+### 🧪 质量保障与自动化测试
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 462 项，覆盖动态库注入、系统主题感知及网格布局验证。
+
+---
+
+## [v1.1.1] - 2026-08-30
+
+### 🧹 框架历史过期版本自动清理与瘦身
+- **磁盘占用优化与代码签名校验保障**：
+  - `HardCloneEngine` 在克隆时自动扫描并清理 `Contents/Frameworks/*.framework/Versions/` 下未被软链接引用的残留过期历史版本（常见于 Google Chrome、Chromium 及各类 Electron 应用的热更新残留）。
+  - 彻底杜绝签名校验时因历史版本残留导致的 `embedded framework contains modified or invalid version` 报错，同时为每个分身节省数百兆磁盘空间。
+
+### 🛡️ 基于 Python plistlib 的深度权限清洗与多阶段重签
+- **原子临时提取与限制性权限全量过滤**：
+  - 优化 Entitlements 权限提取机制，使用原子安全临时路径（`${TMPDIR:-/tmp}/atb_ent_XXXXXX`）。
+  - 结合 `PlistBuddy` 与 Python `plistlib` 深度清洗机制，精准剥离全部苹果开发者、应用组、iCloud 及沙盒限制性权限（`com.apple.developer.`、`keychain-access-groups`、`com.apple.security.application-groups`、`com.apple.security.app-sandbox`）。
+  - 实施包含 dylib、Mach-O 二进制、内嵌 Frameworks、Helper 辅助子进程及主 Bundle 的多阶段深度重签名。
+
+### 🧪 质量保障与自动化测试
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 455 项，覆盖历史框架清理、权限深度清洗及全量引擎流程。
+
+---
+
+## [v1.1.0] - 2026-08-29
+
+### 🤖 深度支持 AI 客户端与大模型工具生态
+- **Claude Desktop 与 Claude Code 原生多开支持**：
+  - 自动注入 `CLAUDE_CONFIG_DIR`，深度隔离并复制分身专用的 `~/.claude` 与 `~/.claude.json` 配置。
+  - 在分身应用包中精准保留 `CFBundleName`，确保 Claude Helper 辅助进程正确识别宿主应用，杜绝进程查找失败导致的闪退。
+- **Google Antigravity 与 Gemini 生态多开**：
+  - 自动注入 `GEMINI_HOME` 与 `ANTIGRAVITY_HOME` 环境变量，实现 `~/.gemini` 运行环境的独立隔离。
+- **OpenAI ChatGPT 与 Codex CLI 多开**：
+  - 自动注入 `CODEX_HOME` 环境变量并复制隔离 `~/.codex` 目录，支持多账号并发工作流。
+
+### 🔑 macOS Keychains 钥匙串自动软链接
+- **环境重定向与凭证安全保障**：
+  - 在重定向 `HOME` 目录时自动建立 `Library/Keychains` 软链接，彻底解决钥匙串丢失报错、登录项崩溃及凭证读取失败等问题。
+
+### 🛡️ AMFI 权限清洗与代码签名安全
+- **macOS Sonoma / Sequoia 深度适配**：
+  - 在进行 Ad-Hoc 重新签名时自动剥离受限的团队级权限（`com.apple.application-identifier`、`com.apple.developer.team-identifier`、`keychain-access-groups`）。
+  - 彻底防止 Apple Mobile File Integrity (AMFI) 机制对 Helper 辅助进程触发 `SIGKILL` 强制终止。
+
+### 🚀 ProcessSingleton 补丁通用化与启动参数隔离
+- **广泛的 Electron / AI 应用多开支持**：
+  - 通用化 Mach-O 二进制 ProcessSingleton 单例锁修补逻辑，并在 AI 客户端规则中注入 `--user-data-dir` 参数，避免实例互斥。
+
+### 🧪 质量保障与自动化测试
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 453 项，全方位覆盖 AI 客户端隔离、钥匙串软链接、AMFI 权限清洗及双引擎核心。
+
+---
+
+## [v1.0.2] - 2026-08-26
+
+### 🛡️ 沙盒权限剥离优化与硬分身稳定性增强
+- **硬分身全局启用沙盒剥离 (`strip_sandbox: true`)**：
+  - 在采用硬分身（Hard Clone）策略的规则中默认启用沙盒剥离机制，彻底解决 Mach-O 修改后与 macOS 沙盒容器权限冲突导致的启动或读写死锁问题。
+  - 深度优化微信（WeChat）硬分身配置，在启动脚本中自动保障运行时目录结构（`Caches`、`Containers`、`Preferences`）的初始化与隔离。
+
+### 📚 预设规则整理与架构限制说明
+- **内置应用规则精简与排错指引**：
+  - 鉴于企业微信（WeCom）上游 CEF 混合架构中底层专有 IPC 单例互斥机制，移除其实验性内置规则，并在文档与故障排查指南中补充清晰的兼容性说明。
+  - 完善第三方应用多开最佳实践指引与自定义 Recipe 编写规范。
+
+### 🧪 质量保障与自动化测试
+- **测试套件全量验证**：
+  - 443 项单元、规则引擎与 GUI 集成测试全部通过。
+
+---
+
+## [v1.0.1] - 2026-08-26
+
+### 🎨 苹果设计规范 (HIG) 全面对齐与视觉体验打磨
+- **原生 macOS 设计规范对齐**：
+  - 全面对标 Apple Human Interface Guidelines (HIG)，重构各视图与弹窗的视觉排版。
+  - 清理非必要 Emoji 装饰，采用纯正原生的 SF Pro 字体层级与清晰视觉层次。
+  - 优化侧边栏导航，引入原生 Cocoa 选中高亮与悬停反馈。
+  - 增强明暗模式色彩对比度，全量满足 WCAG 2.1 AA 可读性标准。
+  - 优化空状态引导、卡片阴影质感、窗口拖拽体验与全局组件边距规范。
+
+### 📜 日志倒序排列与多语言界面布局优化
+- **日志实时诊断升级 (`LogsView`)**：
+  - 日志查看视图调整为按时间倒序排列（最新日志置顶呈现），极大提升日常监控与排错效率。
+  - 移除多处“刷新”与“浏览”按钮的固定宽度限制，杜绝在英文、德文、法文、俄文等多语言环境下的文字截断。
+
+### 🛡️ 克隆引擎容错增强与权限保障
+- **应用包写权限确保与 xattr 异常容错**：
+  - 在修改 Mach-O 二进制与重新签名之前，自动确保分身应用包具备写权限（`chmod -R u+w`）。
+  - 增加对只读文件系统快照或受保护文件清除扩展属性（`xattr -cr`）时的容错处理，彻底消除分身构建失败风险。
+
+### 🧪 质量保障与自动化测试
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 443 项，覆盖日志倒序、扩展属性容错及 HIG 原生排版验证。
+
+---
+
+## [v1.0.0] - 2026-08-24
+
+### 🚀 ATBClone 1.0.0 正式版里程碑发布
+- **生产级 macOS 原生应用分身系统**：
+  - ATBClone 正式迎来 1.0.0 正式版发布！构建了成熟稳定、开箱即用的 macOS 应用多开与数据隔离生态，全面支持 Apple Silicon (M 系列) 及 Intel 芯片。
+  - 提供成熟的双引擎分身方案：极速零磁盘开销的软分身（Soft Clone，基于环境注入与启动封装）与彻底数据/权限隔离的硬分身（Hard Clone，基于 Mach-O 二进制重写、深度签名与沙盒虚拟化）。
+
+### 🧬 深度 CEF (Chromium Embedded Framework) 补丁与企业微信完美多开
+- **复杂混合架构多开引擎突破**：
+  - 针对企业微信等基于 CEF 混合框架的应用，实现精准的作用域二进制补丁机制。
+  - 彻底修复 Helper 子进程中 `GpuDataManager` FATAL 致命崩溃，并对嵌套 Helper Bundle ID 进行序列化隔离清洗（`.helper.atbclone.X`）。
+  - 深度集成动态链接库符号拦截与内部沙盒冲突规避，保障大型办公通讯应用长时间稳定多开。
+
+### 🛡️ 全包递归深度代码签名与单例锁二进制修补
+- **嵌套二进制与动态库全量重签**：
+  - `HardCloneEngine` 实现对分身应用包内全部嵌套二进制文件、内置 Frameworks、Helper 辅助进程、XPC 服务及动态链接库（`.dylib`）的深度递归重签名。
+  - 完整继承 JIT 与 Hardened Runtime 核心安全权限，使用独立临时目录提取权限配置，杜绝应用包污染与签名校验失效。
+- **框架级 ProcessSingleton 二进制修补**：
+  - 引入 `patch_framework_singleton` 规则选项，以纯二进制字节级修补替代不稳定的动态拦截，彻底规避 Chromium/Electron 框架单例互斥锁。
+
+### 📋 分身详情交互升级与原生剪贴板集成
+- **全字段文本高亮与一键诊断导出**：
+  - 重构 `CloneDetailWindow`，基于 Cocoa 原生多行文本视图与 `NSPasteboard` 提供流畅的文字高亮选择与一键 Markdown 诊断信息导出。
+
+### 🧪 质量保障与自动化测试
+- **测试套件全面覆盖**：
+  - 自动化测试用例扩充至 441 项，覆盖 CEF 补丁、辅助进程重签、框架单例修补、双引擎核心及 GUI 交互。
+
+---
+
+## [v0.9.9] - 2026-08-24
+
+### 📋 分身详情窗口文字可选与“复制全部信息”
+- **全字段文本高亮选择与一键导出**：
+  - 在 `CloneDetailWindow` 详情窗口中开启 Cocoa 原生文本可选模式（`setSelectable_`），支持鼠标高亮选择并复制任意路径、Bundle ID 与运行参数。
+  - 底部新增“复制全部信息”按钮，一键将分身的完整诊断摘要格式化导出至剪贴板，并提供即时复制反馈。
+
+### 🎨 macOS 原生 UI 视觉与组件间距优化
+- **主题色彩与卡片排版打磨**：
+  - 优化 `Theme` 中的明暗模式色彩 Token（`BG_APP`、`BG_CARD`、`BG_HOVER`、`BORDER`、`TEXT_PRIMARY`、`TEXT_MUTED`、`ACCENT`）。
+  - 规范卡片边框圆角、内边距与组件间距，大幅提升 `CloneListView`、`RecipeListView`、`ProbeView`、`DoctorView`、`SettingsView` 及各弹窗的视觉质感与原生体验。
+
+### 📖 全新多语言完整用户使用手册 (`docs/guide/`)
+- **全方位使用与进阶指南**：
+  - 发布中英文双语完整用户手册（`docs/guide/zh-cn/` 与 `docs/guide/en/`）。
+  - 涵盖第一章（基础操作与生命周期）、第二章（高级自定义规则）、第三章（底层架构与框架原理）与第四章（常见问题、环境诊断与排错指南）。
+
+### 🧪 自动化测试与质量保障
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 431 项，覆盖详情导出、原生可选文本及主题样式验证。
+
+---
+
+## [v0.9.8] - 2026-08-24
+
+### 🔒 沙盒权限精准提取与硬分身引擎稳定性提升
+- **源应用 Entitlements 签名权限继承**：
+  - 增强 `HardCloneEngine` 硬分身引擎，通过 `codesign -d --entitlements :-` 精准提取并保留源 Mach-O 可执行文件的原生权限配置。
+  - 增加了对空权限及损坏权限文件的安全防护，杜绝重新签名时因权限缺失导致的权限异常与闪退。
+- **内置规则沙盒容器绝对隔离**：
+  - 规范并修正全部硬分身内置规则（包括微信、QQ、企业微信、WPS Office、LINE、Skype、剪映/CapCut 等），显式保留沙盒约束（`strip_sandbox: false`）。
+  - 确保硬分身应用在独立沙盒容器目录（`~/Library/Containers/<new_bundle_id>`）中运行，杜绝分身间数据与凭证交叉串号。
+
+### 📚 项目文档与规则规范同步
+- **中英文技术文档更新**：
+  - 同步更新英文 `README.md` 与中文 `README_zh.md`，全面补充 `app_type`、`strip_sandbox`、架构分类规则及 CLI/GUI 使用示例。
+
+### 🧪 自动化测试与质量保障
+- **测试套件全绿通过**：
+  - 428 项单元测试、核心克隆引擎与 GUI 集成测试全部验证通过。
+
+---
+
+## [v0.9.7] - 2026-08-24
+
+### 🔍 智能应用架构探测与框架自适应多语言注入
+- **应用运行时框架识别 (`app_type`)**：
+  - 在 Recipe 规则模型中引入 `app_type` 字段（`electron`、`chromium`、`qt`、`flutter`、`native_cocoa`、`java`、`unknown`）。
+  - `AppProber.detect_app_type` 通过解析 Frameworks、动态链接库和 JVM 结构自动识别应用底层架构。
+  - 标准化全部 34 个内置规则文件，补充声明 `app_type` 与 `strip_sandbox` 属性。
+- **框架自适应多语言参数注入**：
+  - 依据应用架构动态注入匹配的语言启动参数（Chromium/Electron 使用 `--lang=`、原生 Cocoa 使用 `-AppleLanguages`、Java 使用 `-user.language` 等）。
+
+### 🧬 Mach-O 二进制参数智能探测与校验
+- **未知应用数据目录参数探测**：
+  - 实现 `BinaryArgumentProber` 扫描 Mach-O 可执行文件字符串表，自动探测支持的用户数据目录启动参数（`--user-data-dir`、`--profile-directory`、`--datadir` 等）。
+- **启动参数合规性校验**：
+  - 新增 `LaunchArgumentValidator`，在分身构建时过滤不支持或冲突的启动参数，保障分身稳定运行。
+
+### 📋 分身注入参数深度解析与一键复制
+- **分身注入参数详情 (`CloneInspector`)**：
+  - 实现 `CloneInspector` 解析分身应用包中的运行时注入环境变量、代理规则、多语言重写及启动参数。
+  - 在 `CloneDetailWindow` 中新增“注入参数”卡片，提供一键复制到剪贴板与状态反馈。
+
+### ⚙️ 规则编辑窗口高级参数配置
+- **可视化规则编辑升级 (`RecipeEditWindow`)**：
+  - 支持应用框架类型选择、自定义启动参数编辑、代理配置、环境变量注入及软链接白名单设置。
+
+### 🧪 测试套件扩充
+- **全面质量保障**：
+  - 自动化测试用例扩充至 428 项，覆盖架构识别、二进制参数探测、参数校验与分身详情解析。
+
+---
+
+## [v0.9.6] - 2026-08-24
+
+### 🖱️ 原生 Cocoa 表格表头点击排序
+- **列表表头交互式升降序排序**：
+  - 针对分身列表 (`CloneListView`) 与规则列表 (`RecipeListView`) 实现原生 Cocoa `NSTableViewHeaderView` 点击排序补丁。
+  - 支持点击表头列进行升序/降序切换，表头实时显示排序箭头指示器，并与工具栏排序下拉框双向同步。
+  - 排序后自动保持当前选中的行项，杜绝视图抖动与焦点丢失。
+
+### 📦 列表多选与批量管理操作
+- **分身批量管理 (`CloneListView`)**：
+  - 支持多行选中 (`multiple_select=True`)，工具栏操作按钮根据选中数量动态激活或禁用。
+  - 支持批量更新分身与批量删除分身（联动数据清理确认弹窗）。
+- **规则批量删除与场景化保护 (`RecipeListView`)**：
+  - 支持多选批量删除自定义规则。
+  - 智能场景化提示：内置只读规则受保护提示、混合选中（自定义+内置规则）过滤删除确认、纯自定义规则批量删除确认。
+  - 引入并发 Busy 互斥锁，确保批量操作执行期间界面安全锁定。
+
+### 🛠️ Xcode 命令行工具环境诊断与健康检查升级
+- **启动环境就绪检查**：
+  - 增强 `DoctorService` 与健康检查页面，新增针对 Xcode 命令行工具 (`xcode-select -p`, `codesign`, `lipo`, `otool`, `install_name_tool`) 的诊断检查与引导指引。
+
+### ℹ️ macOS 原生“关于”弹窗元数据优化
+- **标准关于弹窗信息修复**：
+  - 规范 Cocoa `orderFrontStandardAboutPanelWithOptions:` 调用，准确呈现应用版本号、版权与技术栈元数据。
+
+### 🧪 测试套件扩充
+- **全面覆盖**：
+  - 自动化测试用例扩充至 369 项，覆盖表头排序、批量分身/规则操作及健康诊断。
+
+---
+
+## [v0.9.5] - 2026-08-23
+
+### 📝 全新多行自动折行 `WrappingLabel` 组件与排版优化
+- **长文本自适应自动折行**：
+  - 针对 macOS Cocoa 下 Toga Label 单行计算导致长文本横向撑大父容器和窗口的缺陷，实现 `WrappingLabel` 原生多行自适应组件。
+  - 基于 `NSTextField` 和 `cellSizeForBounds_` 动态依据容器宽度重算高度，宽度保持弹性无约束，杜绝长路径、长参数导致的文字截断与窗口形变。
+- **探测分析报告与详情页体验打磨**：
+  - 在 `ProbeView`（应用探测报告、兼容性评估、沙盒状态）、`CloneDetailWindow`（运行参数、Bundle ID、数据目录）与 `WizardWindow`（策略建议）中全面应用 `WrappingLabel`。
+
+### 🧪 测试密闭性与状态隔离
+- **动态配置求值与测试解耦**：
+  - 优化 `StateManager` 与 `RecipeLoader`，将默认存储路径从模块导入期求值改为运行时动态求值，彻底隔离测试用例与用户本地状态及自定义规则文件。
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 347 项，新增 `WrappingLabel` 宽度自适应与高度重算专项测试。
+
+---
+
+## [v0.9.4] - 2026-08-23
+
+### 📁 默认根数据目录迁移至用户可见目录 (`~/ATBClone`)
+- **直观便捷的数据与配置管理**：
+  - 将 ATBClone 默认根目录从隐藏的 `~/.atbclone` 迁移至用户主目录下的可见文件夹 `~/ATBClone`（包括 `~/ATBClone/Data/` 数据目录、`~/ATBClone/clones.yaml` 状态文件与日志）。
+  - 用户在 Finder 或终端中查找分身数据、备份与管理存储空间更加直观便捷。
+
+### 🏷️ 应用显示名称精确覆盖与多语言本地化清理
+- **彻底消除系统语言默认名称干扰**：
+  - 增强 `SoftCloneEngine` 与 `HardCloneEngine`，在生成分身时自动移除 `Info.plist` 中的 `LSHasLocalizedDisplayName`，并清理资源包中各语言的 `InfoPlist.strings`（如 `CFBundleDisplayName`、`CFBundleName`）。
+  - 确保 Finder、Dock 栏、Spotlight 聚焦搜索和活动监视器中严格显示用户自定义的分身名称，杜绝被原应用多语言覆盖。
+
+### 🔄 LaunchServices 服务自动注册与即时刷新
+- **图标与元数据即时生效**：
+  - 在分身创建与更新流程最后自动执行 `lsregister -f` 强制注册，确保 macOS 立即刷新分身图标与 Bundle 信息，无需重启系统或重启 Finder。
+
+### 📦 文档与测试套件同步
+- **全局路径更新**：
+  - 同步更新 CLI 帮助信息、GUI 设置页面说明、README 及全套 341 项自动化测试。
+
+---
+
+## [v0.9.3] - 2026-08-21
+
+### 🛡️ 应用检查增强与向导 iOS 移植应用友好拦截
+- **向导前置检查与错误弹窗**：
+  - 增强 `AppInspector.inspect_app` 逻辑，在用户选择或拖拽应用时直接分析 `UIDeviceFamily` / `LSRequiresIPhoneOS` 及 `Wrapper/` 结构并标记 `is_ios_wrapper`。
+  - 在 GUI 创建向导 (`WizardWindow`) 中，一旦选入 iOS 移植应用，立即弹出多语言警告弹窗并清空输入框，将不兼容拦截前置至第一步，提供更明确的引导。
+
+### 🍏 macOS 退出流程优化与 Cocoa 内存解绑
+- **修复退出时偶发崩溃 (Crash on Exit)**：
+  - 优化 `TrayService.disable()` 与 `ATBCloneApp.exit_app()`，在退出前安全解绑并重置 Cocoa 状态栏菜单与图标 target/action，消除野指针与悬挂选择器。
+  - 采用标准的 Cocoa 事件循环终止流程 (`NSApp.terminate_` / `os._exit(0)`)，彻底解决通过托盘“退出”或 `Cmd+Q` 退出程序时偶发的崩溃问题。
+
+### 📦 测试套件扩充
+- **自动化测试增强**：
+  - 自动化测试用例扩充至 341 项，全面覆盖 iOS 移植应用向导弹窗拦截与安全退出流程。
+
+---
+
+## [v0.9.2] - 2026-08-21
+
+### 🍏 macOS Dock 栏图标动态隐藏与托盘体验增强
+- **Dock 栏图标动态显示/隐藏**：
+  - 基于 Cocoa AppKit 运行策略 (`NSApplicationActivationPolicy`) 实现 Dock 栏图标动态显隐控制。
+  - 开启“最小化到托盘”后，当窗口最小化或关闭至系统托盘时，自动将 App 切换为后台配件模式 (`NSApplicationActivationPolicyAccessory`)，完全隐藏 Dock 栏图标。
+  - 从顶部菜单栏托盘还原窗口时，自动无缝恢复为标准模式 (`NSApplicationActivationPolicyRegular`)，重新显现 Dock 图标并置顶聚焦。
+- **Dock 点击恢复窗口响应 (Reopen Handler)**：
+  - 注入原生 `AppDelegate` 的 `applicationShouldHandleReopen:hasVisibleWindows:` 方法，支持在 Dock 栏点击应用图标时平滑拉起并激活主窗口。
+
+### 📦 资源体积优化与测试扩充
+- **图标资源瘦身**：
+  - 对应用图标资源 (`logo.icns`, `logo.png`) 进行无损压缩与优化，显著降低打包体积与内存占用。
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 338 项，全面覆盖 Dock 栏策略切换与生命周期恢复。
+
+---
+
+## [v0.9.1] - 2026-08-21
+
+### 🛡️ iOS-on-Mac (Designed for iPad/iPhone) 兼容应用检测与拦截
+- **优雅识别与安全拦截**：
+  - 增强 `AppProber` 探测引擎及克隆引擎 (`SoftCloneEngine` / `HardCloneEngine`)，精准识别基于 Apple Silicon 运行的 iOS/iPadOS 移植包装应用（如包含 `Wrapper/` 目录或 `UIDeviceFamily` / `LSRequiresIPhoneOS=True` 的应用）。
+  - 在 CLI 命令行 (`atbclone clone`, `atbclone wizard`) 及 GUI 交互向导中友好拦截并提示不支持克隆此类 iOS 移植应用 (`error_ios_wrapper_unsupported`)，避免生成损坏的分身及启动崩溃。
+
+### 🎨 打包脚本自动化图标资源生成
+- **动态 `.icns` 图标编译**：
+  - 优化 `scripts/build_gui.sh`，在生成 macOS DMG 安装包时自动调用 `sips` 和 `iconutil` 将 PNG 图标动态编译为多分辨率 `.icns` 资源。
+  - 增强 CLI 与 GUI 构建脚本中的资源打包与完整性校验。
+
+### 🌐 多语言本地化完善
+- **新增错误提示多语言支持**：
+  - 9 种语言全面补全针对 iOS 移植应用的拦截提示文案。
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 336 项，全面覆盖 iOS 移植应用探测与拦截分支。
+
+---
+
+## [v0.9.0] - 2026-08-21
+
+### 🌐 分身独立语言与区域 (Locale) 隔离支持
+- **分身专属运行语言配置 (`--language` / `--locale`)**：
+  - 支持为每个分身独立指定界面显示语言与区域设置，完全独立于 macOS 系统语言及原应用的语言偏好。
+  - `atbclone clone` 与 `atbclone wizard` 命令行新增 `--language` / `--locale` 参数，GUI 创建向导与编辑弹窗同步提供可视化语言选择下拉框。
+  - 自动向软克隆启动脚本及硬克隆二进制注入 `AppleLanguages` 与 `AppleLocale` 系统偏好与环境变量。
+  - 引入 `atbclone.core.locale` 模块，全面支持 BCP-47 语言代码与地区标签解析。
+
+### 🆔 多分身 Bundle ID 自动递增与冲突消解
+- **确定性唯一标识解析**：
+  - 引入 `AppInspector.find_next_bundle_id` 算法，动态扫描状态记录与文件系统，确保连续克隆同一应用时生成严格唯一且无冲突的 Bundle ID (`com.vendor.app.atb1`, `atb2`, `atb3` 等)。
+
+### 🍏 系统菜单栏托盘唤醒与窗口生命周期优化
+- **无缝托盘窗口恢复与激活**：
+  - 彻底修复从系统菜单栏图标 (`TrayService`) 还原主窗口时的 Cocoa 激活、取消最小化及置顶聚焦逻辑。
+  - 支持在开启“最小化到托盘”时拦截窗口关闭事件（`Cmd+W` 或红绿灯关闭按钮），平滑隐藏至菜单栏而不退出程序。
+  - 完善托盘图标的左键、右键及 Ctrl+点击响应。
+
+### ⚡ 分身更新并发竞争修复与目标路径清理
+- **原子化更新流程**：
+  - 修复 `clone update` 时的并发竞争问题，在重新生成分身前强制对目标路径进行彻底清理，确保数据和代码更新的原子性与稳定性。
+  - 优化 GUI 中分身卡片与列表的实时刷新同步。
+
+### 🎨 GUI 排版字号优化与文档完善
+- **视觉体验打磨**：
+  - 调整 Cocoa 原生表格行高至 34px，优化下拉选择框文本字号，杜绝文字截断与溢出。
+  - README 新增桌面端安装指引、GUI 操作图文教程及高清截图。
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 329 项，全面覆盖语言隔离、Bundle ID 递增与托盘生命周期。
+
+---
+
+## [v0.8.0] - 2026-08-20
+
+### 🎨 深度适配苹果 macOS HIG 原生视觉与交互规范
+- **原生设计语言与无障碍体验升级**：
+  - 全面重构 GUI 视觉设计，严格遵循 Apple Human Interface Guidelines (HIG)：统一色彩体系、系统字体阶梯（11pt–22pt）与呼吸感间距。
+  - 通过运行时注入 (`patch_cocoa`) 优化 Cocoa 原生表格渲染：行高扩增至 40px，重构表头样式并放大单元格字号，大幅提升大屏阅读体验。
+  - 全面放大向导窗口、全局设置与编辑弹窗中的输入框、下拉框、开关、按钮及标签控件尺寸。
+  - 表格底部操作栏优化为紧凑优雅的 macOS 原生工具栏风格。
+  - 全面默认启用 **列表视图 (List View)**，提供更清晰、高效的分身与配方浏览体验。
+
+### 💾 存储设置整合与子目录动态联动
+- **存储管理体验优化**：
+  - 重组全局设置 (`SettingsView`)，将根存储目录整合进存储管理专区。修改根目录时，自动动态联动更新所有衍生子路径 (`clones.yaml`、`Data/`、`logs/`、`recipes/`)。
+  - 提供实时的路径有效性与目录状态提示。
+
+### 🌐 全面支持 HTTPS 代理协议
+- **代理支持拓展**：
+  - Recipe 模型、CLI (`atbclone clone`, `atbclone wizard`) 与 GUI 网络配置全面支持 `https://` 代理协议（支持带用户名与密码认证）。
+
+### 📦 打包体系优化与测试扩充
+- **模块执行入口与 DMG 打包增强**：
+  - 新增 `src/atbclone/__main__.py` 入口，支持通过 `python -m atbclone` 直接运行。
+  - 增强 `scripts/build_gui.sh` 打包脚本，加入严格的 Bundle 完整性校验、图标资源检查与签名验证。
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 304 项，全面覆盖 GUI 补丁、视觉组件与代理模型。
+
+---
+
+## [v0.7.0] - 2026-08-20
+
+### 🖥️ 原生 BeeWare Toga 图形桌面客户端
+- **全新冰蓝 (Ice-Blue) 现代桌面界面**：
+  - 正式发布基于 BeeWare Toga 构建的 macOS 原生桌面客户端 (`atbclone-gui`)。
+  - 采用流体侧边栏导航与卡片网格布局，内置分身管理 (`ClonesView`)、应用深度探测 (`ProbeView`)、配方管理 (`RecipesView`)、实时日志 (`LogsView`) 与全局设置 (`SettingsView`)。
+  - 支持拖拽 `.app` 的图形化分身创建向导，提供实时创建状态与动画反馈。
+
+### 🍏 原生 macOS 状态栏托盘与最小化支持
+- **菜单栏系统托盘服务 (TrayService)**：
+  - 深度集成原生 `NSStatusBar` 与 `NSStatusItem` 状态栏图标，提供快捷菜单（打开主窗口、新建分身、快捷启动、首选项、退出）。
+  - 支持“最小化到系统托盘”偏好设置，通过 Cocoa Selector 与 `NSWindowDelegate` 实现平滑的窗口隐藏与托盘恢复。
+
+### 📖 GUI 专属多语言更新日志查看器
+- **内嵌 Release Notes 窗口**：
+  - 全局设置界面新增“查看更新日志”按钮，可独立打开 `ReleaseNotesWindow`。
+  - 内置 9 种语言动态切换下拉框，实时渲染多语言 Markdown 更新日志。
+
+### 📝 统一操作日志系统 (Unified Logger)
+- **文件持久化与实时广播流**：
+  - 引入 `atbclone.core.logger`，统一 CLI 与 GUI 日志输出，支持文件持久化 (`~/.atbclone/logs/atbclone.log`) 与内存广播流 (`LogBroadcastHandler`)。
+  - GUI 日志视图支持实时流式刷新、级别筛选、关键字搜索、日志导出与磁盘日志清空。
+
+### 📦 配方库扩充与测试套件升级
+- **新增主流应用配方**：新增 **Claude Desktop** (`com.anthropic.claudefordesktop`)、修正 **Telegram** (`ru.keepcoder.Telegram`)、**Cursor** 等热门工具配方。
+- **自动化测试扩充**：测试套件用例大幅扩展至 299 项，全面覆盖 GUI 视图、托盘服务与核心逻辑。
+
+---
+
+## [v0.6.0] - 2026-08-19
+
+### 📂 自定义数据存储目录支持
+- **克隆数据存储位置自定义 (`--data-dir`)**：
+  - `atbclone clone` 命令新增 `--data-dir` 参数，支持为分身指定自定义数据存储路径（例如外接移动固态硬盘或特定工作目录）。
+  - `atbclone wizard` 交互式向导全面支持自定义数据目录的提示与配置。
+  - Recipe 模型与克隆引擎全面适配动态数据目录变量解析。
+
+### 🗑️ 增强的分身卸载与数据清理 (`atbclone remove`)
+- **安全数据清理选项与确认机制**：
+  - `atbclone remove` 新增 `--purge-data` 参数，支持非交互式一键彻底清理分身应用本体及对应的数据目录。
+  - 新增 `--keep-data` 参数，仅卸载应用本体并保留用户聊天记录与配置文件。
+  - 交互式卸载向导增加多语言确认提示，支持用户自主选择是否清理数据，并提供安全提示。
+  - 完善孤立残留数据目录与权限异常的安全诊断处理。
+
+### 🆔 Bundle ID 生成规范化与多语言更新
+- **规范化 Bundle ID 生成逻辑**：
+  - 引入 `AppInspector.generate_bundle_id` 统一生成规则，确保 `clone`、`wizard` 和 `update` 指令间 Bundle ID 格式严格一致。
+- **多语言本地化完善**：
+  - 9 种语言全面接入数据目录配置、卸载确认与清理状态提示。
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 213 项，全面覆盖自定义目录与卸载清理逻辑。
+
+---
+
+## [v0.5.0] - 2026-08-19
+
+### 🔐 苹果官方代码签名与公证支持 (Code Signing & Notarization)
+- **强化运行时 (Hardened Runtime) 与代码签名**：
+  - 深度集成 Apple Developer ID Application 开发者证书签名机制，启用 `--options runtime` 强化运行时、时间戳及自定义 JIT / 二进制执行授权文件 (`scripts/entitlements.plist`)。
+  - 新增 `scripts/notarize.sh` 自动化公证脚本，支持通过钥匙串凭证 (`--keychain-profile`) 调用 `xcrun notarytool` 一键完成苹果官方公证与门禁安全验证。
+  - `scripts/build_cli.sh` 与 `scripts/release.sh` 全面支持 `--sign-identity`、`--skip-sign` 及 `--notarize` 编译与发布选项，未配置证书时自动降级至 ad-hoc 本地签名。
+
+### 🚀 Chromium 浏览器硬克隆与启动参数注入
+- **硬克隆引擎支持 `launch_args` 注入**：
+  - 增强 `HardCloneEngine`，使其在环境变量隔离之外，同时支持向二进制启动器动态注入 `--user-data-dir={{ATB_DATA_DIR}}` 等启动参数。
+  - 将 **Google Chrome**、**Microsoft Edge**、**Arc Browser** 预置规则升级为 `hard_clone` 策略，实现完整的 App Bundle 独立复制与 Dock/Finder 专属身份。
+- **CLI 支持策略覆盖**：
+  - `atbclone clone` 命令行新增 `--strategy` 参数（可选 `hard_clone` 或 `soft_clone`），允许用户手动覆盖预设策略。
+
+### ⚡ 进程管理与测试套件扩充
+- **进程转发优化**：优化 `SoftCloneEngine` 启动包装脚本，使用标准 `exec "$@"` 进行参数转发与进程接管。
+- **自动化测试扩充**：测试套件用例扩展至 199 项，全面覆盖代码签名流程、公证脚本语法与硬克隆参数注入。
+
+---
+
+## [v0.4.0] - 2026-08-19
+
+### 🌐 9 国语言全面本地化与文档体系
+- **CLI 全指令 9 语言多语言支持**：
+  - 扩展 `atbclone.core.i18n` 多语言模块，全面支持英语、简体中文、繁体中文、日语、韩语、德语、法语、俄语、西班牙语 9 种语言。
+  - 所有终端命令（`wizard`、`clone`、`probe`、`list`、`recipe`、`doctor`、`update`、`remove`、`version`）均已实现多语言提示、Rich 表格与错误日志输出。
+- **多语言 Release Notes 标准化**：
+  - 规范化 `docs/release/` 目录下的 9 国语言更新日志管理与语言导航体系。
+
+### 🔄 自动化发布与版本同步流水线
+- **9 语言 ReleaseNotes 自动校验机制**：
+  - 升级 `scripts/manage_version.py` 与 `scripts/release.sh`，在发布时自动校验并同步 `docs/release/` 下全部 9 份 ReleaseNotes。
+  - 增加 `--check-notes` 版本完整性检查指令，杜绝遗漏多语言发布文档。
+- **测试套件扩充**：
+  - 自动化测试用例扩充至 191 项，全面覆盖多语言字典渲染与发布流程校验。
+
+---
+
+## [v0.3.0] - 2026-08-19
+
+### 🌐 国际化与多语言支持 (i18n)
+- **macOS 系统语言自动探测**：
+  - 内置 `atbclone.core.i18n` 多语言引擎，通过 `AppleLanguages` 与 `AppleLocale` 自动探测 macOS 系统偏好语言。
+  - CLI 交互式向导、终端提示、表格表头及状态日志自动在中文与英文间智能切换。
+  - 支持通过环境变量 `ATBCLONE_LANG`（如 `ATBCLONE_LANG=zh` 或 `ATBCLONE_LANG=en`）强制指定运行语言。
+- **多语言文档体系**：
+  - 默认采用英文版 `Readme.md`，中文完整文档重命名为 `Readme_zh.md`。
+  - 发布涵盖 9 种语言的 Release Notes：英文、简体中文、繁體中文、日语、韩语、德语、法语、俄语、西班牙语。
+
+### 🛠️ CLI 与构建打包优化
+- **向导国际化全面接入**：`atbclone wizard` 交互提示、自定义显示名称、自定义 `.icns` 图标选择及代理设置全部支持双语。
+- **独立二进制构建升级**：使用 Nuitka 重新打包 `./dist/ATBCloneCli`，内嵌多语言字典并增强沙盒构建兼容性（`PYTHONNOUSERSITE=1`）。
+- **自动化测试套件**：新增 `test_i18n.py` 测试用例，全部 186 项自动化测试均支持双语环境验证并通过。
+
+---
+
+## [v0.2.0] - 2026-08-18
+
+### 🚀 重大新功能
+- **交互式克隆向导 (`atbclone wizard`)**：
+  - 终端交互式操作流，支持直接拖拽 `.app` 应用路径到终端。
+  - 分身名称自动自增探测（如 `WeChat2`、`WeChat3`）。
+  - 支持配置自定义应用显示名称及自定义 `.icns` 应用图标。
+  - 交互式配置专属网络代理（HTTP / SOCKS5），支持账号密码鉴权。
+- **智能深度应用探测器 (`atbclone probe`)**：
+  - 自动分析任意 macOS 应用的 Mach-O 架构（arm64、x86_64、Universal）、开发框架（Electron、Flutter、Chromium、Qt、Cocoa）及沙盒权限（`com.apple.security.app-sandbox`）。
+  - 为未预置规则的应用动态推荐最佳分身策略（`hard_clone` / `soft_clone`）并生成标准 Recipe YAML。
+  - `atbclone clone` 支持自动触发探测引擎，无需手动指定分身规则即可一键分身未知应用。
+- **独立二进制打包构建**：
+  - 增加 `scripts/build_cli.sh` 构建脚本，基于 Nuitka 编译零外部依赖的 macOS 原生 arm64 单文件可执行文件（`dist/ATBCloneCli`）。
+
+### ⚡ 优化与修复
+- 优化 `/Applications` 目标路径的提权逻辑，采用原生 macOS `osascript` 授权弹窗，单次输入密码即可完成提权操作。
+- 全面采用 `shlex.quote` 对执行路径进行转义保护，杜绝空格与特殊字符引发的路径异常。
+
+---
+
+## [v0.1.0] - 2026-08-17
+
+### 🌟 初始版本发布
+- **双引擎克隆架构**：
+  - **硬克隆引擎 (Hard Clone)**：完整复制 App Bundle，修改 `Info.plist`，劫持二进制启动脚本注入独立 `HOME` / `TMPDIR`，按需解除沙盒，重新执行 ad-hoc 签名。
+  - **软克隆引擎 (Soft Clone)**：针对 Chromium 浏览器和现代编辑器生成轻量级启动器，注入独立 `--user-data-dir` 与代理环境变量。
+- **18+ 款主流应用预置分身规则**：
+  - 即时通讯：微信 (WeChat)、QQ、Telegram、LINE、Slack、Discord、Skype。
+  - AI 客户端：ChatGPT (Codex)、Gemini、Antigravity、Antigravity IDE。
+  - 浏览器与开发工具：Google Chrome、Microsoft Edge、Firefox、Arc、Cursor、VS Code、Zed。
+- **完整 CLI 命令集**：
+  - `clone`：创建应用分身，支持自定义名称、输出目录及网络代理。
+  - `list`：Rich 表格查看已创建分身、策略类型、创建时间及代理状态。
+  - `update`：主应用升级后一键同步分身，保留全部聊天记录与配置数据。
+  - `remove`：安全卸载分身，支持可选清理数据目录。
+  - `recipe`：查看内置规则列表及本地自定义规则覆盖。
+  - `doctor`：自动化环境自检（检查 `codesign`、`xcode-select`、`PlistBuddy` 等工具链）。

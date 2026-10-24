@@ -1,0 +1,10 @@
+bundle_id: com.lemon.lvpro
+app_name: 剪映专业版
+strategy: hard_clone
+app_type: chromium
+strip_sandbox: true
+environment_injection:
+  HOME: '{{TWINSPACE_DATA_DIR}}/Home'
+  TMPDIR: '{{TWINSPACE_DATA_DIR}}/Tmp'
+symlink_whitelist:
+- Library/Keychains

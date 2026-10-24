@@ -1,0 +1,23 @@
+bundle_id: dev.zcode.app
+app_name: ZCode
+strategy: hard_clone
+app_type: electron
+injection_strategy: launcher
+seed_preferences: false
+launch_args: []
+environment_injection:
+  HOME: '{{TWINSPACE_DATA_DIR}}/Home'
+  TMPDIR: '{{TWINSPACE_DATA_DIR}}/Tmp/'
+  ZCODE_DESKTOP_APPLICATION_NAME: '{{TWINSPACE_CLONE_NAME}}'
+  ZCODE_DESKTOP_HOME_DIR: '{{TWINSPACE_DATA_DIR}}/Home'
+  ZCODE_DESKTOP_USER_DATA_DIR: '{{TWINSPACE_DATA_DIR}}/UserData'
+  ZCODE_DESKTOP_SESSION_DATA_DIR: '{{TWINSPACE_DATA_DIR}}/Session'
+  ZCODE_UPDATE_FEED_URL: 'http://127.0.0.1:47999/twinspace-disabled'
+  TWINSPACE_KEYCHAIN_PREFIX: '{{TWINSPACE_KEYCHAIN_PREFIX}}'
+  TWINSPACE_COCOA_HOME_HOOK: '1'
+  TWINSPACE_BROWSER_APP_PATH: '/Applications/Google Chrome.app'
+  TWINSPACE_BROWSER_DATA_DIR: '{{TWINSPACE_ENV_DIR}}/Browser'
+  TWINSPACE_OAUTH_SCHEMES: 'zcode'
+  TWINSPACE_OAUTH_URL_MARKERS: 'chat.z.ai,bigmodel.cn,z.ai'
+symlink_whitelist:
+- Library/Keychains

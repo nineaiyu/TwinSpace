@@ -1,0 +1,22 @@
+bundle_id: com.qodercn.app
+app_name: Qoder CN
+strategy: hard_clone
+app_type: electron
+injection_strategy: launcher
+seed_preferences: false
+launch_args:
+- --user-data-dir={{TWINSPACE_DATA_DIR}}/UserData
+environment_injection:
+  HOME: '{{TWINSPACE_DATA_DIR}}/Home'
+  TMPDIR: '{{TWINSPACE_DATA_DIR}}/Tmp/'
+  QODERCN_CONFIG_DIR: '{{TWINSPACE_DATA_DIR}}/Config'
+  QODERCN_CLI_HOME: '{{TWINSPACE_DATA_DIR}}/CLI'
+  QODER_LOG_DIR: '{{TWINSPACE_DATA_DIR}}/Logs'
+  TWINSPACE_KEYCHAIN_PREFIX: '{{TWINSPACE_KEYCHAIN_PREFIX}}'
+  TWINSPACE_COCOA_HOME_HOOK: '1'
+  TWINSPACE_BROWSER_APP_PATH: '/Applications/Google Chrome.app'
+  TWINSPACE_BROWSER_DATA_DIR: '{{TWINSPACE_ENV_DIR}}/Browser'
+  TWINSPACE_OAUTH_SCHEMES: 'qoder-cn'
+  TWINSPACE_OAUTH_URL_MARKERS: 'login,oauth,authorize,auth,sso,callback'
+symlink_whitelist:
+- Library/Keychains
