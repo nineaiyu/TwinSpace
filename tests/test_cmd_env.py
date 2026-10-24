@@ -6,6 +6,7 @@ from unittest.mock import patch
 from click.testing import CliRunner
 
 from twinspace.cli.main import cli
+from twinspace.core.environments import apps as apps_module
 from twinspace.core.environments.apps import EnvironmentApp
 from twinspace.core.environments.spec import EnvironmentAppSpec, EnvironmentSpec
 
@@ -91,7 +92,9 @@ def test_env_export_to_stdout():
 def test_env_create_dry_run(tmp_path):
     apps = [_app(tmp_path, "chrome", "Chrome"), _app(tmp_path, "zcode", "ZCode")]
     fake = FakeManager(apps=apps)
-    with patch("twinspace.cli.cmd_env._manager", return_value=fake):
+    with patch("twinspace.cli.cmd_env._manager", return_value=fake), patch.object(
+        apps_module, "KNOWN_APPS", tuple(apps)
+    ):
         result = CliRunner().invoke(
             cli,
             [
