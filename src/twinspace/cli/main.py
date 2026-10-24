@@ -22,6 +22,11 @@ console = Console()
 @click.version_option(__version__, "-v", "--version", message="%(prog)s %(version)s")
 def cli():
     """TwinSpace - macOS application cloning engine."""
+    # Probe the UI language once per invocation; without this every t() call
+    # re-runs system detection (config file + up to two `defaults read`).
+    from twinspace.core.i18n import detect_system_language, set_language
+
+    set_language(detect_system_language())
 
 
 cli.add_command(clone)

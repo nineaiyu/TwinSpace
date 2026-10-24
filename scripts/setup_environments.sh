@@ -41,13 +41,13 @@ if [[ ! -d "$chrome_app" ]]; then
 fi
 
 if [[ -n "${TWINSPACE_BIN:-}" ]]; then
-    atb=("$TWINSPACE_BIN")
+    twinspace_cmd=("$TWINSPACE_BIN")
 elif command -v twinspace >/dev/null 2>&1; then
-    atb=(twinspace)
+    twinspace_cmd=(twinspace)
 elif [[ -x "$repo_root/.venv/bin/twinspace" ]]; then
-    atb=("$repo_root/.venv/bin/twinspace")
+    twinspace_cmd=("$repo_root/.venv/bin/twinspace")
 else
-    atb=(python3 -m twinspace)
+    twinspace_cmd=(python3 -m twinspace)
 fi
 
 apps_dir="${TWINSPACE_APPS_DIR:-$HOME/TwinSpace/Apps}"
@@ -65,7 +65,7 @@ for env_name in "$@"; do
     else
         # Chrome owns <env>/Browser; every app clone is pointed at this exact
         # profile so its external links and OAuth windows use this env's cookies.
-        "${atb[@]}" clone "$chrome_app" \
+        "${twinspace_cmd[@]}" clone "$chrome_app" \
             --name "Chrome-$env_name" \
             --output-dir "$apps_dir" \
             --env-group "$env_name" \
@@ -93,7 +93,7 @@ for env_name in "$@"; do
             continue
         fi
 
-        "${atb[@]}" clone "$app_path" \
+        "${twinspace_cmd[@]}" clone "$app_path" \
             --name "$short_name-$env_name" \
             --output-dir "$apps_dir" \
             --env-group "$env_name" \

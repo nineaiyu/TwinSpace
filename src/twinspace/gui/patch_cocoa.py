@@ -317,7 +317,7 @@ if sys.platform == "darwin":
         from toga_cocoa.libs import NSImage, NSIndexSet
         from toga_cocoa.widgets.table import TogaTable
 
-        class ATBTable(TogaTable):
+        class TwinSpaceTable(TogaTable):
             @objc_method
             def tableView_didClickTableColumn_(self, tableView, tableColumn) -> None:
                 try:
@@ -409,9 +409,9 @@ if sys.platform == "darwin":
                 except Exception:
                     pass
     except Exception:
-        ATBTable = None
+        TwinSpaceTable = None
 else:
-    ATBTable = None
+    TwinSpaceTable = None
 
 
 def patch_cocoa_widgets() -> None:
@@ -498,7 +498,7 @@ def patch_cocoa_widgets() -> None:
         CocoaSelection.set_font = _patched_selection_set_font
 
         # 5. Table & IconView Patch
-        if ATBTable is not None:
+        if TwinSpaceTable is not None:
             try:
                 from toga_cocoa.libs import (
                     SEL,
@@ -514,7 +514,7 @@ def patch_cocoa_widgets() -> None:
                     self.native.autohidesScrollers = False
                     self.native.borderType = NSBezelBorder
 
-                    self.native_table = ATBTable.alloc().init()
+                    self.native_table = TwinSpaceTable.alloc().init()
                     self.native_table.interface = self.interface
                     self.native_table.impl = self
                     self.native_table.columnAutoresizingStyle = (

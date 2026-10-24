@@ -127,7 +127,7 @@ class LogsView(toga.Box):
                 if query:
                     self.top_bar.update_title(t("logs_title_filtered", count=count, total=total))
                 else:
-                    self.top_bar.update_title(t("logs_title", total=total))
+                    self.top_bar.update_title(t("logs_title_total", total=total))
         except Exception:
             pass
 

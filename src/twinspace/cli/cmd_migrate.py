@@ -67,7 +67,7 @@ def _rewrite_config_base(config_file: Path, old_root: Path, new_root: Path) -> N
     "--to",
     "target_dir",
     type=click.Path(path_type=Path, file_okay=False),
-    default=Path.home() / "TwinSpace",
+    default=None,
     show_default=True,
     help="New TwinSpace data root.",
 )
@@ -86,6 +86,12 @@ def migrate(source_dir: Path, target_dir: Path, move: bool, yes: bool) -> None:
     to be rebuilt with `twinspace env update`.
     """
     source = Path(source_dir).expanduser()
+    if target_dir is None:
+        # Follow the configured TwinSpace root (TWINSPACE_HOME / base_dir)
+        # instead of assuming ~/TwinSpace.
+        from twinspace.core.config import DEFAULT_TWINSPACE_DIR
+
+        target_dir = DEFAULT_TWINSPACE_DIR
     target = Path(target_dir).expanduser()
     if not source.is_dir():
         console.print(f"[red]Error:[/red] legacy data root not found: {source}")

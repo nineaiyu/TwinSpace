@@ -259,7 +259,7 @@ class RecipeListView(toga.Box):
         body.add(toga.Label(f"Bundle ID: {recipe.bundle_id}", style=Pack(font_size=12.5, color=Theme.TEXT_MUTED, margin_bottom=3)))
         is_soft = recipe.strategy == "soft_clone"
         strat_badge = t("card_strategy_soft") if is_soft else t("card_strategy_hard")
-        body.add(toga.Label(f"策略: {strat_badge}", style=Pack(font_size=12, color=Theme.TEXT_TERTIARY)))
+        body.add(toga.Label(f"{t('list_col_strategy')}: {strat_badge}", style=Pack(font_size=12, color=Theme.TEXT_TERTIARY)))
         card.add(body)
 
         # Footer

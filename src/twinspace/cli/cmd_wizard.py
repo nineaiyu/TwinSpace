@@ -13,7 +13,6 @@ from twinspace.core.config import DEFAULT_APPS_DIR, DEFAULT_DATA_DIR
 from twinspace.core.engines import HardCloneEngine, SoftCloneEngine
 from twinspace.core.i18n import t
 from twinspace.core.state import CloneRecord, StateManager
-from twinspace.executor.runner import CloneError
 from twinspace.recipes import RecipeLoader, supports_data_dir
 from twinspace.validation import validate_clone_name, validate_display_name
 
@@ -48,7 +47,7 @@ def wizard() -> None:
 
     # 3. Clone name
     out_path = DEFAULT_APPS_DIR
-    clone_name, num = AppInspector.next_available_name(info.app_name, out_path)
+    clone_name = AppInspector.next_available_name(info.app_name, out_path)[0]
     while True:
         clone_name = click.prompt(t("wizard_prompt_clone_name"), default=clone_name)
         try:
@@ -208,6 +207,6 @@ def wizard() -> None:
         StateManager().add(record)
 
         console.print(t("clone_success", dest_path=dest_path), soft_wrap=True)
-    except (CloneError, Exception) as e:
+    except Exception as e:
         console.print(t("clone_error", error=e), soft_wrap=True)
         sys.exit(1)

@@ -393,19 +393,19 @@ twinspace doctor
 
 ## 🏷️ Semantic Version Management
 
-The project adheres to semantic versioning `x.y.z` (current version: `3.0.0`) and provides a dedicated version management script at `scripts/manage_version.py`:
+The project adheres to semantic versioning `x.y.z` (see `pyproject.toml` for the current version) and provides a dedicated version management script at `scripts/manage_version.py`:
 
 ```bash
 # 1. Check version consistency across configuration files
 python scripts/manage_version.py --show
 
-# 2. Bump semantic version (patch: 3.0.0 -> 3.0.1, minor: 3.0.0 -> 3.1.0, major: 3.0.0 -> 4.0.0)
+# 2. Bump semantic version (patch: 1.0.0 -> 1.0.1, minor: 1.0.0 -> 1.1.0, major: 1.0.0 -> 2.0.0)
 python scripts/manage_version.py --bump patch
 python scripts/manage_version.py --bump minor
 python scripts/manage_version.py --bump major
 
 # 3. Set an explicit version
-python scripts/manage_version.py 3.0.0
+python scripts/manage_version.py 1.0.0
 
 # 4. Preview changes without writing to disk
 python scripts/manage_version.py --bump patch --dry-run
@@ -423,7 +423,7 @@ The project includes automated build scripts to package both the CLI and GUI int
 # 1. Build CLI standalone binary (dist/TwinSpaceCli)
 bash scripts/build_cli.sh
 
-# 2. Build GUI DMG installer (dist/TwinSpace-3.0.0-arm64.dmg)
+# 2. Build GUI DMG installer (dist/TwinSpace-<version>-arm64.dmg)
 bash scripts/build_gui.sh
 ```
 

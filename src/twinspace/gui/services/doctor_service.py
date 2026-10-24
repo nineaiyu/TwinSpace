@@ -28,7 +28,7 @@ class DoctorService:
         def _check() -> bool:
             try:
                 out = subprocess.check_output(
-                    "xcode-select -p", shell=True, stderr=subprocess.STDOUT, text=True
+                    ["/usr/bin/xcode-select", "-p"], stderr=subprocess.STDOUT, text=True
                 ).strip()
                 return bool(out and (Path(out).exists() or out.startswith("/")))
             except Exception as e:
@@ -93,7 +93,7 @@ class DoctorService:
 
             # 2. xcode-select
             try:
-                out = subprocess.check_output("xcode-select -p", shell=True, stderr=subprocess.STDOUT, text=True).strip()
+                out = subprocess.check_output(["/usr/bin/xcode-select", "-p"], stderr=subprocess.STDOUT, text=True).strip()
                 if out and (Path(out).exists() or out.startswith("/")):
                     items.append(DoctorCheckItem(
                         name="xcode-select",

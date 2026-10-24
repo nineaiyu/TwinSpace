@@ -35,6 +35,11 @@ class CloneManager:
         self._busy_clones: set[str] = set()
         self._busy_lock = threading.Lock()
 
+    @property
+    def busy_clones(self) -> set[str]:
+        """Names of clones currently being created, updated or removed."""
+        return self._busy_clones
+
     def list_clones(self) -> list[CloneRecord]:
         return self.state_manager.load()
 

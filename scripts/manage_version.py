@@ -202,7 +202,7 @@ def get_build_artifact_targets(root: Path = PROJECT_ROOT) -> list[Any]:
 
 
 def get_release_note_targets(root: Path = PROJECT_ROOT) -> list[ReleaseNoteTarget]:
-    """Return list of 9 multilingual release notes in docs/release/."""
+    """Return the multilingual release notes in docs/release/."""
     release_dir = root / "docs" / "release"
     return [
         ReleaseNoteTarget(filename, lang, release_dir / filename)
@@ -211,7 +211,7 @@ def get_release_note_targets(root: Path = PROJECT_ROOT) -> list[ReleaseNoteTarge
 
 
 def check_release_notes(version_str: str, root: Path = PROJECT_ROOT) -> tuple[bool, list[str]]:
-    """Check if all 9 release notes files contain the specified version entry."""
+    """Check if all release notes files contain the specified version entry."""
     targets = get_release_note_targets(root)
     missing = []
     for t in targets:

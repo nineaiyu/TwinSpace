@@ -15,6 +15,11 @@ from twinspace.validation import escape_double_quoted
 logger = get_logger("core.engines")
 
 
+def _escape_c_string(value: str) -> str:
+    """Escape a string for safe embedding inside a C string literal."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 class CloneEngine:
     """Base class providing shared helper methods for clone engines."""
 
@@ -593,7 +598,8 @@ static void twinspace_env_init(void) {{
 {setenv_block}
 }}
 """
-        py_insert_dylib = f"""python3 -c "
+        py_insert_dylib = f"""TWINSPACE_INJECT_BIN={shlex.quote(clean_bin)} python3 -c "
+import os
 import struct
 import sys
 
@@ -642,7 +648,7 @@ def insert_dylib(macho_path, dylib_path):
     with open(macho_path, 'wb') as fp:
         fp.write(data)
 
-raw_bin = {clean_bin!r}
+raw_bin = os.environ['TWINSPACE_INJECT_BIN']
 insert_dylib(raw_bin, '@executable_path/../Frameworks/libtwinspace_env.dylib')
 "
 """
@@ -1260,7 +1266,6 @@ class SoftCloneEngine(CloneEngine):
 
         task.actual_injection_strategy = "launcher"
 
-        shlex.quote(str(task.source.executable))
         src_plist = shlex.quote(str(task.source.path / "Contents" / "Info.plist"))
         dst_app = shlex.quote(str(task.dest_path))
         dst_mac = shlex.quote(str(task.dest_path / "Contents" / "MacOS"))
@@ -1282,13 +1287,12 @@ class SoftCloneEngine(CloneEngine):
 
         args_list = cls._combine_launch_args(valid_launch_args, lang_args, task)
 
-        f" {' '.join(args_list)}" if args_list else ""
 
         symlink_snippet = cls._build_symlink_whitelist_snippet(task)
         pref_seeding = cls._build_preference_seeding_snippet(task)
         proxy_env = cls._build_proxy_env(task)
 
-        target_bin_statement = f'    char *real_bin = "{str(task.source.executable)}";'
+        target_bin_statement = f'    char *real_bin = "{_escape_c_string(str(task.source.executable))}";'
         c_launcher_cmd = cls._build_c_launcher_compile_cmd(
             dst_wrapper=wrapper,
             target_bin_statement=target_bin_statement,
@@ -1359,9 +1363,10 @@ class HardCloneEngine(CloneEngine):
         dest_quoted = shlex.quote(str(dest_path))
         return textwrap.dedent(f"""\
             # Patch ProcessSingleton in embedded frameworks if present (e.g. Feishu/Lark, ChatGPT)
-            python3 -c '
+            # dest_path travels via an env var so its quoting never collides with the nested python -c.
+            TWINSPACE_PATCH_TARGET={dest_quoted} python3 -c '
 import os, glob, struct
-frameworks_dir = os.path.join({dest_quoted}, "Contents", "Frameworks")
+frameworks_dir = os.path.join(os.environ["TWINSPACE_PATCH_TARGET"], "Contents", "Frameworks")
 target_str = b"Failed to create a ProcessSingleton for your profile directory."
 if os.path.isdir(frameworks_dir):
     for root, _, files in os.walk(frameworks_dir):
@@ -1428,9 +1433,9 @@ if os.path.isdir(frameworks_dir):
         dest_quoted = shlex.quote(str(dest_path))
         return textwrap.dedent(f"""\
             # Patch CEF framework no_sandbox and bypass child process Seatbelt sandbox if present
-            python3 -c '
+            TWINSPACE_PATCH_TARGET={dest_quoted} python3 -c '
 import os
-dst = {dest_quoted}
+dst = os.environ["TWINSPACE_PATCH_TARGET"]
 cef_path = os.path.join(dst, "Contents", "Frameworks", "Chromium Embedded Framework.framework", "Versions", "A", "Chromium Embedded Framework")
 if not os.path.exists(cef_path):
     cef_path = os.path.join(dst, "Contents", "Frameworks", "Chromium Embedded Framework.framework", "Chromium Embedded Framework")
@@ -1604,7 +1609,6 @@ if os.path.exists(cef_path) and not os.path.islink(cef_path):
         if not is_lark:
             return ""
 
-        shlex.quote(str(task.dest_path))
         dst_frameworks = shlex.quote(str(task.dest_path / "Contents" / "Frameworks"))
         rel_plist = getattr(task.source, "relative_plist_path", Path("Contents/Info.plist"))
         dst_plist = shlex.quote(str(task.dest_path / rel_plist))
@@ -1638,7 +1642,6 @@ LARK_HOOK_EOF
         if not is_chatgpt:
             return ""
 
-        shlex.quote(str(task.dest_path))
         dst_frameworks = shlex.quote(str(task.dest_path / "Contents" / "Frameworks"))
         rel_plist = getattr(task.source, "relative_plist_path", Path("Contents/Info.plist"))
         dst_plist = shlex.quote(str(task.dest_path / rel_plist))
@@ -1658,11 +1661,6 @@ LARK_HOOK_EOF
 CHATGPT_HOOK_EOF
             chmod +x {dst_frameworks}/libtwinspace_chatgpt_hook.dylib
         """).strip() + "\n"
-
-    @classmethod
-    def _build_symlink_whitelist_snippet(cls, task: CloneTask) -> str:
-        """Return a shell snippet that creates symlinks for items in symlink_whitelist."""
-        return CloneEngine._build_symlink_whitelist_snippet(task)
 
     @staticmethod
     def patch_framework_singletons(dest_path: Path) -> bool:
@@ -1922,7 +1920,7 @@ CHATGPT_HOOK_EOF
             # Stage moves so a clone named like the old launcher can take its filename.
             staged = []
             for old, target in moves.items():
-                fd, temporary = tempfile.mkstemp(prefix=".atb-process-", dir=old.parent)
+                fd, temporary = tempfile.mkstemp(prefix=".twinspace-process-", dir=old.parent)
                 os.close(fd)
                 old.rename(temporary)
                 staged.append((old, Path(temporary), target))
@@ -1979,12 +1977,20 @@ CHATGPT_HOOK_EOF
 
         # Fallback environment isolation if no valid launch args isolate data dir and no env vars are set
         effective_env = dict(task.recipe.environment_injection)
+        # Keep pre-3.0 ATB_* recipe overrides working alongside the new names
+        # (mirrors _resolve_env so hard clones detect isolation keys too).
+        for key, value in list(effective_env.items()):
+            if key.startswith("ATB_"):
+                effective_env.setdefault("TWINSPACE_" + key[4:], value)
         has_data_in_args = any(
             "{{TWINSPACE_DATA_DIR}}" in arg or "{{TWINSPACE_ENV_DIR}}" in arg
             for arg in valid_launch_args
         )
         has_data_in_env = any(
-            "{{TWINSPACE_DATA_DIR}}" in value or "{{TWINSPACE_ENV_DIR}}" in value
+            "{{TWINSPACE_DATA_DIR}}" in value
+            or "{{TWINSPACE_ENV_DIR}}" in value
+            or "{{ATB_DATA_DIR}}" in value
+            or "{{ATB_ENV_DIR}}" in value
             for value in effective_env.values()
         )
         if not has_data_in_args and not has_data_in_env:
@@ -2054,18 +2060,18 @@ CHATGPT_HOOK_EOF
             use_dylib = True
         else:  # "auto"
             if not is_chromium and not valid_launch_args:
-                if source_bin and source_bin.exists():
+                if source_bin:
                     safe, reason = cls._check_macho_injection_headroom(source_bin)
-                    if safe:
-                        use_dylib = True
-                    else:
-                        logger.warning(
-                            f"Mach-O header padding insufficient for dylib injection ({reason}). "
-                            "Gracefully falling back to native C launcher."
-                        )
-                        use_dylib = False
                 else:
+                    safe, reason = False, "source executable unavailable"
+                if safe:
                     use_dylib = True
+                else:
+                    logger.warning(
+                        f"Mach-O dylib injection not verified ({reason}); "
+                        "falling back to native C launcher."
+                    )
+                    use_dylib = False
             else:
                 use_dylib = False
 
@@ -2082,6 +2088,7 @@ CHATGPT_HOOK_EOF
                 bin_orig=bin_orig,
             )
         else:
+            orig_bin_c = _escape_c_string(orig_bin_name).replace("%", "%%")
             target_bin_statement = f"""    char exec_path[PATH_MAX];
     uint32_t size = sizeof(exec_path);
     if (_NSGetExecutablePath(exec_path, &size) != 0) {{
@@ -2089,13 +2096,8 @@ CHATGPT_HOOK_EOF
     }}
     char *dir = dirname(exec_path);
     char real_bin[PATH_MAX];
-    snprintf(real_bin, sizeof(real_bin), "%s/{orig_bin_name}.bin", dir);"""
+    snprintf(real_bin, sizeof(real_bin), "%s/{orig_bin_c}.bin", dir);"""
 
-            is_lark = (
-                getattr(task.recipe, "patch_lark_isolation", False)
-                or getattr(task.source, "bundle_id", "") == "com.electron.lark"
-                or getattr(task, "new_bundle_id", "").startswith("com.electron.lark")
-            )
             is_chatgpt = (
                 getattr(task.recipe, "patch_chatgpt_isolation", False)
                 or getattr(task.source, "bundle_id", "") in ("com.openai.codex", "com.openai.chat")
@@ -2127,20 +2129,6 @@ CHATGPT_HOOK_EOF
                 extra_hook_dylib_rel_paths=extra_hook_paths,
             )
             exec_prep_cmd = f"mv {bin_orig} {bin_bak}\n{c_launcher_cmd}"
-
-        # Check if Feishu/Lark or ChatGPT isolation is active
-        is_lark = (
-            getattr(task.recipe, "patch_lark_isolation", False)
-            or getattr(task.source, "bundle_id", "") == "com.electron.lark"
-            or getattr(task, "new_bundle_id", "").startswith("com.electron.lark")
-        )
-        is_chatgpt = (
-            getattr(task.recipe, "patch_chatgpt_isolation", False)
-            or getattr(task.source, "bundle_id", "") in ("com.openai.codex", "com.openai.chat")
-            or getattr(task.recipe, "bundle_id", "") in ("com.openai.codex", "com.openai.chat")
-            or getattr(task, "new_bundle_id", "").startswith("com.openai.codex")
-            or getattr(task, "new_bundle_id", "").startswith("com.openai.chat")
-        )
 
         # Build framework singleton patcher command ONLY when explicitly enabled by recipe
         # and NOT for Feishu/Lark or ChatGPT which use dedicated Cocoa/POSIX hook isolation.
@@ -2208,7 +2196,7 @@ done
             codesign_cmds = (
                 f'ent_plist=$(mktemp "${{TMPDIR:-/tmp}}/twinspace_ent_XXXXXX")\n'
                 f'trap \'rm -f "$ent_plist"\' EXIT INT TERM\n'
-                f'codesign -d --entitlements - --xml {src} > "$ent_plist" 2>/dev/null || true\n'
+                f'codesign -d --entitlements :- --xml {src} > "$ent_plist" 2>/dev/null || codesign -d --entitlements :- {src} > "$ent_plist" 2>/dev/null || true\n'
                 f'if [ -s "$ent_plist" ]; then\n'
                 f'    /usr/libexec/PlistBuddy -c "Delete :com.apple.security.app-sandbox" "$ent_plist" 2>/dev/null || true\n'
                 f'    /usr/libexec/PlistBuddy -c "Delete :com.apple.security.application-groups" "$ent_plist" 2>/dev/null || true\n'

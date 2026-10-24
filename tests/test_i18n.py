@@ -290,12 +290,10 @@ def test_settings_storage_labels_all_languages():
     test_path = "/Users/testuser/TwinSpace"
     for lang in SUPPORTED_LANGUAGES:
         set_language(lang)
-        root_txt = t("settings_label_root_dir", path=test_path)
         apps_txt = t("settings_label_apps_dir", path=test_path + "/apps")
         data_txt = t("settings_label_data_dir", path=test_path + "/data")
 
-        assert test_path in root_txt
-        assert "{path}" not in root_txt and "{dir}" not in root_txt
+        assert test_path in apps_txt
         assert f"{test_path}/apps" in apps_txt
         assert "{path}" not in apps_txt and "{dir}" not in apps_txt
         assert f"{test_path}/data" in data_txt

@@ -7,7 +7,6 @@
    timestamp service is temporarily unavailable or encounters network timeouts.
 """
 
-import os
 import shutil
 import subprocess
 import sys

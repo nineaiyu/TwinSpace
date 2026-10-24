@@ -121,10 +121,7 @@ def restore_backup(
     with tempfile.TemporaryDirectory(prefix="twinspace-restore-") as temp_dir:
         root = Path(temp_dir)
         with tarfile.open(Path(archive_path).expanduser(), "r:gz") as archive:
-            try:
-                archive.extractall(root, filter="data")
-            except TypeError:  # Python < 3.12 compatibility
-                archive.extractall(root)
+            archive.extractall(root, filter="data")
 
         total = len(apps)
         for index, item in enumerate(apps, start=1):

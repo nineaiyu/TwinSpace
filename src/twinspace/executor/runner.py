@@ -49,9 +49,10 @@ class Runner:
         import os
         import tempfile
 
-        # If script is multiline, write to a secure temporary script file to avoid
-        # AppleScript multiline syntax errors and command-line length limits.
-        if "\n" in script.strip():
+        # Always run admin scripts from a secure temporary file: inlining an
+        # arbitrary shell script into an AppleScript string literal cannot be
+        # escaped reliably ($, backticks, quotes all collide).
+        if True:
             with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
                 f.write(script)
                 temp_path = f.name

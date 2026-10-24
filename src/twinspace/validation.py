@@ -30,6 +30,22 @@ _FORBIDDEN_CTRL_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
 _PROXY_FORBIDDEN_PATTERN = re.compile(r"""["'`$\\\s\x00-\x1f\x7f;&|<>()]""")
 
 
+def validate_executable_name(name: str) -> str:
+    """Validate CFBundleExecutable from an untrusted Info.plist.
+
+    The value flows into generated C launchers (string literals and printf
+    format strings) and shell paths, so anything beyond a plain file name is
+    treated as malformed/malicious metadata and rejected before cloning.
+    """
+    if not name or name in (".", ".."):
+        raise ValueError("Invalid CFBundleExecutable: empty or reserved name")
+    if "/" in name or "\\" in name:
+        raise ValueError("Invalid CFBundleExecutable: path separators are not allowed")
+    if any(ch in name for ch in ('"', "'", "%", "$", "`")) or any(ord(ch) < 32 for ch in name):
+        raise ValueError(f"Invalid CFBundleExecutable: unsupported characters in {name!r}")
+    return name
+
+
 def validate_bundle_id(value: str, *, field: str = "bundle_id") -> str:
     """Validate a bundle identifier; return it unchanged or raise ValueError.
 

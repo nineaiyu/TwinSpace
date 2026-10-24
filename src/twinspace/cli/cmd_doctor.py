@@ -18,9 +18,9 @@ logger = get_logger("cli.doctor")
 def doctor():
     """Check environment prerequisites and directory permissions."""
     checks = {
-        "codesign": "which codesign",
-        "xcode-select": "xcode-select -p",
-        "PlistBuddy": "ls /usr/libexec/PlistBuddy",
+        "codesign": ["/usr/bin/which", "codesign"],
+        "xcode-select": ["/usr/bin/xcode-select", "-p"],
+        "PlistBuddy": ["/bin/ls", "/usr/libexec/PlistBuddy"],
     }
     all_passed = True
 
@@ -28,7 +28,7 @@ def doctor():
     console.print(t("doctor_running_checks"))
     for name, cmd in checks.items():
         try:
-            out = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT, text=True).strip()
+            out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True).strip()
             console.print(f"[green]✓ {name}[/green]: {out}")
             logger.info(f"Check passed: {name} -> {out}")
         except subprocess.CalledProcessError:

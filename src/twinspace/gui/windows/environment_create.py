@@ -71,7 +71,7 @@ class EnvironmentCreateWindow(toga.Window):
         )
 
         self.label_hint = WrappingLabel(
-            t("environment_exists_hint") if self._existing_env else "",
+            t("environment_existing_hint") if self._existing_env else "",
             style=Pack(font_size=11.5, color=Theme.TEXT_MUTED, margin=(2, 0, 6, 0)),
         )
 
@@ -230,7 +230,7 @@ class EnvironmentCreateWindow(toga.Window):
         name = widget.value.strip()
         existing = self.environment_service.environment(name) if name else None
         if existing:
-            self.label_hint.text = t("environment_exists_hint")
+            self.label_hint.text = t("environment_existing_hint")
         else:
             self.label_hint.text = ""
 

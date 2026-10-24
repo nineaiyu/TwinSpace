@@ -2,6 +2,26 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.0.1] - 2026-10-25
+
+### 🔒 Security & Reliability Hardening
+- Fixed shell-quoting collisions in generated clone scripts: embedded Mach-O patch helpers now receive target paths via environment variables, so app paths containing spaces no longer silently skip patches, and special characters can no longer break out of the generated commands.
+- Untrusted `CFBundleExecutable` metadata is now validated and escaped before it reaches generated C launchers and printf format strings.
+- Admin-elevated scripts always run from a secure temporary file instead of being inlined into an AppleScript string.
+- Proxy passwords are now fed to the macOS Keychain via stdin (`security -i`) instead of command-line arguments, keeping secrets out of the process list.
+
+### 🐛 Bug Fixes
+- Clone records with unknown fields are preserved (with a warning) instead of being silently dropped from `clones.yaml`.
+- Logs view title now shows the line count again; the "environment already exists" hint no longer renders its raw key name.
+- Automatic updates no longer silently fall back to an arm64 package on Intel Macs, and prerelease versions (e.g. `1.2.0-rc1`) compare correctly.
+- Hard clones now honor legacy `ATB_*` recipe keys for isolation detection, sandbox entitlement extraction works on older macOS, and the sandbox entitlement check no longer misreports when a neighboring entitlement is `true`.
+- `twinspace migrate` respects `TWINSPACE_HOME` / configured base directory; the release workflow now publishes `latest.json` so in-app update checks work.
+
+### ✨ Improvements
+- `twinspace env` commands are fully localized in Simplified Chinese and English.
+- The CLI probes the system language once per invocation instead of on every message.
+- Removed 28 dead translation keys, legacy `ATBTable`/`atb` naming, dead statements in the clone engine, and hardened `doctor` checks to use argument lists.
+
 ## [v1.0.0] - 2026-10-24
 
 ### 🎉 First Standalone Open-Source Release

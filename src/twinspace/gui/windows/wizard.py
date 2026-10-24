@@ -91,12 +91,12 @@ class WizardWindow(toga.Window):
         self._display_name_customized = False
         self._syncing_name = False
         self.input_clone_name = toga.TextInput(
-            placeholder="e.g. WeChat2",
+            placeholder=t("wizard_placeholder_clone_name"),
             on_change=self._on_clone_name_change,
             style=Pack(flex=1, font_size=13.5),
         )
         self.input_display_name = toga.TextInput(
-            placeholder="Display name in Dock/Finder",
+            placeholder=t("wizard_placeholder_display_name"),
             on_change=self._on_display_name_change,
             style=Pack(flex=1, font_size=13.5),
         )
@@ -454,7 +454,7 @@ class WizardWindow(toga.Window):
                 self.app_info = AppInspector.inspect(path_str)
             except Exception as e:
                 # Fallback probe or show error
-                await self.error_dialog(t("dialog_error_title"), f"Failed to inspect app: {e}")
+                await self.error_dialog(t("dialog_error_title"), t("wizard_err_inspect_failed", error=e))
                 return
 
             if getattr(self.app_info, "is_ios_app", False):

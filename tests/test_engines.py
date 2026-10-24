@@ -278,7 +278,8 @@ class TestSoftCloneEngine:
 
 class TestHardCloneEngine:
     def test_hard_clone_basic_no_strip_sandbox(self, sample_task):
-        with patch("twinspace.executor.runner.Runner.run") as mock_run:
+        with patch.object(HardCloneEngine, "_check_macho_injection_headroom", return_value=(True, "")), \
+             patch("twinspace.executor.runner.Runner.run") as mock_run:
             HardCloneEngine.execute(sample_task, needs_admin=False)
             mock_run.assert_called_once()
             script, needs_admin = mock_run.call_args[0]
@@ -305,7 +306,8 @@ class TestHardCloneEngine:
         """Verify dylib injection uses @executable_path and handles Frameworks/ld fallback for WeChat 4.x."""
         sample_task.recipe.launch_args = []
         sample_task.recipe.app_type = "cocoa"
-        with patch("twinspace.executor.runner.Runner.run") as mock_run:
+        with patch.object(HardCloneEngine, "_check_macho_injection_headroom", return_value=(True, "")), \
+             patch("twinspace.executor.runner.Runner.run") as mock_run:
             HardCloneEngine.execute(sample_task, needs_admin=False)
             mock_run.assert_called_once()
             script, _ = mock_run.call_args[0]
@@ -340,12 +342,13 @@ class TestHardCloneEngine:
 
     def test_hard_clone_with_strip_sandbox(self, sample_task):
         sample_task.recipe.strip_sandbox = True
-        with patch("twinspace.executor.runner.Runner.run") as mock_run:
+        with patch.object(HardCloneEngine, "_check_macho_injection_headroom", return_value=(True, "")), \
+             patch("twinspace.executor.runner.Runner.run") as mock_run:
             HardCloneEngine.execute(sample_task, needs_admin=False)
             mock_run.assert_called_once()
             script, _ = mock_run.call_args[0]
             assert 'ent_plist=$(mktemp "${TMPDIR:-/tmp}/twinspace_ent_XXXXXX")' in script
-            assert 'codesign -d --entitlements - --xml /Applications/TestApp.app > "$ent_plist" 2>/dev/null || true' in script
+            assert 'codesign -d --entitlements :- --xml /Applications/TestApp.app > "$ent_plist" 2>/dev/null || codesign -d --entitlements :- /Applications/TestApp.app > "$ent_plist" 2>/dev/null || true' in script
             assert 'if [ -s "$ent_plist" ]; then' in script
             assert '/usr/libexec/PlistBuddy -c "Delete :com.apple.security.app-sandbox" "$ent_plist" 2>/dev/null || true' in script
             assert 'codesign --force --deep --sign - --entitlements "$ent_plist" /Applications/TestApp2.app' in script
@@ -392,7 +395,8 @@ class TestHardCloneEngine:
             "HOME": "{{TWINSPACE_DATA_DIR}}/Home",
             "TMPDIR": "{{TWINSPACE_DATA_DIR}}/Tmp",
         }
-        with patch("twinspace.executor.runner.Runner.run") as mock_run:
+        with patch.object(HardCloneEngine, "_check_macho_injection_headroom", return_value=(True, "")), \
+             patch("twinspace.executor.runner.Runner.run") as mock_run:
             HardCloneEngine.execute(sample_task, needs_admin=False)
             mock_run.assert_called_once()
             script, _ = mock_run.call_args[0]
@@ -401,6 +405,22 @@ class TestHardCloneEngine:
             assert 'setenv("HOME", "/Users/test/Library/Application Support/TestApp2/Home", 1);' in script
             assert 'setenv("TMPDIR", "/Users/test/Library/Application Support/TestApp2/Tmp", 1);' in script
             assert "mv /Applications/TestApp2.app/Contents/MacOS/TestApp /Applications/TestApp2.app/Contents/MacOS/TestApp.bin" not in script
+
+    def test_hard_clone_auto_falls_back_to_launcher_when_headroom_unverified(self, sample_task):
+        """Without a verifiable source binary the engine must not inject a dylib blindly."""
+        sample_task.recipe.launch_args = []
+        sample_task.recipe.app_type = "cocoa"
+        sample_task.recipe.environment_injection = {
+            "HOME": "{{TWINSPACE_DATA_DIR}}/Home",
+        }
+        with patch.object(
+            HardCloneEngine, "_check_macho_injection_headroom", return_value=(False, "File does not exist")
+        ) as mock_headroom, patch("twinspace.executor.runner.Runner.run") as mock_run:
+            HardCloneEngine.execute(sample_task, needs_admin=False)
+            mock_headroom.assert_called_once()
+            script, _ = mock_run.call_args[0]
+            assert "libtwinspace_env.dylib" not in script
+            assert "clang -O2 -x c -" in script
 
     def test_hard_clone_failure_cleans_up_and_reraises(self, sample_task):
 

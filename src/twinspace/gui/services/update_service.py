@@ -31,12 +31,19 @@ class UpdateInfo:
 
 def _parse_version(v: str) -> tuple[int, ...]:
     cleaned = v.strip().lstrip("v")
+    # "1.2.3-rc1" -> (1, 2, 3, -1): sorts below the final "1.2.3" but above
+    # any earlier release, instead of the suffix silently collapsing to 0.
+    prerelease = -1 if "-" in cleaned else 0
+    cleaned = cleaned.split("-", 1)[0]
     parts = []
     for x in cleaned.split("."):
         try:
             parts.append(int(x))
         except ValueError:
             parts.append(0)
+    if len(parts) < 3:
+        parts += [0] * (3 - len(parts))
+    parts.append(prerelease)
     return tuple(parts)
 
 
@@ -122,7 +129,12 @@ class UpdateService:
             if remote_ver > curr_ver:
                 platforms = data.get("platforms", {})
                 plat_key = self._get_platform_key()
-                platform_info = platforms.get(plat_key) or platforms.get("darwin-aarch64", {})
+                platform_info = platforms.get(plat_key)
+                if not platform_info:
+                    # Never fall back to another architecture's package: an Intel
+                    # host silently downloading an arm64 DMG would install an app
+                    # that cannot launch.
+                    raise RuntimeError(f"No update package published for {plat_key}")
 
                 download_url = platform_info.get("url", "")
                 checksum = platform_info.get("checksum", "").strip()

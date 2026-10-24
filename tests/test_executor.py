@@ -32,15 +32,18 @@ def test_runner_run_as_admin_dispatch():
 
 
 def test_runner_run_as_admin_escapes_and_calls_osascript():
+    # Single-line scripts also run from a temp file: the script body itself
+    # must never be inlined into the AppleScript string literal.
     with patch("subprocess.check_output", return_value="mocked osascript output") as mock_subp:
-        out = Runner._run_as_admin('echo "hello \\ world"')
+        out = Runner._run_as_admin('echo "hello \\ world" && rm -rf $HOME`id`')
         assert out == "mocked osascript output"
         mock_subp.assert_called_once()
         args, kwargs = mock_subp.call_args
         cmd = args[0]
         assert cmd[0] == "/usr/bin/osascript"
         assert cmd[1] == "-e"
-        assert 'do shell script "echo \\"hello \\\\ world\\"" with administrator privileges' == cmd[2]
+        assert 'do shell script "/bin/bash' in cmd[2]
+        assert "hello" not in cmd[2]  # script content stays out of the AppleScript line
 
 
 def test_runner_run_as_admin_failure_raises_clone_error():

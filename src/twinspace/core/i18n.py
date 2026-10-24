@@ -55,6 +55,18 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "[bold red]Error: Path does not exist or is not a .app application, please try again.[/bold red]",
         "zh": "[bold red]错误: 路径不存在或不是 .app 应用，请重新输入。[/bold red]",
     },
+    "wizard_placeholder_clone_name": {
+        "en": "e.g. WeChat2",
+        "zh": "如 WeChat2",
+    },
+    "wizard_placeholder_display_name": {
+        "en": "Display name in Dock/Finder",
+        "zh": "Dock/Finder 显示名称",
+    },
+    "wizard_err_inspect_failed": {
+        "en": "Failed to inspect app: {error}",
+        "zh": "检测应用失败: {error}",
+    },
     "wizard_detecting_app": {
         "en": "\nDetecting application...",
         "zh": "\n检测应用...",
@@ -138,10 +150,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "wizard_confirm_strategy": {
         "en": "  Strategy: {strategy}",
         "zh": "  策略: {strategy}",
-    },
-    "wizard_proxy_configured": {
-        "en": "Configured",
-        "zh": "已配置",
     },
     "wizard_proxy_not_configured": {
         "en": "Not configured",
@@ -239,10 +247,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Destination",
         "zh": "存放路径",
     },
-    "list_proxy_enabled": {
-        "en": "Enabled",
-        "zh": "已启用",
-    },
     "list_proxy_disabled": {
         "en": "Disabled",
         "zh": "未开启",
@@ -250,10 +254,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "remove_err_not_found": {
         "en": "[red]Error:[/red] Clone '{clone_name}' not found.",
         "zh": "[red]错误:[/red] 未找到分身 '{clone_name}'。",
-    },
-    "remove_confirm_data": {
-        "en": "Also delete data directory {data_dir}? This is irreversible.",
-        "zh": "是否同时删除数据目录 {data_dir}？此操作不可逆。",
     },
     "remove_prompt_delete_data": {
         "en": "Also delete data directory {data_dir}?",
@@ -555,10 +555,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Also delete all environment data (browser profile, logins, caches)?",
         "zh": "是否同时删除环境数据（浏览器 Profile、登录态、缓存）？",
     },
-    "environment_removed": {
-        "en": "Environment removed.",
-        "zh": "环境已删除。",
-    },
     "environment_remove_error": {
         "en": "Failed to remove environment: {error}",
         "zh": "删除环境失败：{error}",
@@ -571,10 +567,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Not running",
         "zh": "未运行",
     },
-    "environment_open_error": {
-        "en": "Failed to open {app}: {error}",
-        "zh": "打开 {app} 失败：{error}",
-    },
     "environment_path": {
         "en": "Path: {path}",
         "zh": "路径：{path}",
@@ -583,9 +575,209 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "All selected apps already exist in this environment.",
         "zh": "所选 App 都已在此环境中。",
     },
-    "environment_name_conflict": {
-        "en": "A clone named {name} already exists outside this environment.",
-        "zh": "名称 {name} 已被环境外的分身占用。",
+    "env_err_not_found": {
+        "en": "Environment '{name}' not found.",
+        "zh": "未找到环境 '{name}'。",
+    },
+    "env_list_empty": {
+        "en": "No environments yet. Create one with: twinspace env create <name>",
+        "zh": "还没有环境。可使用 twinspace env create <名称> 创建",
+    },
+    "env_list_title": {
+        "en": "TwinSpace environments ({count})",
+        "zh": "TwinSpace 环境 ({count})",
+    },
+    "env_col_name": {
+        "en": "Name",
+        "zh": "名称",
+    },
+    "env_col_apps": {
+        "en": "Apps",
+        "zh": "应用",
+    },
+    "env_col_state": {
+        "en": "State",
+        "zh": "状态",
+    },
+    "env_col_directory": {
+        "en": "Directory",
+        "zh": "目录",
+    },
+    "env_state_running": {
+        "en": "running",
+        "zh": "运行中",
+    },
+    "env_state_stopped": {
+        "en": "stopped",
+        "zh": "未运行",
+    },
+    "env_status_checking": {
+        "en": "checking",
+        "zh": "检查中",
+    },
+    "env_status_existing": {
+        "en": "already present",
+        "zh": "已存在",
+    },
+    "env_status_creating": {
+        "en": "creating",
+        "zh": "创建中",
+    },
+    "env_status_created": {
+        "en": "created",
+        "zh": "已创建",
+    },
+    "env_status_updating": {
+        "en": "updating",
+        "zh": "更新中",
+    },
+    "env_status_updated": {
+        "en": "updated",
+        "zh": "已更新",
+    },
+    "env_status_failed": {
+        "en": "failed",
+        "zh": "失败",
+    },
+    "env_no_supported_apps": {
+        "en": "No supported apps are installed.",
+        "zh": "未检测到受支持的应用。",
+    },
+    "env_plan_title": {
+        "en": "Environment plan: {name}",
+        "zh": "环境计划: {name}",
+    },
+    "env_col_app": {
+        "en": "App",
+        "zh": "应用",
+    },
+    "env_col_clone_name": {
+        "en": "Clone name",
+        "zh": "分身名称",
+    },
+    "env_col_source": {
+        "en": "Source",
+        "zh": "来源",
+    },
+    "env_source_missing": {
+        "en": "missing: {path}",
+        "zh": "未安装: {path}",
+    },
+    "env_create_missing_apps": {
+        "en": "Some apps are not installed; nothing was created.",
+        "zh": "部分应用未安装，未创建任何内容。",
+    },
+    "env_created": {
+        "en": "Environment '{name}' is ready ({count} new app(s)) at {path}",
+        "zh": "环境 '{name}' 已就绪（新增 {count} 个应用），位于 {path}",
+    },
+    "env_open_errors": {
+        "en": "Some apps could not be opened:",
+        "zh": "部分应用无法打开：",
+    },
+    "env_opened": {
+        "en": "Opened environment '{name}'.",
+        "zh": "已打开环境 '{name}'。",
+    },
+    "env_remove_confirm": {
+        "en": "Remove environment '{name}' ({count} app(s))?",
+        "zh": "确定删除环境 '{name}'（{count} 个应用）？",
+    },
+    "env_remove_errors": {
+        "en": "Environment removed with errors:",
+        "zh": "环境已删除，但存在错误：",
+    },
+    "env_removed": {
+        "en": "Environment '{name}' removed.",
+        "zh": "环境 '{name}' 已删除。",
+    },
+    "env_update_errors": {
+        "en": "Some apps failed to update:",
+        "zh": "部分应用更新失败：",
+    },
+    "env_updated": {
+        "en": "Environment '{name}' updated.",
+        "zh": "环境 '{name}' 已更新。",
+    },
+    "env_export_wrote": {
+        "en": "Wrote {output}",
+        "zh": "已写入 {output}",
+    },
+    "env_import_dry_title": {
+        "en": "Environment: {name}",
+        "zh": "环境: {name}",
+    },
+    "env_import_row": {
+        "en": "  - {app_key}: {clone} (state: {state})",
+        "zh": "  - {app_key}: {clone}（状态: {state}）",
+    },
+    "env_import_state_existing": {
+        "en": "existing",
+        "zh": "已存在",
+    },
+    "env_import_state_new": {
+        "en": "new",
+        "zh": "新增",
+    },
+    "env_import_clone_default": {
+        "en": "(default)",
+        "zh": "（默认）",
+    },
+    "env_import_all_present": {
+        "en": "Environment '{name}' already has all apps from this file.",
+        "zh": "环境 '{name}' 已包含此文件中的全部应用。",
+    },
+    "env_import_done": {
+        "en": "Imported {count} app(s) into environment '{name}'.",
+        "zh": "已导入 {count} 个应用到环境 '{name}'。",
+    },
+    "env_templates_title": {
+        "en": "Built-in templates",
+        "zh": "内置模板",
+    },
+    "env_col_template": {
+        "en": "Template",
+        "zh": "模板",
+    },
+    "env_backup_wrote": {
+        "en": "Backup written to {path}",
+        "zh": "备份已写入 {path}",
+    },
+    "env_restore_confirm": {
+        "en": "Restore {archive} into environment '{name}'? Existing files are overwritten.",
+        "zh": "将 {archive} 恢复到环境 '{name}'？现有文件将被覆盖。",
+    },
+    "env_restore_safety": {
+        "en": "Safety backup: {path}",
+        "zh": "安全备份: {path}",
+    },
+    "env_restore_done_list": {
+        "en": "Restored: {apps}",
+        "zh": "已恢复: {apps}",
+    },
+    "env_restore_errors": {
+        "en": "Errors:",
+        "zh": "错误：",
+    },
+    "env_restored": {
+        "en": "Environment '{name}' restored.",
+        "zh": "环境 '{name}' 已恢复。",
+    },
+    "env_err_param_one_key": {
+        "en": "Specify at least one app key.",
+        "zh": "请至少指定一个应用标识。",
+    },
+    "env_err_param_unknown_key": {
+        "en": "Unknown app key: {key}",
+        "zh": "未知应用标识: {key}",
+    },
+    "env_err_param_clone_format": {
+        "en": "Use --clone-name APP=NAME.",
+        "zh": "请使用 --clone-name 应用=名称 的格式。",
+    },
+    "env_err_param_clone_empty": {
+        "en": "Clone name for {key} cannot be empty.",
+        "zh": "{key} 的分身名称不能为空。",
     },
     "nav_recipes": {
         "en": "📖 Recipes",
@@ -687,10 +879,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "🗑️ Deleting ({current}/{total})...",
         "zh": "🗑️ 正在删除 ({current}/{total})...",
     },
-    "btn_browse": {
-        "en": "📂 Browse...",
-        "zh": "📂 浏览...",
-    },
     "btn_browse_app": {
         "en": "📂 Browse App...",
         "zh": "📂 浏览应用...",
@@ -699,17 +887,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "📂 Browse...",
         "zh": "📂 浏览目录...",
     },
-    "btn_save": {
-        "en": "💾 Save",
-        "zh": "💾 保存",
-    },
     "btn_save_changes": {
         "en": "💾 Save Changes",
         "zh": "💾 保存修改",
-    },
-    "btn_save_settings": {
-        "en": "💾 Save Settings",
-        "zh": "💾 保存设置",
     },
     "btn_cancel": {
         "en": "Cancel",
@@ -718,14 +898,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "btn_close": {
         "en": "Close",
         "zh": "关闭",
-    },
-    "btn_copy": {
-        "en": "📋 Copy",
-        "zh": "📋 复制",
-    },
-    "btn_copy_as_custom": {
-        "en": "📋 Copy as Custom",
-        "zh": "📋 复制为自定义",
     },
     "btn_new_clone": {
         "en": "+ New Clone",
@@ -847,10 +1019,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "No matching clone recipes found. Click '+ New Recipe' to add custom rules.",
         "zh": "暂无匹配的分身规则，可点击右上角「+ 新建规则」添加自定义规则。",
     },
-    "settings_title": {
-        "en": "Settings",
-        "zh": "全局设置",
-    },
     "settings_btn_save": {
         "en": "💾 Save Preferences",
         "zh": "💾 保存设置",
@@ -858,10 +1026,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "settings_card_storage": {
         "en": "📁 Storage & Data Management",
         "zh": "📁 数据与存储管理",
-    },
-    "settings_label_root_dir": {
-        "en": "TwinSpace Root Workspace: {path}",
-        "zh": "TwinSpace 根工作目录: {path}",
     },
     "settings_label_apps_dir": {
         "en": "Cloned Apps Directory: {path}",
@@ -875,21 +1039,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "📂 Reveal in Finder (~/TwinSpace)",
         "zh": "📂 在 Finder 中打开数据目录 (~/TwinSpace)",
     },
-    "settings_card_paths": {
-        "en": "⚙️ Default Path Preferences",
-        "zh": "⚙️ 默认路径偏好",
-    },
-    "settings_label_base_dir": {
-        "en": "Root Workspace:",
-        "zh": "根工作目录:",
-    },
     "settings_label_root": {
         "en": "Root Workspace:",
         "zh": "根工作目录:",
-    },
-    "settings_hint_base_dir": {
-        "en": "（Cloned apps, isolated data, and recipes will be stored under this directory）",
-        "zh": "（分身应用、隔离数据及分身规则将自动归档在该根工作目录下）",
     },
     "settings_hint_paths": {
         "en": "（Cloned apps, isolated data, and recipes will be stored under this directory）",
@@ -898,10 +1050,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "settings_card_proxy": {
         "en": "🌐 Default Proxy Configuration (Optional)",
         "zh": "🌐 默认代理配置 (可选)",
-    },
-    "settings_switch_proxy": {
-        "en": "Enable proxy by default when creating clones",
-        "zh": "创建分身时默认启用代理",
     },
     "settings_switch_proxy_default": {
         "en": "Enable proxy by default when creating clones",
@@ -943,25 +1091,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "ℹ️ About TwinSpace",
         "zh": "ℹ️ 关于 TwinSpace",
     },
-    "settings_label_app_ver": {
-        "en": "TwinSpace Version: v{ver}",
-        "zh": "TwinSpace 版本: v{ver}",
-    },
     "settings_label_version": {
         "en": "TwinSpace Version: v{ver}",
         "zh": "TwinSpace 版本: v{ver}",
     },
-    "settings_label_python_ver": {
-        "en": "Python Runtime: {ver} ({arch})",
-        "zh": "Python 核心: {ver} ({arch})",
-    },
     "settings_label_python": {
         "en": "Python Runtime: {ver} ({arch})",
         "zh": "Python 核心: {ver} ({arch})",
-    },
-    "settings_label_os_ver": {
-        "en": "macOS Architecture: {ver}",
-        "zh": "macOS 系统架构: {ver}",
     },
     "settings_label_os": {
         "en": "macOS Architecture: {ver}",
@@ -990,10 +1126,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "doctor_col_hint": {
         "en": "Recommendation / Hint",
         "zh": "修复建议 / 说明",
-    },
-    "doctor_status_passed": {
-        "en": "✅ Passed",
-        "zh": "✅ 正常",
     },
     "doctor_status_failed": {
         "en": "❌ Missing",
@@ -1103,10 +1235,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Custom",
         "zh": "自定义",
     },
-    "logs_title": {
-        "en": "📋 Logs",
-        "zh": "📋 运行日志",
-    },
     "logs_title_total": {
         "en": "📋 Logs ({total} lines)",
         "zh": "📋 运行日志 ({total} 行)",
@@ -1130,10 +1258,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "dialog_error_title": {
         "en": "Error",
         "zh": "错误",
-    },
-    "dialog_success_title": {
-        "en": "Success",
-        "zh": "成功",
     },
     "dialog_settings_saved_title": {
         "en": "Settings Saved",
@@ -1299,18 +1423,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Step 2 of 7: Confirm Recipe & Strategy",
         "zh": "步骤 2/7: 确认分身规则与克隆策略",
     },
-    "win_wizard_step2_app": {
-        "en": "App Name: {app_name}",
-        "zh": "应用名称: {app_name}",
-    },
-    "win_wizard_step2_bundle": {
-        "en": "Bundle ID: {bundle_id}",
-        "zh": "Bundle ID: {bundle_id}",
-    },
-    "win_wizard_step2_strategy": {
-        "en": "Matched Strategy: {strategy}",
-        "zh": "匹配策略: {strategy}",
-    },
     "win_wizard_step2_select_strat": {
         "en": "Cloning Strategy:",
         "zh": "克隆策略:",
@@ -1354,10 +1466,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "detail_label_injection": {
         "en": "Injection Strategy",
         "zh": "注入模式",
-    },
-    "clone_opt_language": {
-        "en": "App locale/language (system, zh-Hans, en)",
-        "zh": "应用语言环境（system, zh-Hans, en）",
     },
     "lang_system": {
         "en": "Follow System (Default)",
@@ -1686,10 +1794,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "update_done_msg": {
         "en": "TwinSpace has been updated to v{ver}. Click OK to quit, then relaunch manually.",
         "zh": "TwinSpace 已成功更新至 v{ver}。点击确定后将退出应用，请手动重新启动。",
-    },
-    "update_error": {
-        "en": "❌ Update failed: {err}",
-        "zh": "❌ 检查更新失败: {err}",
     },
     "update_error_short": {
         "en": "❌ Update check failed",

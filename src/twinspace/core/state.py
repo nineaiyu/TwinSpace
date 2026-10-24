@@ -1,13 +1,16 @@
 import os
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 import yaml
 
 from twinspace.core.config import DEFAULT_STATE_FILE
+from twinspace.core.logger import get_logger
 
 STATE_FILE = DEFAULT_STATE_FILE
+
+logger = get_logger("core.state")
 
 
 @dataclass
@@ -84,7 +87,6 @@ class StateManager:
         if state_file is not None:
             self.state_file = Path(state_file)
         else:
-            from twinspace.core.config import DEFAULT_STATE_FILE
             self.state_file = DEFAULT_STATE_FILE
 
     @property
@@ -128,10 +130,24 @@ class StateManager:
                                     host_info = f"{host_info}:{parsed.port}"
                                 rec.proxy_summary = f"{parsed.scheme}://{user_info}{host_info}"
                                 dirty = True
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to migrate embedded proxy password to Keychain "
+                                f"for '{rec.clone_name}': {e}"
+                            )
                     records.append(rec)
                 except TypeError:
+                    # Unknown or renamed fields must never silently drop a clone
+                    # record (the next save would delete it for good): keep the
+                    # recognized fields and surface what was ignored.
+                    known = {f.name for f in fields(CloneRecord)}
+                    dropped = sorted(set(item) - known)
+                    logger.warning(
+                        f"Ignoring unknown field(s) {dropped} in clone record "
+                        f"'{item.get('clone_name', '<unknown>')}'"
+                    )
+                    rec = CloneRecord(**{k: v for k, v in item.items() if k in known})
+                    records.append(rec)
                     continue
 
         if dirty:
@@ -155,8 +171,11 @@ class StateManager:
                         if parsed.port:
                             host_info = f"{host_info}:{parsed.port}"
                         r.proxy_summary = f"{parsed.scheme}://{user_info}{host_info}"
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to migrate embedded proxy password to Keychain "
+                        f"for '{r.clone_name}': {e}"
+                    )
 
         raw_list = [asdict(r) for r in records]
         temp_fd, temp_path = tempfile.mkstemp(

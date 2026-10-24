@@ -18,7 +18,7 @@ Release 页面主要提供两个发布文件，**核心功能完全一致**：
 
 | 发布包 | 适用人群 | 说明 |
 | :--- | :--- | :--- |
-| **`TwinSpace-3.0.0-arm64.dmg`** | 👶 **普通用户 / 小白用户（强烈推荐）** | macOS 原生 GUI 桌面客户端安装包 (`.dmg`)。提供现代化卡片式图形界面，零终端操作门槛，开箱即用。 |
+| **`TwinSpace-<version>-arm64.dmg`** | 👶 **普通用户 / 小白用户（强烈推荐）** | macOS 原生 GUI 桌面客户端安装包 (`.dmg`)。提供现代化卡片式图形界面，零终端操作门槛，开箱即用。 |
 | **`TwinSpaceCli.tar.gz`** | ⚡ **专业用户 / 开发者** | 独立二进制命令行工具归档（`TwinSpaceCli`）。无需安装 Python 环境，专为终端极客、脚本自动化与高级运维场景打造。 |
 
 > 💡 **使用建议与指引**：
@@ -83,7 +83,7 @@ twinspace migrate --move          # 物理移动并改写状态路径（高级�
 
 ## 🖥️ 图形化界面使用指南 (GUI — 推荐普通用户使用)
 
-> 💡 **新手与普通用户提示**：如果您不习惯终端命令行操作，请直接从 [GitHub Releases](https://github.com/nineaiyu/TwinSpace/releases) 下载 `TwinSpace-3.0.0-arm64.dmg` 安装包，将 `TwinSpace.app` 拖入 `应用程序` 文件夹即可直接运行使用！
+> 💡 **新手与普通用户提示**：如果您不习惯终端命令行操作，请直接从 [GitHub Releases](https://github.com/nineaiyu/TwinSpace/releases) 下载 `TwinSpace-<version>-arm64.dmg` 安装包，将 `TwinSpace.app` 拖入 `应用程序` 文件夹即可直接运行使用！
 
 macOS 原生桌面图形客户端提供直观、全功能的应用分身管理：
 
@@ -391,19 +391,19 @@ twinspace doctor
 
 ## 🏷️ 语义化版本管理 (Version Management)
 
-项目采用标准的语义化版本号格式 `x.y.z`（当前版本：`3.0.0`），并提供了专用的版本管理脚本 `scripts/manage_version.py`：
+项目采用标准的语义化版本号格式 `x.y.z`（当前版本以 `pyproject.toml` 为准），并提供了专用的版本管理脚本 `scripts/manage_version.py`：
 
 ```bash
 # 1. 检查各配置文件版本是否一致
 python scripts/manage_version.py --show
 
-# 2. 语义化升级版本 (patch: 3.0.0 -> 3.0.1, minor: 3.0.0 -> 3.1.0, major: 3.0.0 -> 4.0.0)
+# 2. 语义化升级版本 (patch: 1.0.0 -> 1.0.1, minor: 1.0.0 -> 1.1.0, major: 1.0.0 -> 2.0.0)
 python scripts/manage_version.py --bump patch
 python scripts/manage_version.py --bump minor
 python scripts/manage_version.py --bump major
 
 # 3. 指定显式版本
-python scripts/manage_version.py 3.0.0
+python scripts/manage_version.py 1.0.0
 
 # 4. 预览变更（不实际写入文件）
 python scripts/manage_version.py --bump patch --dry-run
@@ -421,7 +421,7 @@ python scripts/manage_version.py --bump patch --dry-run
 # 1. 构建 CLI 独立二进制 (生成于 dist/TwinSpaceCli)
 bash scripts/build_cli.sh
 
-# 2. 构建 GUI 原生安装包 (生成于 dist/TwinSpace-3.0.0-arm64.dmg)
+# 2. 构建 GUI 原生安装包 (生成于 dist/TwinSpace-<version>-arm64.dmg)
 bash scripts/build_gui.sh
 ```
 

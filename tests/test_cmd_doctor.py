@@ -12,6 +12,7 @@ def test_doctor_all_passed():
     runner = CliRunner()
 
     def mock_check_output(cmd, *args, **kwargs):
+        cmd = " ".join(cmd) if isinstance(cmd, list) else cmd
         if "codesign" in cmd:
             return "/usr/bin/codesign\n"
         if "xcode-select" in cmd:
@@ -61,6 +62,7 @@ def test_doctor_one_failed():
     runner = CliRunner()
 
     def mock_check_output(cmd, *args, **kwargs):
+        cmd = " ".join(cmd) if isinstance(cmd, list) else cmd
         if "codesign" in cmd:
             return "/usr/bin/codesign\n"
         if "xcode-select" in cmd:

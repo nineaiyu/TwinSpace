@@ -80,22 +80,16 @@ def test_real_keychain_subprocess_calls(mock_run):
         # Mock add-generic-password
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         assert set_proxy_password("real_user", "real_pass") is True
-        mock_run.assert_called_with(
-            [
-                "/usr/bin/security",
-                "add-generic-password",
-                "-a",
-                "real_user",
-                "-s",
-                DEFAULT_SERVICE,
-                "-w",
-                "real_pass",
-                "-U",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        # The secret travels on stdin (`security -i`), never in argv.
+        args, kwargs = mock_run.call_args
+        assert args[0] == ["/usr/bin/security", "-i"]
+        assert '"real_user"' in kwargs["input"]
+        assert f'"{DEFAULT_SERVICE}"' in kwargs["input"]
+        assert '"real_pass"' in kwargs["input"]
+        assert "-U" in kwargs["input"]
+        assert kwargs["check"] is False
+        assert kwargs["capture_output"] is True
+        assert kwargs["text"] is True
 
         # Mock find-generic-password success
         mock_run.return_value = MagicMock(returncode=0, stdout="real_pass\n", stderr="")

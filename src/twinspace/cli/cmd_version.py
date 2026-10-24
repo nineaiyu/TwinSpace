@@ -20,7 +20,7 @@ console = Console()
 def version(short: bool) -> None:
     """Display TwinSpace version and environment information."""
     if short:
-        console.print(__version__)
+        console.print(__version__, markup=False)
         return
 
     table = Table(show_header=False, box=None, padding=(0, 2))

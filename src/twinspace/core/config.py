@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import Any
 
 # Pre-rebrand data root, retained so `twinspace migrate` can find existing installs.
 LEGACY_TWINSPACE_DIR: Path = Path.home() / "ATBClone"
@@ -90,7 +91,7 @@ def save_config(cfg: dict) -> None:
         raise
 
 
-def get_config_value(key: str, default: any = None) -> any:
+def get_config_value(key: str, default: Any = None) -> Any:
     """Retrieve a single configuration value."""
     cfg = load_config()
     return cfg.get(key, default)

@@ -17,7 +17,7 @@ class CloneService:
     def __init__(self, state_file: Path = DEFAULT_STATE_FILE):
         self.manager = CloneManager(state_file=state_file)
         self.state_manager: StateManager = self.manager.state_manager
-        self._busy_clones = self.manager._busy_clones
+        self._busy_clones = self.manager.busy_clones
 
     async def list_clones(self) -> list[CloneRecord]:
         loop = asyncio.get_running_loop()

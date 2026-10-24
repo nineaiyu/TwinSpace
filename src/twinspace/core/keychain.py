@@ -22,7 +22,8 @@ def is_mock_mode() -> bool:
     return (
         sys.platform != "darwin"
         or "PYTEST_CURRENT_TEST" in os.environ
-        or os.environ.get("ATBCLONE_MOCK_KEYCHAIN") == "1"
+        or os.environ.get("TWINSPACE_MOCK_KEYCHAIN") == "1"
+        or os.environ.get("ATBCLONE_MOCK_KEYCHAIN") == "1"  # pre-3.0 alias
     )
 
 
@@ -51,19 +52,18 @@ def set_proxy_password(account: str, password: str, service: str = DEFAULT_SERVI
         _MOCK_STORAGE[(service, account)] = password
         return True
 
-    cmd = [
-        "/usr/bin/security",
-        "add-generic-password",
-        "-a",
-        account,
-        "-s",
-        service,
-        "-w",
-        password,
-        "-U",
-    ]
+    # Feed the command via `security -i` stdin so the secret never appears
+    # in argv (where it would be visible to `ps` for the command's lifetime).
+    def _q(value: str) -> str:
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    cmd = ["/usr/bin/security", "-i"]
+    interactive_line = (
+        f"add-generic-password -a {_q(account)} -s {_q(service)} "
+        f"-w {_q(password)} -U\n"
+    )
     try:
-        res = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        res = subprocess.run(cmd, input=interactive_line, check=False, capture_output=True, text=True)
         if res.returncode != 0:
             logger.warning(
                 f"Failed to save password in Keychain for '{account}' (code {res.returncode}): {res.stderr.strip()}"

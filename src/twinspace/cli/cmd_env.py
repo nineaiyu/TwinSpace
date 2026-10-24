@@ -19,6 +19,7 @@ from twinspace.core.environments import (
     template_app_keys,
 )
 from twinspace.core.environments.manager import EnvironmentManager
+from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
 
 console = Console()
@@ -34,10 +35,10 @@ def _parse_app_keys(value: str | None) -> list[str] | None:
         return None
     keys = [part.strip() for part in value.split(",") if part.strip()]
     if not keys:
-        raise click.BadParameter("Specify at least one app key.")
+        raise click.BadParameter(t("env_err_param_one_key"))
     for key in keys:
         if app_for_key(key) is None:
-            raise click.BadParameter(f"Unknown app key: {key}")
+            raise click.BadParameter(t("env_err_param_unknown_key", key=key))
     return keys
 
 
@@ -45,27 +46,27 @@ def _parse_clone_names(values: tuple[str, ...]) -> dict[str, str]:
     names: dict[str, str] = {}
     for value in values:
         if "=" not in value:
-            raise click.BadParameter("Use --clone-name APP=NAME.")
+            raise click.BadParameter(t("env_err_param_clone_format"))
         key, name = value.split("=", 1)
         key = key.strip()
         name = name.strip()
         if app_for_key(key) is None:
-            raise click.BadParameter(f"Unknown app key: {key}")
+            raise click.BadParameter(t("env_err_param_unknown_key", key=key))
         if not name:
-            raise click.BadParameter(f"Clone name for {key} cannot be empty.")
+            raise click.BadParameter(t("env_err_param_clone_empty", key=key))
         names[key] = name
     return names
 
 
 def _progress(index: int, total: int, app, status: str) -> None:
     labels = {
-        "checking": "checking",
-        "existing": "already present",
-        "creating": "creating",
-        "created": "created",
-        "updating": "updating",
-        "updated": "updated",
-        "failed": "failed",
+        "checking": t("env_status_checking"),
+        "existing": t("env_status_existing"),
+        "creating": t("env_status_creating"),
+        "created": t("env_status_created"),
+        "updating": t("env_status_updating"),
+        "updated": t("env_status_updated"),
+        "failed": t("env_status_failed"),
     }
     console.print(f"[{index}/{total}] {app.label}: {labels.get(status, status)}")
 
@@ -112,14 +113,14 @@ def env_list(as_json: bool) -> None:
         return
 
     if not environments:
-        console.print("No environments yet. Create one with: twinspace env create <name>")
+        console.print(t("env_list_empty"))
         return
 
-    table = Table(title=f"TwinSpace environments ({len(environments)})")
-    table.add_column("Name", style="bold")
-    table.add_column("Apps")
-    table.add_column("State")
-    table.add_column("Directory", style="dim")
+    table = Table(title=t("env_list_title", count=len(environments)))
+    table.add_column(t("env_col_name"), style="bold")
+    table.add_column(t("env_col_apps"))
+    table.add_column(t("env_col_state"))
+    table.add_column(t("env_col_directory"), style="dim")
     for item in environments:
         labels = []
         for record in item.records:
@@ -129,7 +130,7 @@ def env_list(as_json: bool) -> None:
         table.add_row(
             item.name,
             "\n".join(labels) or "-",
-            "running" if item.running else "stopped",
+            t("env_state_running") if item.running else t("env_state_stopped"),
             str(item.env_dir),
         )
     console.print(table)
@@ -158,15 +159,15 @@ def env_create(
     manager = _manager()
     keys = _selected_keys(apps, template)
     if not keys:
-        console.print("[red]No supported apps are installed.[/red]")
+        console.print("[red]" + t("env_no_supported_apps") + "[/red]")
         sys.exit(1)
     names = _parse_clone_names(clone_names)
 
     if dry_run:
-        table = Table(title=f"Environment plan: {name}")
-        table.add_column("App")
-        table.add_column("Clone name")
-        table.add_column("Source")
+        table = Table(title=t("env_plan_title", name=name))
+        table.add_column(t("env_col_app"))
+        table.add_column(t("env_col_clone_name"))
+        table.add_column(t("env_col_source"))
         missing = False
         for key in keys:
             app = app_for_key(key)
@@ -177,11 +178,11 @@ def env_create(
             table.add_row(
                 f"{app.label} ({key})",
                 names.get(key, f"{app.clone_prefix}-{name}"),
-                str(source or f"missing: {app.default_path}"),
+                str(source or t("env_source_missing", path=app.default_path)),
             )
         console.print(table)
         if missing:
-            console.print("[red]Some apps are not installed; nothing was created.[/red]")
+            console.print("[red]" + t("env_create_missing_apps") + "[/red]")
             sys.exit(1)
         return
 
@@ -201,8 +202,7 @@ def env_create(
     env_info = manager.environment(name)
     path = env_info.env_dir if env_info else ""
     console.print(
-        f"[green]Environment {name!r} is ready[/green] "
-        f"({len(created)} new app(s)) at {path}"
+        "[green]" + t("env_created", name=name, count=len(created), path=path) + "[/green]"
     )
 
 
@@ -213,15 +213,15 @@ def env_open(name: str, apps: str | None) -> None:
     """Launch every app in an environment (or a subset)."""
     manager = _manager()
     if manager.environment(name) is None:
-        console.print(f"[red]Error:[/red] Environment {name!r} not found.")
+        console.print("[red]Error:[/red] " + t("env_err_not_found", name=name))
         sys.exit(1)
     errors = manager.open_environment(name, _parse_app_keys(apps))
     if errors:
-        console.print("[red]Some apps could not be opened:[/red]")
+        console.print("[red]" + t("env_open_errors") + "[/red]")
         for item in errors:
             console.print(f"  - {item}")
         sys.exit(1)
-    console.print(f"[green]Opened environment {name!r}.[/green]")
+    console.print("[green]" + t("env_opened", name=name) + "[/green]")
 
 
 @env.command("remove")
@@ -233,10 +233,10 @@ def env_remove(name: str, with_data: bool, yes: bool) -> None:
     manager = _manager()
     env_info = manager.environment(name)
     if env_info is None:
-        console.print(f"[red]Error:[/red] Environment {name!r} not found.")
+        console.print("[red]Error:[/red] " + t("env_err_not_found", name=name))
         sys.exit(1)
     if not yes and not click.confirm(
-        f"Remove environment {name!r} ({len(env_info.records)} app(s))?", default=False
+        t("env_remove_confirm", name=name, count=len(env_info.records)), default=False
     ):
         return
     try:
@@ -245,11 +245,11 @@ def env_remove(name: str, with_data: bool, yes: bool) -> None:
         console.print(f"[red]Error:[/red] {exc}")
         sys.exit(1)
     if errors:
-        console.print("[yellow]Environment removed with errors:[/yellow]")
+        console.print("[yellow]" + t("env_remove_errors") + "[/yellow]")
         for item in errors:
             console.print(f"  - {item}")
         sys.exit(1)
-    console.print(f"[green]Environment {name!r} removed.[/green]")
+    console.print("[green]" + t("env_removed", name=name) + "[/green]")
 
 
 @env.command("update")
@@ -259,7 +259,7 @@ def env_update(name: str, apps: str | None) -> None:
     """Rebuild every app in an environment from its current source app."""
     manager = _manager()
     if manager.environment(name) is None:
-        console.print(f"[red]Error:[/red] Environment {name!r} not found.")
+        console.print("[red]Error:[/red] " + t("env_err_not_found", name=name))
         sys.exit(1)
     try:
         errors = asyncio.run(
@@ -273,11 +273,11 @@ def env_update(name: str, apps: str | None) -> None:
         console.print(f"[red]Error:[/red] {exc}")
         sys.exit(1)
     if errors:
-        console.print("[red]Some apps failed to update:[/red]")
+        console.print("[red]" + t("env_update_errors") + "[/red]")
         for item in errors:
             console.print(f"  - {item}")
         sys.exit(1)
-    console.print(f"[green]Environment {name!r} updated.[/green]")
+    console.print("[green]" + t("env_updated", name=name) + "[/green]")
 
 
 @env.command("export")
@@ -301,7 +301,7 @@ def env_export(name: str, output: Path | None) -> None:
     else:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(text, encoding="utf-8")
-        console.print(f"[green]Wrote {output}[/green]")
+        console.print("[green]" + t("env_export_wrote", output=output) + "[/green]")
 
 
 @env.command("import")
@@ -322,16 +322,25 @@ def env_import(source, target_name: str | None, dry_run: bool) -> None:
     new_apps = [app for app in spec.apps if app.key not in existing_keys]
 
     if dry_run:
-        console.print(f"Environment: {target}")
+        console.print(t("env_import_dry_title", name=target))
         for app in spec.apps:
-            state = "existing" if app.key in existing_keys else "new"
+            state = (
+                t("env_import_state_existing")
+                if app.key in existing_keys
+                else t("env_import_state_new")
+            )
             console.print(
-                f"  - {app.key}: {app.clone_name or '(default)'} (state: {state})"
+                t(
+                    "env_import_row",
+                    app_key=app.key,
+                    clone=app.clone_name or t("env_import_clone_default"),
+                    state=state,
+                )
             )
         return
 
     if not new_apps:
-        console.print(f"[yellow]Environment {target!r} already has all apps from this file.[/yellow]")
+        console.print("[yellow]" + t("env_import_all_present", name=target) + "[/yellow]")
         return
 
     try:
@@ -342,16 +351,16 @@ def env_import(source, target_name: str | None, dry_run: bool) -> None:
         console.print(f"[red]Error:[/red] {exc}")
         sys.exit(1)
     console.print(
-        f"[green]Imported {len(created)} app(s) into environment {target!r}.[/green]"
+        "[green]" + t("env_import_done", count=len(created), name=target) + "[/green]"
     )
 
 
 @env.command("templates")
 def env_templates() -> None:
     """List built-in environment templates."""
-    table = Table(title="Built-in templates")
-    table.add_column("Template", style="bold")
-    table.add_column("Apps")
+    table = Table(title=t("env_templates_title"))
+    table.add_column(t("env_col_template"), style="bold")
+    table.add_column(t("env_col_apps"))
     for name, keys in sorted(TEMPLATES.items()):
         labels = []
         for key in keys:
@@ -376,7 +385,7 @@ def env_backup(name: str, output: Path | None) -> None:
     except Exception as exc:
         console.print(f"[red]Error:[/red] {exc}")
         sys.exit(1)
-    console.print(f"[green]Backup written to {path}[/green]")
+    console.print("[green]" + t("env_backup_wrote", path=path) + "[/green]")
 
 
 @env.command("restore")
@@ -387,10 +396,10 @@ def env_restore(name: str, archive: Path, yes: bool) -> None:
     """Restore app data from a backup into an existing environment."""
     manager = _manager()
     if manager.environment(name) is None:
-        console.print(f"[red]Error:[/red] Environment {name!r} not found.")
+        console.print("[red]Error:[/red] " + t("env_err_not_found", name=name))
         sys.exit(1)
     if not yes and not click.confirm(
-        f"Restore {archive} into environment {name!r}? Existing files are overwritten.",
+        t("env_restore_confirm", archive=archive, name=name),
         default=False,
     ):
         return
@@ -399,11 +408,11 @@ def env_restore(name: str, archive: Path, yes: bool) -> None:
     except Exception as exc:
         console.print(f"[red]Error:[/red] {exc}")
         sys.exit(1)
-    console.print(f"[dim]Safety backup: {safety}[/dim]")
-    console.print(f"Restored: {', '.join(restored) if restored else '-'}")
+    console.print(f"[dim]{t('env_restore_safety', path=safety)}[/dim]")
+    console.print(t("env_restore_done_list", apps=", ".join(restored) if restored else "-"))
     if errors:
-        console.print("[red]Errors:[/red]")
+        console.print("[red]" + t("env_restore_errors") + "[/red]")
         for item in errors:
             console.print(f"  - {item}")
         sys.exit(1)
-    console.print(f"[green]Environment {name!r} restored.[/green]")
+    console.print("[green]" + t("env_restored", name=name) + "[/green]")

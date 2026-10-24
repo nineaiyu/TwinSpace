@@ -3,7 +3,11 @@ import re
 import subprocess
 from pathlib import Path
 
-from twinspace.validation import sanitize_name_component, validate_bundle_id
+from twinspace.validation import (
+    sanitize_name_component,
+    validate_bundle_id,
+    validate_executable_name,
+)
 
 from .models import AppInfo
 
@@ -89,6 +93,9 @@ class AppInspector:
         # codesign command strings; anything outside the reverse-DNS charset is
         # treated as malformed/malicious metadata and rejected before cloning.
         validate_bundle_id(bundle_id)
+        # CFBundleExecutable flows into generated C launchers and shell paths;
+        # reject anything that is not a plain file name.
+        validate_executable_name(executable_name)
 
         # Check sandbox entitlements
         entitlements = cls._run_cmd(["codesign", "-d", "--entitlements", "-", str(path)])
@@ -96,11 +103,19 @@ class AppInspector:
         if is_ios_app:
             has_sandbox = True
         elif "com.apple.security.app-sandbox" in entitlements:
-            # Check for boolean true (either structured codesign format or XML format)
-            if re.search(r"com\.apple\.security\.app-sandbox.*?(true|\[Bool\]\s*true)", entitlements, re.IGNORECASE | re.DOTALL):
-                if not re.search(r"com\.apple\.security\.app-sandbox\s*\n\s*\[Value\]\s*\n\s*\[Bool\]\s*false", entitlements, re.IGNORECASE):
-                    has_sandbox = True
-            elif "<false/>" not in entitlements and "[Bool] false" not in entitlements:
+            # Decide from the value token that directly follows the app-sandbox
+            # key; the scope stops at the next entitlement key so a later
+            # `true` belonging to another key cannot bleed into the verdict.
+            # Covers both the structured codesign format and XML plists.
+            idx = entitlements.find("com.apple.security.app-sandbox")
+            tail = entitlements[idx + len("com.apple.security.app-sandbox"):]
+            next_key = re.search(r"com\.apple\.(security|developer)\.[a-z-]+", tail, re.IGNORECASE)
+            scope = tail[: next_key.start()] if next_key else tail
+            value_match = re.search(r"<\s*(true|false)\s*/?\s*>|\b(true|false)\b", scope, re.IGNORECASE)
+            if value_match:
+                has_sandbox = (value_match.group(1) or value_match.group(2)).lower() == "true"
+            else:
+                # Key present without a parseable boolean; assume sandboxed.
                 has_sandbox = True
 
         if is_ios_app:

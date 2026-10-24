@@ -148,7 +148,7 @@ class TopHeaderBar(toga.Box):
     def _handle_view_change(self, widget: toga.Selection):
         if widget.value is not None:
             val_str = str(widget.value)
-            list_keywords = ("列表", "清單", "list", "liste", "список", "목록", "リスト", "tabla")
+            list_keywords = ("列表", "list")
             mode = "list" if any(k in val_str.lower() for k in list_keywords) else "grid"
             self.current_view_mode = mode
             if self.on_view_change_cb:
@@ -158,7 +158,7 @@ class TopHeaderBar(toga.Box):
         """Programmatically switch view mode."""
         self.current_view_mode = mode
         if hasattr(self, "select_view"):
-            list_keywords = ("列表", "清單", "list", "liste", "список", "목록", "リスト", "tabla")
+            list_keywords = ("列表", "list")
             for item in self.select_view.items:
                 item_val = getattr(item, "value", item)
                 item_str = str(item_val).lower()

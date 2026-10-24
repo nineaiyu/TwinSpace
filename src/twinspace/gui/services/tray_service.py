@@ -54,6 +54,7 @@ class TrayService:
     """Manages the lifecycle, appearance, and event dispatch of the macOS status tray icon."""
 
     def __init__(self, app: Any):
+        self._menu = None
         self.app = app
         self._status_item: Any = None
         self._target: Any = None

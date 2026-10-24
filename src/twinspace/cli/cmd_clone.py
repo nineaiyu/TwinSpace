@@ -16,7 +16,6 @@ from twinspace.core.i18n import t
 from twinspace.core.locale import SUPPORTED_LANGUAGES
 from twinspace.core.logger import get_logger
 from twinspace.core.state import CloneRecord, StateManager
-from twinspace.executor.runner import CloneError
 from twinspace.recipes import RecipeLoader, supports_data_dir
 from twinspace.validation import (
     validate_clone_name,
@@ -146,9 +145,9 @@ def clone(
     requested_name = name or info.app_name
     if name and not (out_path / f"{requested_name}.app").exists():
         # Respect an explicit name verbatim (including names ending in "1").
-        clone_name, num = requested_name, 1
+        clone_name = requested_name
     else:
-        clone_name, num = AppInspector.next_available_name(requested_name, out_path)
+        clone_name = AppInspector.next_available_name(requested_name, out_path)[0]
     existing_records = StateManager().load()
     existing_bundle_ids = {r.new_bundle_id for r in existing_records if r.new_bundle_id}
     new_bundle_id = AppInspector.resolve_bundle_id(
@@ -239,7 +238,7 @@ def clone(
 
         logger.info(f"Clone '{clone_name}' created successfully at '{dest_path}'")
         console.print(t("clone_success", dest_path=dest_path), soft_wrap=True)
-    except (CloneError, Exception) as e:
+    except Exception as e:
         logger.error(f"Failed to create clone '{clone_name}': {e}")
         console.print(t("clone_error", error=e), soft_wrap=True)
         sys.exit(1)

@@ -14,11 +14,41 @@ from twinspace.gui.services.update_service import (
 
 
 def test_parse_version():
-    assert _parse_version("1.6.0") == (1, 6, 0)
-    assert _parse_version("v1.6.0") == (1, 6, 0)
+    assert _parse_version("1.6.0") == (1, 6, 0, 0)
+    assert _parse_version("v1.6.0") == (1, 6, 0, 0)
     assert _parse_version("2.10.1") > _parse_version("2.9.5")
     assert _parse_version("1.6.1") > _parse_version("1.6.0")
     assert _parse_version("1.6.0") == _parse_version("1.6.0")
+    # Prerelease suffixes sort below the final release but above older ones.
+    assert _parse_version("1.6.1-rc1") == (1, 6, 1, -1)
+    assert _parse_version("1.6.0") < _parse_version("1.6.1-rc1") < _parse_version("1.6.1")
+    assert _parse_version("3.0.10-rc1") > _parse_version("3.0.9")
+
+
+def test_check_for_updates_missing_platform_package():
+    """A payload without a package for this architecture must not fall back silently."""
+
+    async def _test():
+        service = UpdateService()
+        mock_payload = {
+            "version": "99.0.0",
+            "notes": "Test notes",
+            "pub_date": "2026-09-13T12:00:00.000Z",
+            "platforms": {
+                "darwin-x86_64": {
+                    "checksum": "abc",
+                    "url": "https://example.com/x86.dmg",
+                }
+            },
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = mock_payload
+
+        with patch("requests.get", return_value=mock_resp):
+            with pytest.raises(RuntimeError, match="No update package published"):
+                await service.check_for_updates()
+
+    asyncio.run(_test())
 
 
 def test_check_for_updates_has_newer():

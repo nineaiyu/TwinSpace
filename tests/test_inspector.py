@@ -222,3 +222,64 @@ def test_resolve_bundle_id_without_clone_number():
     )
     assert bundle_id2 == "com.google.Chrome.twinspace.2"
 
+
+
+def _make_app(tmp_path: Path, name: str, bundle_id: str) -> Path:
+    app_dir = tmp_path / f"{name}.app"
+    macos_dir = app_dir / "Contents" / "MacOS"
+    macos_dir.mkdir(parents=True)
+    plist_path = app_dir / "Contents" / "Info.plist"
+    with open(plist_path, "wb") as f:
+        plistlib.dump(
+            {
+                "CFBundleIdentifier": bundle_id,
+                "CFBundleName": name,
+                "CFBundleExecutable": name,
+            },
+            f,
+        )
+    (macos_dir / name).touch()
+    return app_dir
+
+
+def test_sandbox_detection_xml_true(tmp_path: Path, monkeypatch):
+    app_dir = _make_app(tmp_path, "XmlSandbox", "com.mock.xmlsandbox")
+    monkeypatch.setattr(
+        AppInspector,
+        "_run_cmd",
+        staticmethod(
+            lambda cmd: (
+                "<key>com.apple.security.app-sandbox</key>\n\t\t<true/>" if "codesign" in cmd else ""
+            )
+        ),
+    )
+    assert AppInspector.inspect(app_dir).has_sandbox is True
+
+
+def test_sandbox_detection_xml_false(tmp_path: Path, monkeypatch):
+    app_dir = _make_app(tmp_path, "XmlFree", "com.mock.xmlfree")
+    monkeypatch.setattr(
+        AppInspector,
+        "_run_cmd",
+        staticmethod(
+            lambda cmd: (
+                "<key>com.apple.security.app-sandbox</key>\n\t\t<false/>" if "codesign" in cmd else ""
+            )
+        ),
+    )
+    assert AppInspector.inspect(app_dir).has_sandbox is False
+
+
+def test_sandbox_detection_later_true_key_does_not_bleed(tmp_path: Path, monkeypatch):
+    """app-sandbox=false followed by another entitlement set to true must stay false."""
+    app_dir = _make_app(tmp_path, "XmlMixed", "com.mock.xmlmixed")
+    entitlements = (
+        "<key>com.apple.security.app-sandbox</key>\n\t\t<false/>\n"
+        "<key>com.apple.security.network.client</key>\n\t\t<true/>"
+    )
+    monkeypatch.setattr(
+        AppInspector,
+        "_run_cmd",
+        staticmethod(lambda cmd: entitlements if "codesign" in cmd else ""),
+    )
+    assert AppInspector.inspect(app_dir).has_sandbox is False

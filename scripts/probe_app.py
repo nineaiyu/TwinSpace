@@ -6,10 +6,9 @@ and code signing entitlements, then generates an appropriate Recipe YAML.
 """
 
 import argparse
-import plistlib
-import subprocess
 import sys
 from pathlib import Path
+
 import yaml
 
 from twinspace.core.app_inspector import AppInspector

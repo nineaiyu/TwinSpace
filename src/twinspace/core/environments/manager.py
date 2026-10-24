@@ -427,7 +427,7 @@ class EnvironmentManager:
                 errors.append(f"{record.clone_name}: bundle not found")
                 continue
             try:
-                subprocess.Popen(["open", "-n", str(path)])
+                subprocess.run(["open", "-n", str(path)], check=False, capture_output=True)
             except Exception as exc:
                 errors.append(f"{record.clone_name}: {exc}")
         return errors

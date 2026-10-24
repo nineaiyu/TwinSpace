@@ -133,14 +133,14 @@ echo "[✔] Version files updated."
 # 3. Check Multilingual ReleaseNotes
 echo "==> [Step 3/6] Verifying multilingual ReleaseNotes in docs/release/..."
 if ! PYTHONPATH=src "${PYTHON_BIN}" scripts/manage_version.py --check-notes "${TARGET_VERSION}"; then
-    echo "[-] Error: Please update all 9 ReleaseNotes in docs/release/ for ${TAG_NAME} before releasing." >&2
+    echo "[-] Error: Please update all ReleaseNotes in docs/release/ for ${TAG_NAME} before releasing." >&2
     exit 1
 fi
-echo "[✔] All 9 ReleaseNotes contain entries for ${TAG_NAME}."
+echo "[✔] All ReleaseNotes contain entries for ${TAG_NAME}."
 
 # 4. Git Commit & Tag
 echo "==> [Step 4/6] Committing release and creating tag ${TAG_NAME}..."
-git add pyproject.toml src/twinspace/__init__.py src/twinspace/core/logger.py src/twinspace/gui/views/logs_view.py README.md Readme.md Readme_zh.md docs/release/*.md scripts/release.sh scripts/build_cli.sh tests/conftest.py
+git add pyproject.toml src/twinspace/__init__.py src/twinspace/core/logger.py src/twinspace/gui/views/logs_view.py README.md Readme_zh.md docs/release/*.md scripts/release.sh scripts/build_cli.sh tests/conftest.py
 # Commit only if there are staged changes
 if ! git diff --cached --quiet; then
     git commit -m "release: ${TAG_NAME}"
