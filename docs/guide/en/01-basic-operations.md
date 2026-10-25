@@ -155,7 +155,7 @@ graph LR
 ```
 
 ### Launching Cloned Applications
-* **From TwinSpace**: Click the prominent **"Launch"** button on the application card or table row.
+* **From TwinSpace**: Click the prominent **"Launch"** button on the application card or table row — or simply **double-click a row in the table view**.
 * **From macOS Spotlight**: Press `Cmd + Space`, type your clone's Display Name (e.g. `WeChat Work`), and press `Enter`.
 * **From Dock / Finder**: Double-click `~/TwinSpace/Apps/WeChat2.app` directly.
 
@@ -196,7 +196,7 @@ When your primary application (e.g., WeChat or Chrome) is upgraded through the M
 ### Batch Operations (Batch Update & Batch Delete)
 When managing multiple cloned applications:
 
-1. Switch to **Table View** via the top toolbar view mode toggle.
+1. Switch to **Table View** using the segmented List/Card toggle in the top toolbar.
 2. Use standard macOS multi-selection:
    * `Cmd + Click`: Select multiple non-contiguous rows.
    * `Shift + Click`: Select a contiguous range of rows.

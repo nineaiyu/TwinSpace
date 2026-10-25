@@ -4,7 +4,7 @@
 
 [![Tests](https://github.com/nineaiyu/TwinSpace/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/nineaiyu/TwinSpace/actions/workflows/test.yml)
 
-> 🚀 **TwinSpace** is a macOS app multi-instancing and isolated environment manager. It groups clones of Chrome, ZCode, WorkBuddy, CodeBuddy, Qoder, Trae and other apps into independent spaces with separate data, Keychain namespaces, browser profiles and OAuth handlers. It also supports per-clone HTTP / SOCKS5 proxies, automated recipe matching, ad-hoc re-signing and sandbox removal.
+> 🚀 **TwinSpace** is a macOS app multi-instancing and isolated environment manager. It groups clones of Chrome, ZCode, WorkBuddy, CodeBuddy, Qoder, Trae and other apps into independent spaces with separate data, Keychain namespaces, browser profiles and OAuth handlers. It also supports per-clone HTTP / SOCKS5 proxies, automated recipe matching, ad-hoc re-signing and sandbox removal — with a native GUI, a scriptable CLI, and in-app auto-updates.
 >
 > 📖 **Looking for a beginner-friendly tutorial?** Visit our online documentation at **[nineaiyu.github.io/TwinSpace](https://nineaiyu.github.io/TwinSpace)**, or check out the **[English User Manual](https://nineaiyu.github.io/TwinSpace/en/)** | **[中文使用手册](https://nineaiyu.github.io/TwinSpace/zh/)**.
 
@@ -22,7 +22,7 @@ TwinSpace provides two distribution packages with **identical core functionality
 | **`TwinSpaceCli.tar.gz`** | ⚡ **Power Users / Developers** | Standalone binary command-line tool archive (`TwinSpaceCli`). Zero Python dependencies required; ideal for terminal power users, automation scripts, and CI/CD pipelines. |
 
 > 💡 **User Guidance**:
-> - **Beginners / Everyday Users**: Please **prioritize downloading and using the GUI app (`.dmg`)**. It offers an intuitive visual interface for one-click cloning, app launching, status monitoring, and settings.
+> - **Beginners / Everyday Users**: Please **prioritize downloading and using the GUI app (`.dmg`)**. It offers an intuitive visual interface for one-click cloning, app launching, status monitoring, and settings — and checks for updates right inside the app (⚙️ Settings → 🔄 Check for Updates), so future upgrades are one click away.
 > - **Advanced Users / Developers**: Use the **CLI tool (`TwinSpaceCli` / `twinspace`)** for fast terminal interaction, batch scripting, deep application probing, and headless workflows.
 
 ---
@@ -35,10 +35,12 @@ TwinSpace provides two distribution packages with **identical core functionality
 - 🗂 **Isolated Multi-App Environments**: Create one environment per account (`phone1`, `phone2`, ...). Every app in the environment shares the environment's Chrome profile and data root while keeping its own HOME, userData, Keychain namespace and OAuth handler. Clone names default to `App-Environment` and can be customized per app.
 - 🔍 **Intelligent App Prober**: Automatically inspects Mach-O architectures, frameworks, and code signing sandbox entitlements for any application without a pre-configured recipe, dynamically determining the optimal soft/hard clone strategy and generating recommended recipes.
 - 🌐 **Isolated Network Proxies**: Configure dedicated HTTP or SOCKS5 proxies (with authentication support) per cloned application without interfering with host system or primary application traffic.
-- 📑 **Recipe Engine**: 34+ built-in recipes for popular apps and AI Agent tools, with local override support via `~/TwinSpace/recipes/`.
+- 📑 **Recipe Engine**: 39 built-in recipes for popular apps and AI Agent tools, with local override support via `~/TwinSpace/recipes/`.
 - 🪄 **Interactive Wizard**: Step-by-step interactive CLI guide supporting terminal drag-and-drop application paths, automatic name incrementing, custom data directory configuration, and on-the-fly proxy setup.
 - 🔄 **Lifecycle Management**: View cloned apps (`list`), re-clone after primary app updates while preserving user and chat data (`update`), and safely remove clones with interactive prompts or flag controls (`remove` with `--with-data` / `--keep-data`).
 - 🛡️ **Security & Privilege Elevation**: Writing to `~/TwinSpace/Apps` requires no admin privileges; writing to `/Applications` uses native single-prompt macOS `osascript` authorization; robust path escaping via `shlex.quote` throughout.
+- 🔄 **In-App Auto-Update**: The GUI checks GitHub Releases for new versions, verifies the SHA-256 checksum, and swaps in the new `TwinSpace.app` — no manual re-download.
+- 🌙 **Bilingual, Theme-Aware UI**: English and 简体中文 with live switching, plus automatic Light/Dark mode following the system appearance.
 
 
 ---
@@ -91,21 +93,24 @@ The native macOS desktop interface provides a visual, streamlined experience:
 1. **Isolated Environments**:
    - Create one environment per account and add Chrome, ZCode, WorkBuddy, CodeBuddy, Qoder or Trae.
    - Open, update or back up the whole environment from one card; clone names are editable per app.
+   - First launch lands directly on this page when no clones or environments exist yet.
 2. **Dashboard & Clone Cards**:
-   - Displays all cloned applications in a modern card layout showing app icons, cloning strategies, proxy statuses, and creation timestamps.
-   - Launch cloned apps, update after primary app upgrades (preserving chat history and data), or safely remove clones with a single click.
+   - Dual view (list / card grid) with search, strategy filters and sorting; the grid adapts its column count to the window width.
+   - **Double-click a row to launch** the clone; update after primary app upgrades (preserving chat history and data) or remove clones — delete actions are red-highlighted and always ask for confirmation.
 3. **Visual Clone Creation**:
    - Drag and drop or browse for any `.app` bundle from your system.
    - Automatically matches built-in recipes or runs the App Prober on unlisted applications.
    - Customize clone name, display title, custom icon, dedicated data directory (e.g. on external SSDs), and independent HTTP / SOCKS5 proxies.
 4. **Built-in Recipe Library**:
-   - Explore 34+ pre-configured application recipes (WeChat, QQ, Chrome, Cursor, ChatGPT, Claude, etc.) categorized by type, complete with sandbox stripping rules and isolation strategies.
+   - Explore 39 pre-configured application recipes (WeChat, QQ, Chrome, Cursor, ChatGPT, Claude, etc.) categorized by type, complete with sandbox stripping rules and isolation strategies.
 5. **App Prober (Deep Architecture Inspection)**:
    - Inspect any unknown macOS app's Mach-O architecture, frameworks, and sandbox entitlements, and generate custom recipe YAML files with one click.
 6. **System Diagnostics (Doctor)**:
    - Self-check system prerequisites, Xcode command-line tools, codesigning utilities, and storage permissions to ensure optimal stability.
-7. **Multi-language & System Tray**:
-   - Fully localized in English and 简体中文 with macOS menu bar tray integration.
+7. **Bilingual UI, Dark Mode & System Tray**:
+   - English and 简体中文 with live switching; Light/Dark appearance follows the system; optional menu-bar tray with minimize-to-tray.
+8. **In-App Updates**:
+   - One-click update check from the sidebar or Settings; packages are checksum-verified before install.
 
 *(For developers running the GUI from source: run `bash scripts/run_gui.sh` or `python -m twinspace.gui`)*
 
@@ -332,57 +337,72 @@ twinspace migrate
 
 | Category | Application | Bundle Identifier | Strategy | App Type | Strip Sandbox |
 | :--- | :--- | :--- | :--- | :--- | :---: |
+| Category | Application | Bundle Identifier | Strategy | App Type | Strip Sandbox |
+| :--- | :--- | :--- | :--- | :--- | :---: |
 | **Instant Messaging & Collaboration** | WeChat | `com.tencent.xinWeChat` | Hard Clone | `cocoa` | ✔ |
-| | WeCom (企业微信) | `com.tencent.WeWorkMac` | Hard Clone | `chromium` | ✔ |
-| | QQ | `com.tencent.qq` | Hard Clone | `electron` | ✔ |
-| | Lark (飞书) | `com.electron.lark` | Hard Clone | `electron` | ✔ |
-| | Telegram (Native Swift) | `ru.keepcoder.Telegram` | Hard Clone | `cocoa` | ✔ |
-| | Telegram Desktop | `org.telegram.desktop` | Hard Clone | `generic` | ✔ |
-| | LINE | `jp.naver.line.mac` | Hard Clone | `cocoa` | ✔ |
-| | KakaoTalk | `com.kakao.KakaoTalkMac` | Hard Clone | `cocoa` | ✔ |
-| | Slack | `com.tinyspeck.slackmacgap` | Hard Clone | `electron` | ✔ |
-| | Discord | `com.hnc.Discord` | Hard Clone | `electron` | ✔ |
-| | Skype | `com.skype.skype` | Hard Clone | `electron` | ✔ |
-| **AI Clients** | Claude | `com.anthropic.claudefordesktop` | Hard Clone | `electron` | ✔ |
-| | ChatGPT (Codex) | `com.openai.codex` | Hard Clone | `cocoa` | ✔ |
-| | ChatGPT (Standard) | `com.openai.chat` | Hard Clone | `cocoa` | ✔ |
-| | Gemini | `com.google.GeminiMacOS` | Hard Clone | `cocoa` | ✔ |
-| | Antigravity | `com.google.antigravity` | Hard Clone | `electron` | ✔ |
-| | Antigravity IDE | `com.google.antigravity-ide` | Hard Clone | `electron` | ✔ |
-| **Browsers** | Google Chrome | `com.google.Chrome` | Hard Clone | `chromium` | — |
-| | Microsoft Edge | `com.microsoft.edgemac` | Hard Clone | `chromium` | — |
-| | Brave Browser | `com.brave.Browser` | Soft Clone | `chromium` | — |
-| | Firefox | `org.mozilla.firefox` | Soft Clone | `firefox` | — |
-| | Tor Browser | `org.torproject.torbrowser` | Soft Clone | `firefox` | — |
-| | Arc Browser | `company.thebrowser.Browser` | Hard Clone | `chromium` | — |
+|  | WeCom (企业微信) | `com.tencent.WeWorkMac` | Hard Clone | `chromium` | ✔ |
+|  | QQ | `com.tencent.qq` | Hard Clone | `electron` | ✔ |
+|  | Lark (飞书) | `com.electron.lark` | Hard Clone | `electron` | ✔ |
+|  | Telegram | `ru.keepcoder.Telegram` | Hard Clone | `cocoa` | ✔ |
+|  | Telegram Desktop | `org.telegram.desktop` | Hard Clone | `generic` | ✔ |
+|  | LINE | `jp.naver.line.mac` | Hard Clone | `cocoa` | ✔ |
+|  | KakaoTalk | `com.kakao.KakaoTalkMac` | Hard Clone | `cocoa` | ✔ |
+|  | Slack | `com.tinyspeck.slackmacgap` | Hard Clone | `electron` | ✔ |
+|  | Discord | `com.hnc.Discord` | Hard Clone | `electron` | ✔ |
+|  | Skype | `com.skype.skype` | Hard Clone | `electron` | ✔ |
+| **AI Clients & Agent Tools** | Claude | `com.anthropic.claudefordesktop` | Hard Clone | `electron` | ✔ |
+|  | ChatGPT | `com.openai.codex` | Hard Clone | `electron` | ✔ |
+|  | ChatGPT | `com.openai.chat` | Hard Clone | `electron` | ✔ |
+|  | Gemini | `com.google.GeminiMacOS` | Hard Clone | `cocoa` | ✔ |
+|  | Antigravity | `com.google.antigravity` | Hard Clone | `electron` | ✔ |
+|  | Antigravity IDE | `com.google.antigravity-ide` | Hard Clone | `electron` | ✔ |
+| **Isolated Environment Suite** | ZCode | `dev.zcode.app` | Hard Clone | `electron` | — |
+|  | WorkBuddy | `com.tencent.workbuddy.mac` | Hard Clone | `electron` | — |
+|  | CodeBuddy CN | `com.tencent.codebuddycn` | Hard Clone | `electron` | — |
+|  | Qoder CN | `com.qodercn.app` | Hard Clone | `electron` | — |
+|  | Trae CN | `cn.trae.app` | Hard Clone | `electron` | — |
+| **Browsers** | Google Chrome | `com.google.Chrome` | Soft Clone | `chromium` | — |
+|  | Microsoft Edge | `com.microsoft.edgemac` | Hard Clone | `chromium` | — |
+|  | Brave Browser | `com.brave.Browser` | Soft Clone | `chromium` | — |
+|  | Firefox | `org.mozilla.firefox` | Soft Clone | `firefox` | — |
+|  | Tor Browser | `org.torproject.torbrowser` | Soft Clone | `firefox` | — |
+|  | Arc | `company.thebrowser.Browser` | Hard Clone | `chromium` | — |
 | **Media & Entertainment** | Bilibili (哔哩哔哩) | `com.bilibili.bilibiliPC` | Hard Clone | `electron` | ✔ |
-| | Douyin (抖音) | `com.bytedance.douyin.desktop` | Hard Clone | `electron` | ✔ |
-| | Netease Music (网易云音乐) | `com.netease.163music` | Hard Clone | `chromium` | ✔ |
-| | Steam | `com.valvesoftware.steam` | Hard Clone | `cocoa` | ✔ |
+|  | Douyin (抖音) | `com.bytedance.douyin.desktop` | Hard Clone | `electron` | ✔ |
+|  | Netease Music (网易云音乐) | `com.netease.163music` | Hard Clone | `chromium` | ✔ |
+|  | Steam | `com.valvesoftware.steam` | Hard Clone | `cocoa` | ✔ |
 | **Productivity & Utilities** | WPS Office | `com.kingsoft.wpsoffice.mac` | Hard Clone | `cocoa` | ✔ |
-| | VideoFusion (剪映专业版) | `com.lemon.lvpro` | Hard Clone | `chromium` | ✔ |
-| | CapCut | `com.lemon.lvoverseas` | Hard Clone | `chromium` | ✔ |
+|  | JianYing Pro (剪映专业版) | `com.lemon.lvpro` | Hard Clone | `chromium` | ✔ |
+|  | CapCut | `com.lemon.lvoverseas` | Hard Clone | `chromium` | ✔ |
 | **Developer Tools** | Cursor | `com.todesktop.230313mzl4w4u92` | Soft Clone | `electron` | — |
-| | VS Code | `com.microsoft.VSCode` | Soft Clone | `electron` | — |
-| | Android Studio | `com.google.android.studio` | Hard Clone | `generic` | ✔ |
-| | Zed | `dev.zed.Zed` | Soft Clone | `generic` | — |
+|  | VS Code | `com.microsoft.VSCode` | Soft Clone | `electron` | — |
+|  | Android Studio | `com.google.android.studio` | Hard Clone | `generic` | ✔ |
+|  | Zed | `dev.zed.Zed` | Soft Clone | `generic` | — |
 
 **KakaoTalk validation:** Concurrent launch with the original app and notifications have been checked. Clone login, separate-account data isolation, and login persistence after restarting the clone have not yet been verified.
 
 ---
 
+## 🔐 Security & Privacy Notes
+
+- **Input hardening**: every value that reaches a shell command, PlistBuddy invocation or generated launcher (clone names, bundle IDs, display names, proxy settings) is validated centrally in `twinspace/validation.py`; shell paths are escaped with `shlex.quote`.
+- **Deletion guards**: `remove` / `update` refuse to touch system paths (`/System`, `/Library`, your home directory itself, etc.), require an `.app` target, and run the actual `rm -rf` through `shlex.quote`.
+- **Secrets**: proxy passwords are stored in the macOS Keychain (service `twinspace.proxy`), never in `clones.yaml`; state files are written atomically with `0600` permissions.
+- **Signing**: clones are re-signed ad-hoc (`codesign --sign -`). TwinSpace does not modify or bypass Gatekeeper for the original apps, and sandbox stripping only applies when a recipe explicitly opts in.
+- **Telemetry**: none. Update checks only contact `github.com` for `latest.json`.
+
 ## 🛠️ Prerequisites & Development Setup
 
-- **Operating System**: macOS 13.0+ (Apple Silicon arm64 / Intel x86_64)
-- **Python**: Python 3.12+ (strictly required for `build_cli.sh` compilation; Conda recommended)
+- **Operating System**: macOS 13.0 or later on Apple Silicon (arm64). Release packages are built for arm64 only.
+- **Python**: Python 3.12+ (strictly required for `build_cli.sh` compilation)
 - **System Tools**: Xcode Command Line Tools installed (provides `codesign`, `xcode-select`, `PlistBuddy`)
 
 ```bash
 # 1. Install Xcode Command Line Tools (if not already installed)
 xcode-select --install
 
-# 2. Activate Conda environment and install in development mode
-conda activate TwinSpace
+# 2. Create a virtualenv and install in development mode (with the GUI stack)
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,gui]"
 
 # 3. Run environment self-check
@@ -443,7 +463,7 @@ The resulting standalone binary will be generated under `dist/`:
 This project follows TDD and automated test verification practices, with full unit and integration test suites:
 
 ```bash
-PYTHONPATH=src conda run -n TwinSpace python -m pytest tests/ -v
+PYTHONPATH=src python -m pytest tests/ -q
 ```
 
 ---
@@ -491,7 +511,7 @@ src/twinspace/
 │   └── views/            # GUI views (dashboard, recipes, probe, doctor, settings, logs)
 ├── executor/             # Low-level executors (Subprocess / AppleScript elevation)
 │   └── runner.py
-└── recipes/              # Recipe models, loaders & 34 built-in rules
+└── recipes/              # Recipe models, loaders & 39 built-in rules
     ├── builtin/          # Built-in YAML recipes
     ├── loader.py         # Recipe matching & priority loader
     └── models.py         # Pydantic validation models

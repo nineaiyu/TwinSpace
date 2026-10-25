@@ -4,7 +4,7 @@
 
 [![Tests](https://github.com/nineaiyu/TwinSpace/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/nineaiyu/TwinSpace/actions/workflows/test.yml)
 
-> 🚀 **TwinSpace** 是一个专为 macOS 设计的应用多开与隔离环境管理器。可以把 Chrome、ZCode、WorkBuddy、CodeBuddy、Qoder、Trae 等应用的多个分身按账号划分到独立环境，每个环境拥有独立数据、Keychain 命名空间、浏览器 Profile 与 OAuth 回调；同时支持独立网络代理（HTTP / SOCKS5）、规则匹配、重签名与沙盒解除。
+> 🚀 **TwinSpace** 是一个专为 macOS 设计的应用多开与隔离环境管理器。可以把 Chrome、ZCode、WorkBuddy、CodeBuddy、Qoder、Trae 等应用的多个分身按账号划分到独立环境，每个环境拥有独立数据、Keychain 命名空间、浏览器 Profile 与 OAuth 回调；同时支持独立网络代理（HTTP / SOCKS5）、规则匹配、重签名与沙盒解除——提供原生图形界面与可脚本化 CLI，并内置应用内自动更新。
 >
 > 📖 **新手小白入门指引？** 请访问官方在线使用手册：**[nineaiyu.github.io/TwinSpace](https://nineaiyu.github.io/TwinSpace)**，或查阅 **[TwinSpace 中文使用手册](https://nineaiyu.github.io/TwinSpace/zh/)** | **[English Manual](https://nineaiyu.github.io/TwinSpace/en/)**。
 
@@ -35,10 +35,12 @@ Release 页面主要提供两个发布文件，**核心功能完全一致**：
 - 🗂 **多 App 隔离环境**：按账号创建 `phone1`、`phone2` 等环境，把 Chrome、ZCode、WorkBuddy、CodeBuddy、Qoder、Trae 组合进同一环境。环境内应用共用独立 Chrome Profile 和数据根，同时各自保留独立的 HOME、userData、Keychain 命名空间和 OAuth 回调。分身名默认是 `应用名-环境名`，也可以逐个修改。
 - 🔍 **智能应用探测 (App Prober)**：遇到未预设规则的任意 macOS 应用程序时，自动分析其 Mach-O 架构、Frameworks 与代码签名沙盒权限，动态决定软/硬克隆策略并提取推荐规则。
 - 🌐 **独立网络代理 (Isolated Network Proxies)**：为每个分身实例配置独立的 HTTP 或 SOCKS5 代理（支持认证），与系统主网络及母体应用互不干扰。
-- 📑 **规则引擎 (Recipe Engine)**：内置 34+ 常用应用与 AI Agent 工具分身规则，支持通过 `~/TwinSpace/recipes/` 本地优先级覆盖自定义规则。
+- 📑 **规则引擎 (Recipe Engine)**：内置 39 条常用应用与 AI Agent 工具分身规则，支持通过 `~/TwinSpace/recipes/` 本地优先级覆盖自定义规则。
 - 🪄 **交互式向导 (Interactive Wizard)**：全流程引导式 CLI，支持终端拖拽 `.app` 路径、自动命名递增、自定义数据目录与快捷代理配置。
 - 🔄 **生命周期管理**：查看已有分身（`list`）、主应用升级后一键重克隆并保留用户数据（`update`）、安全删除分身（`remove` 支持 `--with-data` / `--keep-data` 与交互确认）。
 - 🛡️ **安全与提权机制**：默认克隆至 `~/TwinSpace/Apps` 无需 root/sudo 权限；如需写入系统级 `/Applications` 采用原生单次 `osascript` 授权提权；严格使用 `shlex.quote` 保证路径转义安全。
+- 🔄 **应用内自动更新**：图形界面一键检查 GitHub Releases 新版本，SHA-256 校验通过后自动换装新版 `TwinSpace.app`，无需手动重新下载。
+- 🌙 **中英双语 · 深色跟随**：界面支持简体中文/英文实时切换，深浅色外观自动跟随系统。
 
 
 ---
@@ -83,28 +85,31 @@ twinspace migrate --move          # 物理移动并改写状态路径（高级�
 
 ## 🖥️ 图形化界面使用指南 (GUI — 推荐普通用户使用)
 
-> 💡 **新手与普通用户提示**：如果您不习惯终端命令行操作，请直接从 [GitHub Releases](https://github.com/nineaiyu/TwinSpace/releases) 下载 `TwinSpace-<version>-arm64.dmg` 安装包，将 `TwinSpace.app` 拖入 `应用程序` 文件夹即可直接运行使用！
+> 💡 **新手与普通用户提示**：如果您不习惯终端命令行操作，请直接从 [GitHub Releases](https://github.com/nineaiyu/TwinSpace/releases) 下载 `TwinSpace-<version>-arm64.dmg` 安装包，将 `TwinSpace.app` 拖入 `应用程序` 文件夹即可直接运行使用！后续升级无需重新下载——应用内（⚙️ 全局设置 → 🔄 检查更新）即可一键升级。
 
 macOS 原生桌面图形客户端提供直观、全功能的应用分身管理：
 
 1. **隔离环境 (My Environments)**：
    - 按账号创建环境，把 Chrome、ZCode、WorkBuddy、CodeBuddy、Qoder、Trae 加进同一环境。
    - 在环境卡片上直接全部打开、批量更新或备份数据，每个 App 的分身名可单独修改。
+   - 首次使用（尚无分身与环境）时自动引导到本页面。
 2. **仪表盘与分身卡片 (Dashboard)**：
-   - 以现代卡片式布局清晰展示所有分身应用，直观查看应用图标、克隆策略、独立代理状态与创建时间。
-   - 支持一键启动分身、一键升级（同步原应用并完整保留聊天记录与登录数据）以及安全卸载清理。
+   - 列表/卡片双视图，支持搜索、策略筛选与排序；卡片网格列数随窗口宽度自适应。
+   - **双击列表行直接启动分身**；原应用升级后一键同步（完整保留聊天记录与登录数据）；删除操作红色标识并始终二次确认。
 3. **可视化新建分身向导**：
    - 支持拖拽或文件选择器选取任意 `.app` 应用本体。
    - 自动匹配内置规则或动态触发深度架构探测。
    - 可视化自定义分身名称、显示标题、独立数据目录（如外接移动硬盘）以及 HTTP/SOCKS5 专属代理配置。
-3. **内置规则库 (Recipe Library)**：
-   - 分类浏览内置的 34+ 热门应用规则（微信、QQ、Chrome、Cursor、ChatGPT、Claude 等），查看沙盒剥离与隔离策略。
-4. **应用深度探测器 (App Prober)**：
+4. **内置规则库 (Recipe Library)**：
+   - 分类浏览内置的 39 条热门应用规则（微信、QQ、Chrome、Cursor、ChatGPT、Claude 等），查看沙盒剥离与隔离策略。
+5. **应用深度探测器 (App Prober)**：
    - 可视化检测任意未知应用的 Mach-O 架构、Frameworks 与沙盒权限，一键生成专属分身规则。
-5. **系统健康自检 (Doctor)**：
+6. **系统健康自检 (Doctor)**：
    - 一键自检系统版本、Xcode 命令行工具、代码签名环境与存储权限，保障分身稳定运行。
-6. **多语言与菜单栏托盘**：
-   - 内置中英双语支持（简体中文、English），支持最小化至 macOS 菜单栏托盘常驻。
+7. **中英双语 · 深色模式 · 菜单栏托盘**：
+   - 简体中文/English 实时切换，深浅色跟随系统，支持最小化至 macOS 菜单栏托盘常驻。
+8. **应用内更新**：
+   - 侧栏或全局设置一键检查更新，安装包经校验和验证后自动换装。
 
 *(开发者如需从源码启动 GUI：运行 `bash scripts/run_gui.sh` 或 `python -m twinspace.gui`)*
 
@@ -330,57 +335,72 @@ twinspace migrate
 
 | 类别 | 应用名称 | Bundle Identifier | 克隆策略 | 应用类型 (App Type) | 沙盒解除 (Strip Sandbox) |
 | :--- | :--- | :--- | :--- | :--- | :---: |
-| **即时通讯 & 协同办公** | 微信 (WeChat) | `com.tencent.xinWeChat` | Hard Clone | `cocoa` | ✔ |
-| | 企业微信 (WeCom) | `com.tencent.WeWorkMac` | Hard Clone | `chromium` | ✔ |
-| | QQ | `com.tencent.qq` | Hard Clone | `electron` | ✔ |
-| | 飞书 (Lark) | `com.electron.lark` | Hard Clone | `electron` | ✔ |
-| | Telegram (原生 Swift) | `ru.keepcoder.Telegram` | Hard Clone | `cocoa` | ✔ |
-| | Telegram Desktop | `org.telegram.desktop` | Hard Clone | `generic` | ✔ |
-| | LINE | `jp.naver.line.mac` | Hard Clone | `cocoa` | ✔ |
-| | KakaoTalk | `com.kakao.KakaoTalkMac` | Hard Clone | `cocoa` | ✔ |
-| | Slack | `com.tinyspeck.slackmacgap` | Hard Clone | `electron` | ✔ |
-| | Discord | `com.hnc.Discord` | Hard Clone | `electron` | ✔ |
-| | Skype | `com.skype.skype` | Hard Clone | `electron` | ✔ |
-| **AI 客户端** | Claude | `com.anthropic.claudefordesktop` | Hard Clone | `electron` | ✔ |
-| | ChatGPT (Codex) | `com.openai.codex` | Hard Clone | `cocoa` | ✔ |
-| | ChatGPT (标准版) | `com.openai.chat` | Hard Clone | `cocoa` | ✔ |
-| | Gemini | `com.google.GeminiMacOS` | Hard Clone | `cocoa` | ✔ |
-| | Antigravity | `com.google.antigravity` | Hard Clone | `electron` | ✔ |
-| | Antigravity IDE | `com.google.antigravity-ide` | Hard Clone | `electron` | ✔ |
-| **浏览器** | Google Chrome | `com.google.Chrome` | Hard Clone | `chromium` | — |
-| | Microsoft Edge | `com.microsoft.edgemac` | Hard Clone | `chromium` | — |
-| | Brave Browser | `com.brave.Browser` | Soft Clone | `chromium` | — |
-| | Firefox | `org.mozilla.firefox` | Soft Clone | `firefox` | — |
-| | Tor Browser | `org.torproject.torbrowser` | Soft Clone | `firefox` | — |
-| | Arc Browser | `company.thebrowser.Browser` | Hard Clone | `chromium` | — |
-| **音视频与社交娱乐** | 哔哩哔哩 (Bilibili) | `com.bilibili.bilibiliPC` | Hard Clone | `electron` | ✔ |
-| | 抖音 (Douyin) | `com.bytedance.douyin.desktop` | Hard Clone | `electron` | ✔ |
-| | 网易云音乐 | `com.netease.163music` | Hard Clone | `chromium` | ✔ |
-| | Steam | `com.valvesoftware.steam` | Hard Clone | `cocoa` | ✔ |
-| **生产力与实用工具** | WPS Office | `com.kingsoft.wpsoffice.mac` | Hard Clone | `cocoa` | ✔ |
-| | 剪映专业版 | `com.lemon.lvpro` | Hard Clone | `chromium` | ✔ |
-| | CapCut | `com.lemon.lvoverseas` | Hard Clone | `chromium` | ✔ |
-| **开发工具** | Cursor | `com.todesktop.230313mzl4w4u92` | Soft Clone | `electron` | — |
-| | VS Code | `com.microsoft.VSCode` | Soft Clone | `electron` | — |
-| | Android Studio | `com.google.android.studio` | Hard Clone | `generic` | ✔ |
-| | Zed | `dev.zed.Zed` | Soft Clone | `generic` | — |
+| 类别 | 应用名称 | Bundle Identifier | 克隆策略 | 应用类型 (App Type) | 沙盒解除 (Strip Sandbox) |
+| :--- | :--- | :--- | :--- | :--- | :---: |
+| **即时通讯 & 协同办公** | 微信 (WeChat) | `com.tencent.xinWeChat` | 硬克隆 | `cocoa` | ✔ |
+|  | 企业微信 (WeCom) | `com.tencent.WeWorkMac` | 硬克隆 | `chromium` | ✔ |
+|  | QQ | `com.tencent.qq` | 硬克隆 | `electron` | ✔ |
+|  | 飞书 (Lark) | `com.electron.lark` | 硬克隆 | `electron` | ✔ |
+|  | Telegram | `ru.keepcoder.Telegram` | 硬克隆 | `cocoa` | ✔ |
+|  | Telegram Desktop | `org.telegram.desktop` | 硬克隆 | `generic` | ✔ |
+|  | LINE | `jp.naver.line.mac` | 硬克隆 | `cocoa` | ✔ |
+|  | KakaoTalk | `com.kakao.KakaoTalkMac` | 硬克隆 | `cocoa` | ✔ |
+|  | Slack | `com.tinyspeck.slackmacgap` | 硬克隆 | `electron` | ✔ |
+|  | Discord | `com.hnc.Discord` | 硬克隆 | `electron` | ✔ |
+|  | Skype | `com.skype.skype` | 硬克隆 | `electron` | ✔ |
+| **AI 客户端 & Agent 工具** | Claude | `com.anthropic.claudefordesktop` | 硬克隆 | `electron` | ✔ |
+|  | ChatGPT | `com.openai.codex` | 硬克隆 | `electron` | ✔ |
+|  | ChatGPT | `com.openai.chat` | 硬克隆 | `electron` | ✔ |
+|  | Gemini | `com.google.GeminiMacOS` | 硬克隆 | `cocoa` | ✔ |
+|  | Antigravity | `com.google.antigravity` | 硬克隆 | `electron` | ✔ |
+|  | Antigravity IDE | `com.google.antigravity-ide` | 硬克隆 | `electron` | ✔ |
+| **隔离环境套件** | ZCode | `dev.zcode.app` | 硬克隆 | `electron` | — |
+|  | WorkBuddy | `com.tencent.workbuddy.mac` | 硬克隆 | `electron` | — |
+|  | CodeBuddy CN | `com.tencent.codebuddycn` | 硬克隆 | `electron` | — |
+|  | Qoder CN | `com.qodercn.app` | 硬克隆 | `electron` | — |
+|  | Trae CN | `cn.trae.app` | 硬克隆 | `electron` | — |
+| **浏览器** | Chrome | `com.google.Chrome` | 软克隆 | `chromium` | — |
+|  | Edge | `com.microsoft.edgemac` | 硬克隆 | `chromium` | — |
+|  | Brave Browser | `com.brave.Browser` | 软克隆 | `chromium` | — |
+|  | Firefox | `org.mozilla.firefox` | 软克隆 | `firefox` | — |
+|  | Tor Browser | `org.torproject.torbrowser` | 软克隆 | `firefox` | — |
+|  | Arc | `company.thebrowser.Browser` | 硬克隆 | `chromium` | — |
+| **媒体 & 娱乐** | 哔哩哔哩 (Bilibili) | `com.bilibili.bilibiliPC` | 硬克隆 | `electron` | ✔ |
+|  | 抖音 (Douyin) | `com.bytedance.douyin.desktop` | 硬克隆 | `electron` | ✔ |
+|  | 网易云音乐 (Netease Music) | `com.netease.163music` | 硬克隆 | `chromium` | ✔ |
+|  | Steam | `com.valvesoftware.steam` | 硬克隆 | `cocoa` | ✔ |
+| **办公 & 效率** | WPS Office | `com.kingsoft.wpsoffice.mac` | 硬克隆 | `cocoa` | ✔ |
+|  | 剪映专业版 (JianYing Pro) | `com.lemon.lvpro` | 硬克隆 | `chromium` | ✔ |
+|  | CapCut | `com.lemon.lvoverseas` | 硬克隆 | `chromium` | ✔ |
+| **开发者工具** | Cursor | `com.todesktop.230313mzl4w4u92` | 软克隆 | `electron` | — |
+|  | VS Code | `com.microsoft.VSCode` | 软克隆 | `electron` | — |
+|  | Android Studio | `com.google.android.studio` | 硬克隆 | `generic` | ✔ |
+|  | Zed | `dev.zed.Zed` | 软克隆 | `generic` | — |
 
 **KakaoTalk 验证范围：** 已验证与原应用同时运行及通知功能。分身登录、不同账号之间的数据隔离，以及重启分身后保持登录状态尚未验证。
 
 ---
 
+## 🔐 安全与隐私说明
+
+- **输入加固**：所有会进入 shell 命令、PlistBuddy 或生成启动器的值（分身名、Bundle ID、显示名、代理配置）都在 `twinspace/validation.py` 集中校验；shell 路径统一经 `shlex.quote` 转义。
+- **删除防护**：`remove` / `update` 拒绝操作系统路径（`/System`、`/Library`、用户主目录本身等），要求目标以 `.app` 结尾，`rm -rf` 前强制路径校验与转义。
+- **密钥安全**：代理密码保存在 macOS 钥匙串（service `twinspace.proxy`），绝不写入 `clones.yaml`；状态文件以 `0600` 权限原子写入。
+- **签名策略**：分身使用 ad-hoc 重签名（`codesign --sign -`）；TwinSpace 不绕过原应用的 Gatekeeper 校验，沙盒解除仅在规则显式开启时生效。
+- **无遥测**：不采集任何数据；更新检查仅访问 `github.com` 获取 `latest.json`。
+
 ## 🛠️ 开发与环境依赖 (Development Setup)
 
-- **操作系统**：macOS 13.0+ (Apple Silicon arm64 / Intel x86_64)
-- **Python**：Python 3.12+（`build_cli.sh` 编译时强制要求；推荐使用 Conda）
+- **操作系统**：macOS 13.0 及以上，Apple Silicon (arm64)。发布产物目前仅提供 arm64 架构。
+- **Python**：Python 3.12+（`build_cli.sh` 编译时强制要求）
 - **系统开发工具**：已安装 Xcode Command Line Tools（提供 `codesign`, `xcode-select`, `PlistBuddy`）
 
 ```bash
 # 1. 安装 Xcode Command Line Tools (若尚未安装)
 xcode-select --install
 
-# 2. 切换到项目目录并激活 Conda 环境，以可编辑模式安装全部依赖 (含 GUI)
-conda activate TwinSpace
+# 2. 创建虚拟环境并以可编辑模式安装全部依赖 (含 GUI)
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,gui]"
 
 # 3. 运行环境自检
@@ -441,7 +461,7 @@ bash scripts/build_gui.sh
 本项目严格遵循 TDD 与自动化验证规范，包含完整的单元测试与集成测试：
 
 ```bash
-PYTHONPATH=src conda run -n TwinSpace python -m pytest tests/ -v
+PYTHONPATH=src python -m pytest tests/ -q
 ```
 
 ---
@@ -489,7 +509,7 @@ src/twinspace/
 │   └── views/            # GUI 视图 (仪表盘、规则库、探测器、自检、设置、日志)
 ├── executor/             # 底层执行器 (Direct Subprocess / AppleScript 提权)
 │   └── runner.py
-└── recipes/              # 规则模型、加载器与 34 个内置规则
+└── recipes/              # 规则模型、加载器与 39 个内置规则
     ├── builtin/          # 内置 YAML 规则
     ├── loader.py         # 规则匹配与优先级加载
     └── models.py         # Pydantic 校验模型
