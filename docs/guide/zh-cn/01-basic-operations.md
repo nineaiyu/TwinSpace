@@ -21,6 +21,7 @@
   - [母体升级后的“无损同步更新”](#母体升级后的无损同步更新)
   - [批量操作（批量更新与批量删除）](#批量操作批量更新与批量删除)
   - [安全删除（保留数据 vs 彻底清理）](#安全删除保留数据-vs-彻底清理)
+- [🗂 多 App 隔离环境](#-多-app-隔离环境)
 
 ---
 
@@ -223,6 +224,81 @@ graph LR
 
 * **保留数据（默认不勾选）**：仅从 `~/TwinSpace/Apps` 中移除 `.app` 应用程序包，聊天记录与数据库完整保存在 `~/TwinSpace/Data/` 中。后续如需恢复，随时使用同名再次克隆即可瞬间找回所有记录。
 * **彻底清除（勾选复选框）**：同时删除 `.app` 应用程序包与专属数据目录，释放磁盘空间。
+
+---
+
+## 🗂 多 App 隔离环境
+
+环境把多个应用分身组合在同一个账号下，并配一个专属 Chrome Profile。
+`phone1` 里的应用只会打开 `phone1` 的浏览器，数据、Keychain 与 OAuth 回调
+不会串到 `phone2` 或原应用。
+
+### 创建环境（GUI）
+
+在侧栏打开 **🗂 我的环境**，点击 **+ 新建环境**：
+
+1. 输入环境名称（如 `phone1`）。
+2. 逐个打开要加入的应用开关——每个应用会生成默认分身名
+   （`应用名-环境名`），可以直接修改。
+3. 点击 **创建环境**，按应用显示创建进度。
+
+### 创建环境（CLI）
+
+```bash
+# 使用本机已安装的全部支持应用，默认命名
+twinspace env create phone1
+
+# 显式指定应用列表 + 自定义分身名
+twinspace env create phone1 --apps chrome,zcode,workbuddy \
+  --clone-name zcode=ZCode-phone1
+
+# 内置模板：all / phone / dev
+twinspace env create phone1 --template phone
+```
+
+### 浏览器绑定：环境 Chrome 与外部浏览器
+
+默认情况下环境会同时克隆 **Chrome**，环境内其他应用都会绑定到这个分身——
+链接、OAuth 登录与回调都会打开环境自己的浏览器，并使用环境专属 Profile
+（`~/TwinSpace/Data/Environments/<名称>/Browser`）。
+
+如需使用**外部浏览器**（不克隆 Chrome）：
+
+```bash
+# 链接用 Microsoft Edge 打开，Profile 保存在环境内（不克隆、不改动 Edge 本体）：
+twinspace env create phone1 --apps zcode,workbuddy \
+  --browser "/Applications/Microsoft Edge.app"
+
+# 不带 --browser 且应用列表不含 Chrome：链接直接走 macOS 系统默认浏览器
+# （不绑定、不劫持）。
+twinspace env create phone1 --apps zcode
+
+# 按应用覆盖：让某个应用复用已有的浏览器 Profile
+twinspace env create phone1 --apps zcode \
+  --set-env zcode=TWINSPACE_BROWSER_DATA_DIR="$HOME/Library/Application Support/Google/Chrome"
+```
+
+> [!NOTE]
+> - 绑定按应用持久化保存，`env update` 与 `env export`/`import` 后依然生效。
+> - 链接劫持依赖**硬克隆**（隔离钩子）；软克隆应用无法绑定浏览器。
+> - `TWINSPACE_*` 隔离变量完整参考（浏览器路径、回退浏览器、Keychain
+>   命名空间、OAuth scheme、HOME 钩子等）见项目
+>   [中文 README](https://github.com/nineaiyu/TwinSpace/blob/main/Readme_zh.md#浏览器绑定与外部浏览器)。
+
+### 环境日常操作
+
+```bash
+twinspace env list                          # 环境列表
+twinspace env open phone1                   # 打开环境内全部应用
+twinspace env update phone1                 # 原应用升级后批量重建
+twinspace env backup phone1                 # 全部应用数据打包备份
+twinspace env restore phone1 <archive.tar.gz>
+twinspace env export phone1 -o phone1.yaml  # 导出可移植模板
+twinspace env import phone1.yaml --name phone2
+twinspace env remove phone1                 # 删除环境（会询问是否删数据）
+```
+
+GUI 中同样的操作在每张环境卡片上（**全部打开 / 添加 App / 全部更新 / 备份数据 / 删除环境**）。
 
 ---
 

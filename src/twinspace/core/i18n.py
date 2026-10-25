@@ -775,6 +775,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Use --clone-name APP=NAME.",
         "zh": "请使用 --clone-name 应用=名称 的格式。",
     },
+    "env_err_param_setenv_format": {
+        "en": "Use --set-env APP=KEY=VALUE.",
+        "zh": "请使用 --set-env 应用=键=值 的格式。",
+    },
+    "env_err_param_browser_app": {
+        "en": "--browser must point to a macOS .app bundle.",
+        "zh": "--browser 必须指向一个 macOS .app 应用。",
+    },
     "env_err_param_clone_empty": {
         "en": "Clone name for {key} cannot be empty.",
         "zh": "{key} 的分身名称不能为空。",

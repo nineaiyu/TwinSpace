@@ -21,6 +21,7 @@ This chapter guides you step-by-step through creating your first isolated applic
   - [Updating Clones After Primary App Upgrades](#updating-clones-after-primary-app-upgrades)
   - [Batch Operations (Batch Update & Batch Delete)](#batch-operations-batch-update--batch-delete)
   - [Safe Deletion (Keeping vs. Purging Data)](#safe-deletion-keeping-vs-purging-data)
+- [🗂️ Isolated Multi-App Environments](#️-isolated-multi-app-environments)
 
 ---
 
@@ -223,6 +224,87 @@ When clicking **"Delete"** (or during batch deletion), TwinSpace provides a safe
 
 * **Keep Data (Unchecked - Default)**: Removes the `.app` bundle from `~/TwinSpace/Apps` while preserving your chats, preferences, and databases in `~/TwinSpace/Data/WeChat2`. You can recreate the clone later and immediately resume where you left off.
 * **Purge Data (Checked)**: Permanently removes both the `.app` bundle and the entire data storage directory.
+
+---
+
+## 🗂️ Isolated Multi-App Environments
+
+An environment groups several app clones under one account with one dedicated
+Chrome profile. Apps inside `phone1` only open `phone1`'s browser; data,
+Keychain entries and OAuth callbacks never leak into `phone2` or the original
+apps.
+
+### Creating an Environment (GUI)
+
+Open **🗂 My Environments** in the sidebar and click **+ New Environment**:
+
+1. Enter an environment name (e.g. `phone1`).
+2. Toggle the apps to include — each app gets a default clone name
+   (`App-Environment`) that you can edit inline.
+3. Click **Create Environment**; progress is shown per app.
+
+### Creating an Environment (CLI)
+
+```bash
+# Every installed supported app, default names
+twinspace env create phone1
+
+# Explicit app list + custom clone names
+twinspace env create phone1 --apps chrome,zcode,workbuddy \
+  --clone-name zcode=ZCode-phone1
+
+# Built-in templates: all / phone / dev
+twinspace env create phone1 --template phone
+```
+
+### Browser Binding: Environment Chrome vs. External Browsers
+
+By default the environment also clones **Chrome**, and every other app in the
+environment is pinned to that clone — links, OAuth logins and callbacks open in
+the environment's own browser with the environment's profile
+(`~/TwinSpace/Data/Environments/<name>/Browser`).
+
+To use an **external browser** instead of cloning Chrome:
+
+```bash
+# Links open in Microsoft Edge with an isolated profile kept inside the
+# environment (Edge itself is not cloned or modified):
+twinspace env create phone1 --apps zcode,workbuddy \
+  --browser "/Applications/Microsoft Edge.app"
+
+# No --browser and no Chrome in the list: links open in the macOS default
+# browser (no binding at all).
+twinspace env create phone1 --apps zcode
+
+# Per-app override: reuse an existing browser profile for one app
+twinspace env create phone1 --apps zcode \
+  --set-env zcode=TWINSPACE_BROWSER_DATA_DIR="$HOME/Library/Application Support/Google/Chrome"
+```
+
+> [!NOTE]
+> - The binding is persisted per app: it survives `env update` and
+>   `env export` / `import`.
+> - Link hijacking requires a **hard clone** (isolation hook); soft-clone apps
+>   cannot bind a browser.
+> - The full reference of `TWINSPACE_*` isolation variables (browser path,
+>   fallback browser, Keychain namespace, OAuth schemes, HOME hook, ...) is
+>   available in the project [README](https://github.com/nineaiyu/TwinSpace#browser-binding--external-browsers).
+
+### Routine Environment Operations
+
+```bash
+twinspace env list                          # table of environments
+twinspace env open phone1                   # launch every app in the env
+twinspace env update phone1                 # rebuild all apps after upgrades
+twinspace env backup phone1                 # tar.gz archive of all app data
+twinspace env restore phone1 <archive.tar.gz>
+twinspace env export phone1 -o phone1.yaml  # portable template
+twinspace env import phone1.yaml --name phone2
+twinspace env remove phone1                 # remove env (asks about data)
+```
+
+In the GUI the same actions live on each environment card
+(**Open All / Add Apps / Update All / Backup / Remove**).
 
 ---
 

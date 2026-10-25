@@ -70,6 +70,47 @@ twinspace env export phone1 -o phone1.yaml
 twinspace env import phone1.yaml --name phone2
 ```
 
+#### 浏览器绑定与外部浏览器
+
+默认情况下，环境会随其他应用一起克隆 Chrome，且所有非 Chrome 应用都会绑定到
+这个分身：链接、OAuth 回调与登录都会打开环境自己的浏览器，并使用环境专属的
+Profile（`~/TwinSpace/Data/Environments/<名称>/Browser`）。
+
+如需在环境中使用**外部浏览器**：
+
+```bash
+# 链接用 Microsoft Edge 打开，但使用环境内隔离的 Profile
+# （不会克隆、也不会改动 Edge 本体）
+twinspace env create phone1 --apps zcode,workbuddy \
+  --browser "/Applications/Microsoft Edge.app"
+
+# 不带 --browser 且应用列表不含 Chrome：链接直接走 macOS 系统默认浏览器
+# （不绑定、不劫持）
+twinspace env create phone1 --apps zcode
+
+# 高级用法：按应用覆盖（可重复）。例如让某个应用复用已有的浏览器 Profile：
+twinspace env create phone1 --apps zcode \
+  --set-env zcode=TWINSPACE_BROWSER_DATA_DIR="$HOME/Library/Application Support/Google/Chrome"
+```
+
+说明：
+- 绑定按应用持久化保存，`env update` 与 `env export`/`import` 后依然生效。
+- 链接劫持依赖**硬克隆**（隔离钩子）；规则为软克隆的应用无法绑定浏览器。
+- 浏览器绑定相关变量（自动注入，也可用 `--set-env` 手动指定）：
+
+| 环境变量 | 作用 |
+| :--- | :--- |
+| `TWINSPACE_BROWSER_APP_PATH` | 接管本分身 http/HTTPS 链接的浏览器 `.app` 路径 |
+| `TWINSPACE_BROWSER_DATA_DIR` | 传给浏览器的 `--user-data-dir` Profile 目录（必须设置，劫持才会生效） |
+| `TWINSPACE_BROWSER_FALLBACK_APP_PATH` | `APP_PATH` 不可用时的回退浏览器（默认系统 Chrome） |
+| `TWINSPACE_BROWSER_EXTRA_ARGS` | 劫持启动时附加的 Chromium 风格启动参数 |
+| `TWINSPACE_KEYCHAIN_PREFIX` | 本分身钥匙串服务的命名空间前缀 |
+| `TWINSPACE_KEYCHAIN_EXCLUDE_SERVICES` | 不参与命名空间隔离的钥匙串服务 |
+| `TWINSPACE_OAUTH_SCHEMES` | 固定绑定到环境浏览器的 OAuth/URL scheme |
+| `TWINSPACE_SCHEME_ALLOW_REGISTRATION` | 允许分身注册 URL scheme 处理器 |
+| `TWINSPACE_COCOA_HOME_HOOK` | 启用 Cocoa 层 HOME 重定向钩子 |
+| `TWINSPACE_DATA_DIR` / `TWINSPACE_ENV_DIR` | 规则模板中的隔离数据根占位符 |
+
 内置模板：`all`、`phone`（Chrome + ZCode + WorkBuddy + CodeBuddy）、
 `dev`（Chrome + CodeBuddy + Qoder + Trae）。GUI 的「我的环境」提供
 「新建环境」「全部更新」「备份数据」入口。

@@ -89,3 +89,112 @@ def test_import_environment_creates_apps_and_overrides(tmp_path):
     assert [task.clone_name for task in tasks] == ["Chrome-custom", "ZCode-custom"]
     assert tasks[1].recipe.environment_injection["TWINSPACE_BROWSER_APP_PATH"] == "/tmp/Chrome-custom.app"
     assert state.get("ZCode-custom").env_overrides["TWINSPACE_BROWSER_APP_PATH"] == "/tmp/Chrome-custom.app"
+
+
+def test_browser_binding_modes(tmp_path, monkeypatch):
+    """Chrome-in-env binds both keys; no chrome binds nothing; --browser wins."""
+    import asyncio
+
+    apps_root = tmp_path / "Applications"
+    monkeypatch.setattr(manager_module, "DEFAULT_APPS_DIR", apps_root)
+    monkeypatch.setattr(manager_module, "DEFAULT_DATA_DIR", tmp_path / "Data")
+    monkeypatch.setattr(
+        manager_module,
+        "KNOWN_APPS",
+        (
+            EnvironmentApp("chrome", "Google Chrome", ("com.google.Chrome",), apps_root / "Google Chrome.app", "Chrome"),
+            EnvironmentApp("zcode", "ZCode", ("dev.zcode.app",), apps_root / "ZCode.app", "ZCode"),
+        ),
+    )
+    for app_dir in (apps_root / "Google Chrome.app", apps_root / "ZCode.app"):
+        app_dir.mkdir(parents=True)
+
+    def run_env(name, app_keys, browser_path=None, overrides=None):
+        state_file = tmp_path / f"{name}-clones.yaml"
+        state = StateManager(state_file=state_file)
+        tasks = []
+
+        class FakeCloneService:
+            def __init__(self):
+                self.state_manager = state
+
+            async def create_clone(self, task):
+                tasks.append(task)
+                record = CloneRecord(
+                    clone_name=task.clone_name,
+                    source_app=task.source.app_name,
+                    source_path=str(task.source.path),
+                    bundle_id=task.source.bundle_id,
+                    strategy=task.recipe.strategy,
+                    dest_path=str(task.dest_path),
+                    data_dir=str(task.data_dir),
+                    created_at="2026-10-25T00:00:00Z",
+                    env_group=task.env_group or "",
+                    env_dir=str(task.env_dir) if task.env_dir else "",
+                )
+                state.add(record)
+                return record
+
+        def fake_inspect(app_path):
+            app_path = Path(app_path)
+            bundle_id = "com.google.Chrome" if "Chrome" in app_path.name else "dev.zcode.app"
+            from twinspace.core.models import AppInfo as _AppInfo
+
+            return _AppInfo(
+                path=app_path,
+                bundle_id=bundle_id,
+                app_name=app_path.stem,
+                executable=app_path / "Contents/MacOS/app",
+                has_sandbox=False,
+            )
+
+        def fake_match(bundle_id, app_path=None):
+            return Recipe(
+                bundle_id=bundle_id,
+                app_name="App",
+                strategy="soft_clone" if bundle_id == "com.google.Chrome" else "hard_clone",
+            )
+
+        with patch.object(manager_module.AppInspector, "inspect", side_effect=fake_inspect), patch.object(
+            manager_module.RecipeLoader, "match", side_effect=fake_match
+        ):
+            manager = EnvironmentManager(clone_service=FakeCloneService(), state_manager=state)
+            asyncio.run(
+                manager.create_environment(
+                    name,
+                    app_keys,
+                    clone_names={key: f"App-{key}-{name}" for key in app_keys},
+                    env_overrides=overrides,
+                    browser_path=browser_path,
+                )
+            )
+        return state
+
+    # 1. Chrome in the env: non-chrome apps get both keys, persisted.
+    state = run_env("withchrome", ["chrome", "zcode"])
+    zc = state.get("App-zcode-withchrome")
+    assert zc.env_overrides["TWINSPACE_BROWSER_APP_PATH"].endswith("App-chrome-withchrome.app")
+    assert zc.env_overrides["TWINSPACE_BROWSER_DATA_DIR"].endswith("Browser")
+
+    # 2. No chrome, no --browser: no binding at all (links open system default).
+    state = run_env("nochrio", ["zcode"])
+    zc = state.get("App-zcode-nochrio")
+    assert "TWINSPACE_BROWSER_APP_PATH" not in zc.env_overrides
+    assert "TWINSPACE_BROWSER_DATA_DIR" not in zc.env_overrides
+
+    # 3. External browser: binds to the given .app with the env-owned profile.
+    external = tmp_path / "External Browser.app"
+    external.mkdir()
+    state = run_env("extbrowser", ["zcode"], browser_path=external)
+    zc = state.get("App-zcode-extbrowser")
+    assert zc.env_overrides["TWINSPACE_BROWSER_APP_PATH"] == str(external)
+    assert zc.env_overrides["TWINSPACE_BROWSER_DATA_DIR"].endswith("Browser")
+
+    # 4. Explicit user override wins over the automatic binding.
+    state = run_env(
+        "override",
+        ["chrome", "zcode"],
+        overrides={"zcode": {"TWINSPACE_BROWSER_DATA_DIR": "/custom/profile"}},
+    )
+    zc = state.get("App-zcode-override")
+    assert zc.env_overrides["TWINSPACE_BROWSER_DATA_DIR"] == "/custom/profile"

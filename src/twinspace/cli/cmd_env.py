@@ -58,6 +58,22 @@ def _parse_clone_names(values: tuple[str, ...]) -> dict[str, str]:
     return names
 
 
+def _parse_env_overrides(values: tuple[str, ...]) -> dict[str, dict[str, str]]:
+    """Parse repeatable APP=KEY=VALUE overrides (VALUE may contain '=')."""
+    overrides: dict[str, dict[str, str]] = {}
+    for value in values:
+        parts = value.split("=", 2)
+        if len(parts) != 3 or not all(part.strip() for part in parts):
+            raise click.BadParameter(
+                t("env_err_param_setenv_format")
+            )
+        app_key, key, val = (part.strip() for part in parts)
+        if app_for_key(app_key) is None:
+            raise click.BadParameter(t("env_err_param_unknown_key", key=app_key))
+        overrides.setdefault(app_key, {})[key] = val
+    return overrides
+
+
 def _progress(index: int, total: int, app, status: str) -> None:
     labels = {
         "checking": t("env_status_checking"),
@@ -147,12 +163,28 @@ def env_list(as_json: bool) -> None:
     metavar="APP=NAME",
     help="Override the clone name for one app.",
 )
+@click.option(
+    "--browser",
+    "browser_path",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Bind env apps to this external browser (.app); its profile stays inside the environment.",
+)
+@click.option(
+    "--set-env",
+    "set_env",
+    multiple=True,
+    metavar="APP=KEY=VALUE",
+    help="Extra environment override for one app (repeatable).",
+)
 @click.option("--dry-run", is_flag=True, help="Validate and print the plan without creating.")
 def env_create(
     name: str,
     apps: str | None,
     template: str | None,
     clone_names: tuple[str, ...],
+    browser_path: Path | None,
+    set_env: tuple[str, ...],
     dry_run: bool,
 ) -> None:
     """Create a new environment (defaults to every installed supported app)."""
@@ -162,6 +194,9 @@ def env_create(
         console.print("[red]" + t("env_no_supported_apps") + "[/red]")
         sys.exit(1)
     names = _parse_clone_names(clone_names)
+    overrides = _parse_env_overrides(set_env)
+    if browser_path is not None and browser_path.suffix != ".app":
+        raise click.BadParameter(t("env_err_param_browser_app"))
 
     if dry_run:
         table = Table(title=t("env_plan_title", name=name))
@@ -193,6 +228,8 @@ def env_create(
                 keys,
                 on_progress=_progress,
                 clone_names=names or None,
+                env_overrides=overrides or None,
+                browser_path=browser_path,
             )
         )
     except Exception as exc:

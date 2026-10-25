@@ -71,6 +71,50 @@ twinspace env export phone1 -o phone1.yaml
 twinspace env import phone1.yaml --name phone2
 ```
 
+#### Browser binding & external browsers
+
+By default an environment clones Chrome along with the other apps, and every
+non-Chrome app is pinned to that clone: links, OAuth callbacks and logins open
+in the environment's own browser with the environment's profile
+(`~/TwinSpace/Data/Environments/<name>/Browser`).
+
+To use an **external browser** instead:
+
+```bash
+# Links open in Microsoft Edge, but with an isolated profile kept inside the
+# environment (the browser binary itself is not cloned or modified).
+twinspace env create phone1 --apps zcode,workbuddy \
+  --browser "/Applications/Microsoft Edge.app"
+
+# No --browser and no Chrome in the app list: links simply open in the macOS
+# default browser (no binding, no hijack).
+twinspace env create phone1 --apps zcode
+
+# Advanced per-app overrides (repeatable). Example: point one app at an
+# existing browser profile instead of the environment-owned one.
+twinspace env create phone1 --apps zcode \
+  --set-env zcode=TWINSPACE_BROWSER_DATA_DIR="$HOME/Library/Application Support/Google/Chrome"
+```
+
+Notes:
+- The binding is stored per app and survives `env update` and `env export`/`import`.
+- Link hijacking requires a **hard clone** (isolation hook); apps whose recipe
+  uses soft clone cannot bind a browser.
+- Browser-binding variables (set automatically, or via `--set-env`):
+
+| Variable | Meaning |
+| :--- | :--- |
+| `TWINSPACE_BROWSER_APP_PATH` | Browser `.app` that receives http/HTTPS links opened by this clone |
+| `TWINSPACE_BROWSER_DATA_DIR` | Profile directory passed as `--user-data-dir` (must be set for hijacking to engage) |
+| `TWINSPACE_BROWSER_FALLBACK_APP_PATH` | Fallback browser when `APP_PATH` is missing (default: system Chrome) |
+| `TWINSPACE_BROWSER_EXTRA_ARGS` | Extra Chromium-style launch arguments for the hijacked browser |
+| `TWINSPACE_KEYCHAIN_PREFIX` | Keychain service namespace prefix isolating this clone's passwords |
+| `TWINSPACE_KEYCHAIN_EXCLUDE_SERVICES` | Keychain services excluded from the namespace |
+| `TWINSPACE_OAUTH_SCHEMES` | OAuth/URL schemes pinned to the bound browser |
+| `TWINSPACE_SCHEME_ALLOW_REGISTRATION` | Allow the clone to register URL scheme handlers |
+| `TWINSPACE_COCOA_HOME_HOOK` | Enable the Cocoa HOME redirection hook |
+| `TWINSPACE_DATA_DIR` / `TWINSPACE_ENV_DIR` | Recipe placeholders for the isolated data roots |
+
 Built-in templates: `all`, `phone` (Chrome + ZCode + WorkBuddy + CodeBuddy) and
 `dev` (Chrome + CodeBuddy + Qoder + Trae). The GUI exposes the same workflows in
 **My Environments** (`+ New Environment`, `Update All`, `Backup`).

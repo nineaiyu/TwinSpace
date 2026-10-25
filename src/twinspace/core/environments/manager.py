@@ -127,6 +127,7 @@ class EnvironmentManager:
         on_progress: ProgressCallback | None = None,
         clone_names: dict[str, str] | None = None,
         env_overrides: dict[str, dict[str, str]] | None = None,
+        browser_path: Path | None = None,
     ) -> list[CloneRecord]:
         validate_clone_name(name)
         selected_keys = set(app_keys)
@@ -149,6 +150,7 @@ class EnvironmentManager:
 
         chrome_def = app_for_key("chrome")
         chrome_existing = existing_by_key.get("chrome")
+        chrome_in_env = chrome_existing is not None or "chrome" in selected_keys
         if chrome_existing is not None:
             chrome_path = Path(chrome_existing.dest_path)
         elif chrome_def is not None:
@@ -199,12 +201,22 @@ class EnvironmentManager:
 
             info = AppInspector.inspect(source_path)
             recipe = RecipeLoader.match(info.bundle_id, app_path=source_path)
+            overrides = dict((env_overrides or {}).get(app.key, {}))
             if app.key != "chrome":
-                recipe.environment_injection = {
-                    **recipe.environment_injection,
-                    "TWINSPACE_BROWSER_APP_PATH": str(chrome_path),
-                }
-            overrides = (env_overrides or {}).get(app.key, {})
+                # The isolation hook hijacks http/HTTPS links only when BOTH
+                # TWINSPACE_BROWSER_APP_PATH and TWINSPACE_BROWSER_DATA_DIR are
+                # set, so bind them together and persist them in env_overrides
+                # to survive `env update` and export/import.
+                binding_app: str | None = None
+                if browser_path is not None:
+                    binding_app = str(browser_path)
+                elif chrome_in_env:
+                    binding_app = str(chrome_path)
+                if binding_app:
+                    overrides.setdefault("TWINSPACE_BROWSER_APP_PATH", binding_app)
+                    overrides.setdefault(
+                        "TWINSPACE_BROWSER_DATA_DIR", str(env_dir / "Browser")
+                    )
             for key, value in overrides.items():
                 recipe.environment_injection[normalize_legacy_env_key(key)] = value
 
