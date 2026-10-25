@@ -2,6 +2,18 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.1.0] - 2026-10-25
+
+### 🖱️ Interaction & Layout Overhaul
+- Double-clicking a clone in the table now launches it; editing stays on the explicit toolbar button.
+- Destructive delete buttons are red-tinted and right-aligned across the table action bar, clone cards and environment cards.
+- The list/card view switch is now a visible segmented toggle, and the card grid adapts its column count (1–3) to the window width.
+- First-run users (no clones, no environments) now land on the Environments page, and the clones empty state offers one-click guidance to create the first isolated environment.
+- Search input is debounced so the list is not rebuilt on every keystroke; the main window enforces a 980×640 minimum size.
+- The app now follows system Dark Mode changes on view switches instead of requiring a restart.
+- Update installation shuts down through the normal exit path so the tray icon and log listeners are cleaned up.
+- Filter and sort dropdown labels shortened for both languages.
+
 ## [v1.0.1] - 2026-10-25
 
 ### 🔒 Security & Reliability Hardening
