@@ -2,6 +2,16 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.2.0] - 2026-10-25
+
+### 🌐 External Browsers, GUI/CLI Parity & New Icon
+- **Fixed browser binding**: links and OAuth from environment apps now reliably open the environment's own browser — previously they silently fell through to the system default.
+- **External browser support**: bind an environment to any browser without cloning it — `twinspace env create --browser "/Applications/Microsoft Edge.app"` keeps an isolated profile inside the environment; `--set-env APP=KEY=VALUE` covers per-app overrides.
+- **GUI reaches CLI parity for environments**: a browser-binding selector (environment Chrome / system default / external browser with file picker) in the create window, plus Export Template, Restore Backup and Import Template on the environments page.
+- **Host usage of environment browsers**: the env Chrome clone works standalone — launch it directly or set it as the macOS default browser; the choice survives `env update`.
+- **New application icon** (blue tile with original + ghost app windows) shipped across the app, installer and documentation site.
+- **Documentation overhaul**: accurate 39-recipe table, new Security & Privacy section, `TWINSPACE_*` environment-variable reference, and bilingual guide chapters for environments, external browsers and host-side usage.
+
 ## [v1.1.0] - 2026-10-25
 
 ### 🖱️ Interaction & Layout Overhaul
