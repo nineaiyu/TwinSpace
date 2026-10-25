@@ -944,38 +944,42 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "🔍 搜索分身 / 源应用...",
     },
     "view_clones_filter_all": {
-        "en": "All Strategies",
-        "zh": "全部策略",
+        "en": "All",
+        "zh": "全部",
     },
     "view_clones_filter_hard": {
-        "en": "▲ Hard Clone",
-        "zh": "▲ 物理克隆 (Hard)",
+        "en": "Hard",
+        "zh": "物理克隆",
     },
     "view_clones_filter_soft": {
-        "en": "● Soft Clone",
-        "zh": "● 软包装 (Soft)",
+        "en": "Soft",
+        "zh": "软包装",
     },
     "view_clones_filter_proxy": {
-        "en": "Proxy Enabled",
+        "en": "Proxy On",
         "zh": "启用代理",
     },
     "view_clones_sort_newest": {
-        "en": "Newest Created",
-        "zh": "最新创建",
+        "en": "Newest",
+        "zh": "最新",
     },
     "view_clones_sort_name": {
-        "en": "Name (A–Z)",
-        "zh": "应用名称 (A–Z)",
+        "en": "Name A–Z",
+        "zh": "名称 A–Z",
     },
     "view_clones_sort_oldest": {
-        "en": "Oldest Created",
-        "zh": "最早创建",
+        "en": "Oldest",
+        "zh": "最早",
     },
     "view_clones_empty_hint": {
         "en": "No cloned applications yet.",
         "zh": "暂无分身应用",
     },
-    "view_clones_empty_cta": {
+    "view_clones_empty_cta_env": {
+        "en": "+ Create First Environment (recommended)",
+        "zh": "+ 创建第一个隔离环境（推荐）",
+    },
+"view_clones_empty_cta": {
         "en": "Click '+ New Clone' above to create your first clone.",
         "zh": "点击上方「+ 新建分身」立即创建",
     },
@@ -992,28 +996,28 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "🔍 搜索应用规则 / Bundle ID...",
     },
     "view_recipes_filter_all": {
-        "en": "🏷️ All Origins",
-        "zh": "🏷️ 全部来源",
+        "en": "All",
+        "zh": "全部",
     },
     "view_recipes_filter_builtin": {
-        "en": "📦 Built-in Recipes",
-        "zh": "📦 内置规则",
+        "en": "Built-in",
+        "zh": "内置",
     },
     "view_recipes_filter_custom": {
-        "en": "✏️ Custom Recipes",
-        "zh": "✏️ 自定义规则",
+        "en": "Custom",
+        "zh": "自定义",
     },
     "view_recipes_sort_name_asc": {
-        "en": "🔽 Name (A-Z)",
-        "zh": "🔽 应用名称 (A-Z)",
+        "en": "Name A–Z",
+        "zh": "名称 A–Z",
     },
     "view_recipes_sort_name_desc": {
-        "en": "🔼 Name (Z-A)",
-        "zh": "🔼 应用名称 (Z-A)",
+        "en": "Name Z–A",
+        "zh": "名称 Z–A",
     },
     "view_recipes_sort_strategy": {
-        "en": "⚡️ Strategy",
-        "zh": "⚡️ 克隆策略",
+        "en": "Strategy",
+        "zh": "策略",
     },
     "view_recipes_empty_hint": {
         "en": "No matching clone recipes found. Click '+ New Recipe' to add custom rules.",

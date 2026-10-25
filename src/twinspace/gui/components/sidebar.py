@@ -237,6 +237,14 @@ class SidebarNav(toga.Box):
                     t("update_done_title"),
                     t("update_done_msg", ver=info.version),
                 )
+            # Shut down through the normal exit path so the tray icon and log
+            # listeners are cleaned up; hard-exit only as a last resort.
+            if self.app_instance and hasattr(self.app_instance, "exit_application"):
+                try:
+                    self.app_instance.exit_application()
+                    return
+                except Exception:
+                    logger.exception("Clean exit failed; falling back to hard exit.")
             os._exit(0)
 
         except Exception as e:

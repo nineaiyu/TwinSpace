@@ -49,6 +49,49 @@ def is_dark_mode() -> bool:
     return _dark_mode_cache
 
 
+def refresh_dark_mode_cache() -> bool:
+    """Re-detect the system appearance and update the cached value.
+
+    Returns the freshly detected mode so callers can compare against the
+    previously applied palette and rebuild the UI when it changed.
+    """
+    global _dark_mode_cache
+    _dark_mode_cache = _detect_dark_mode()
+    return _dark_mode_cache
+
+
+def configure_cocoa_danger_button(widget: Any) -> None:
+    """Tint a button's label red for destructive actions (NSButton contentTintColor)."""
+    if sys.platform != "darwin":
+        return
+    native_btn = getattr(getattr(widget, "_impl", None), "native", None)
+    if native_btn is None:
+        return
+    try:
+        from rubicon.objc import ObjCClass
+
+        ns_color = ObjCClass("NSColor").systemRedColor()
+        if native_btn.respondsToSelector("setContentTintColor:"):
+            native_btn.setContentTintColor_(ns_color)
+    except Exception:
+        pass
+
+
+def set_window_min_size(window: Any, min_width: int, min_height: int) -> None:
+    """Enforce a minimum window size so toolbar rows and tables never collapse."""
+    if sys.platform != "darwin":
+        return
+    native_win = getattr(getattr(window, "_impl", None), "native", None)
+    if native_win is None:
+        return
+    try:
+        from rubicon.objc import CGSize
+
+        native_win.setContentMinSize_(CGSize(min_width, min_height))
+    except Exception:
+        pass
+
+
 def apply_cocoa_appearance(is_dark: bool) -> None:
     """Force native AppKit controls to match the Toga color palette.
 

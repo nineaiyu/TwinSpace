@@ -18,14 +18,6 @@ from twinspace.recipes.models import Recipe
 class RecipeListView(toga.Box):
     """View managing built-in and custom clone recipes with search and dual views."""
 
-    FILTER_ALL = "🏷️ 全部来源"
-    FILTER_BUILTIN = "📦 内置规则"
-    FILTER_CUSTOM = "✏️ 自定义规则"
-
-    SORT_NAME_ASC = "🔽 应用名称 (A-Z)"
-    SORT_NAME_DESC = "🔼 应用名称 (Z-A)"
-    SORT_STRATEGY = "⚡️ 克隆策略"
-
     def __init__(self, recipe_service: Optional[RecipeService] = None, app: Optional[toga.App] = None):
         super().__init__(style=Pack(direction=COLUMN, flex=1, background_color=Theme.BG_WINDOW))
         self.recipe_service = recipe_service or RecipeService()
@@ -156,22 +148,20 @@ class RecipeListView(toga.Box):
             ]
 
         if hasattr(self, "selected_filter"):
-            filter_builtin_keys = (getattr(self, "filter_builtin", ""), self.FILTER_BUILTIN)
-            filter_custom_keys = (getattr(self, "filter_custom", ""), self.FILTER_CUSTOM)
-            if self.selected_filter in filter_builtin_keys or "builtin" in str(self.selected_filter).lower() or "内置" in str(self.selected_filter):
+            selected_filter = str(self.selected_filter)
+            if "builtin" in selected_filter.lower() or "内置" in selected_filter:
                 items = [r for r in items if r.get("is_builtin")]
-            elif self.selected_filter in filter_custom_keys or "custom" in str(self.selected_filter).lower() or "自定义" in str(self.selected_filter):
+            elif "custom" in selected_filter.lower() or "自定义" in selected_filter:
                 items = [r for r in items if not r.get("is_builtin")]
 
         # Sort
         if hasattr(self, "selected_sort"):
-            sort_desc_keys = (getattr(self, "sort_name_desc", ""), self.SORT_NAME_DESC)
-            sort_strat_keys = (getattr(self, "sort_strategy", ""), self.SORT_STRATEGY)
-            if self.selected_sort in sort_desc_keys or "desc" in str(self.selected_sort).lower() or "z-a" in str(self.selected_sort).lower():
+            selected_sort = str(self.selected_sort)
+            if "z-a" in selected_sort.lower() or "z–a" in selected_sort.lower():
                 items.sort(key=lambda r: r["app_name"].lower(), reverse=True)
-            elif self.selected_sort in sort_strat_keys or "strat" in str(self.selected_sort).lower() or "策略" in str(self.selected_sort):
+            elif "strat" in selected_sort.lower() or "策略" in selected_sort:
                 items.sort(key=lambda r: (r["strategy"], r["app_name"].lower()))
-            else:  # self.sort_name_asc
+            else:  # name ascending
                 items.sort(key=lambda r: r["app_name"].lower())
         else:
             items.sort(key=lambda r: r["app_name"].lower())

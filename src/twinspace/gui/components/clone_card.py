@@ -9,6 +9,7 @@ from toga.style.pack import CENTER, COLUMN, ROW
 
 from twinspace.core.i18n import t
 from twinspace.core.state import CloneRecord
+from twinspace.gui.patch_cocoa import configure_cocoa_danger_button
 from twinspace.gui.theme import Theme
 from twinspace.validation import redact_url_credentials
 
@@ -74,13 +75,15 @@ class CloneCard(toga.Box):
         btn_update = toga.Button(t("btn_update_short"), on_press=lambda w: on_update(record) if on_update else None, style=Pack(margin_right=4, height=30, font_size=11, flex=1))
         btn_edit = toga.Button(t("btn_edit_short"), on_press=lambda w: on_edit(record) if on_edit else None, style=Pack(margin_right=4, height=30, font_size=11, flex=1))
         btn_detail = toga.Button(t("btn_detail_short"), on_press=lambda w: on_detail(record) if on_detail else None, style=Pack(margin_right=4, height=30, font_size=11, flex=1))
-        btn_delete = toga.Button(t("btn_delete_short"), on_press=lambda w: on_delete(record) if on_delete else None, style=Pack(height=30, font_size=11, flex=1))
+        btn_delete = toga.Button(t("btn_delete_short"), on_press=lambda w: on_delete(record) if on_delete else None, style=Pack(height=30, font_size=11))
+        configure_cocoa_danger_button(btn_delete)
 
         actions.add(btn_launch)
         actions.add(btn_open_dir)
         actions.add(btn_update)
         actions.add(btn_edit)
         actions.add(btn_detail)
+        actions.add(toga.Box(style=Pack(flex=1)))
         actions.add(btn_delete)
         self.add(actions)
 

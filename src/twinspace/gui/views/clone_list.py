@@ -14,6 +14,7 @@ from twinspace.core.logger import get_logger
 from twinspace.core.state import CloneRecord
 from twinspace.gui.components.clone_card import CloneCard
 from twinspace.gui.components.top_bar import TopHeaderBar
+from twinspace.gui.patch_cocoa import configure_cocoa_danger_button
 from twinspace.gui.services.clone_service import CloneService
 from twinspace.gui.theme import Theme
 from twinspace.gui.windows.clone_detail import CloneDetailWindow
@@ -26,15 +27,6 @@ logger = get_logger("gui.clone_list")
 class CloneListView(toga.Box):
     """View rendering application clones with large section title, top-aligned controls, and dual Card/Table views."""
 
-    FILTER_ALL = "🏷️ 全部策略"
-    FILTER_HARD = "⚡️ 物理克隆 (Hard)"
-    FILTER_SOFT = "🍃 软包装 (Soft)"
-    FILTER_PROXY = "🌐 启用代理"
-
-    SORT_NEWEST = "🔽 最新创建"
-    SORT_NAME = "🔽 应用名称 (A-Z)"
-    SORT_OLDEST = "🔼 最早创建"
-
     def __init__(self, clone_service: Optional[CloneService] = None, app: Optional[toga.App] = None):
         super().__init__(style=Pack(direction=COLUMN, flex=1, background_color=Theme.BG_WINDOW))
         self.clone_service = clone_service or CloneService()
@@ -44,6 +36,8 @@ class CloneListView(toga.Box):
         self._busy_clones: set[str] = set()
         self.view_mode: str = "list"  # "grid" or "list"
         self.search_query: str = ""
+        self._search_debounce = None
+        self._grid_columns = 2
 
         # Filter and Sort definitions
         self.filter_all = t("view_clones_filter_all")
@@ -116,6 +110,8 @@ class CloneListView(toga.Box):
         actions_box.add(self.btn_update_table)
         actions_box.add(self.btn_edit_table)
         actions_box.add(self.btn_detail_table)
+        actions_box.add(toga.Box(style=Pack(flex=1)))
+        configure_cocoa_danger_button(self.btn_delete_table)
         actions_box.add(self.btn_delete_table)
         self.table_box.add(actions_box)
 
@@ -126,10 +122,18 @@ class CloneListView(toga.Box):
             t("view_clones_empty_hint"),
             style=Pack(font_size=16, font_weight="bold", color=Theme.TEXT_MUTED, margin_bottom=8),
         ))
-        self._empty_box.add(toga.Label(
-            t("view_clones_empty_cta"),
-            style=Pack(font_size=13, color=Theme.TEXT_TERTIARY),
+        empty_actions = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_top=14))
+        empty_actions.add(toga.Button(
+            t("view_clones_empty_cta_env"),
+            on_press=self.on_goto_environments,
+            style=Pack(height=32, font_size=13, font_weight="bold", margin_right=10),
         ))
+        empty_actions.add(toga.Button(
+            t("btn_new_clone"),
+            on_press=self.on_action_new_clone,
+            style=Pack(height=32, font_size=13),
+        ))
+        self._empty_box.add(empty_actions)
         self._empty_box.add(toga.Box(style=Pack(flex=2)))  # bottom spacer (2x = shift slightly above center)
 
         self._render_current_view()
@@ -138,9 +142,31 @@ class CloneListView(toga.Box):
         self.view_mode = mode
         self._render_current_view()
 
+    def on_window_resize(self, width: int):
+        """Adapt the card grid column count to the window width (1-3 columns)."""
+        columns = max(1, min(3, int((width - 240 - 48) // 380)))
+        if columns != self._grid_columns:
+            self._grid_columns = columns
+            if self.view_mode == "grid" and self._filtered_clones:
+                self._render_current_view()
+
+    def on_goto_environments(self, widget: toga.Button):
+        if self.app_instance and hasattr(self.app_instance, "sidebar") and self.app_instance.sidebar:
+            self.app_instance.sidebar.select_item("environments")
+        elif self.app_instance and hasattr(self.app_instance, "switch_view"):
+            self.app_instance.switch_view("environments")
+
     def on_search_query_changed(self, query: str):
         self.search_query = query.lower()
-        self._apply_filter()
+        # Debounce keystrokes so the table/card tree is not rebuilt per letter.
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._apply_filter()
+            return
+        if self._search_debounce is not None:
+            self._search_debounce.cancel()
+        self._search_debounce = loop.call_later(0.2, self._apply_filter)
 
     def on_filter_changed(self, filter_val: str):
         self.selected_filter = filter_val
@@ -193,26 +219,22 @@ class CloneListView(toga.Box):
                 or self.search_query in (getattr(r, "notes", "") or "").lower()
             ]
 
-        # 2. Strategy / Proxy Category Filter
-        filter_hard_keys = (getattr(self, "filter_hard", ""), self.FILTER_HARD)
-        filter_soft_keys = (getattr(self, "filter_soft", ""), self.FILTER_SOFT)
-        filter_proxy_keys = (getattr(self, "filter_proxy", ""), self.FILTER_PROXY)
-
-        if self.selected_filter in filter_hard_keys or "hard" in str(self.selected_filter).lower() or "物理" in str(self.selected_filter):
+        # 2. Strategy / Proxy Category Filter (substring match covers zh/en labels)
+        selected_filter = str(self.selected_filter)
+        if "hard" in selected_filter.lower() or "物理" in selected_filter:
             items = [r for r in items if r.strategy == "hard_clone"]
-        elif self.selected_filter in filter_soft_keys or "soft" in str(self.selected_filter).lower() or "软" in str(self.selected_filter):
+        elif "soft" in selected_filter.lower() or "软" in selected_filter:
             items = [r for r in items if r.strategy == "soft_clone"]
-        elif self.selected_filter in filter_proxy_keys or "proxy" in str(self.selected_filter).lower() or "代理" in str(self.selected_filter):
+        elif "proxy" in selected_filter.lower() or "代理" in selected_filter:
             items = [r for r in items if r.proxy_enabled]
 
         # 3. Sort
-        sort_name_keys = (getattr(self, "sort_name", ""), self.SORT_NAME)
-        sort_oldest_keys = (getattr(self, "sort_oldest", ""), self.SORT_OLDEST)
-        if self.selected_sort in sort_name_keys or "name" in str(self.selected_sort).lower() or "名称" in str(self.selected_sort):
+        selected_sort = str(self.selected_sort)
+        if "name" in selected_sort.lower() or "名称" in selected_sort:
             items.sort(key=lambda r: r.clone_name.lower())
-        elif self.selected_sort in sort_oldest_keys or "oldest" in str(self.selected_sort).lower() or "最早" in str(self.selected_sort):
+        elif "oldest" in selected_sort.lower() or "最早" in selected_sort:
             items.sort(key=lambda r: r.created_at)
-        else:  # self.sort_newest
+        else:  # newest first
             items.sort(key=lambda r: r.created_at, reverse=True)
 
         self._filtered_clones = items
@@ -237,8 +259,8 @@ class CloneListView(toga.Box):
             while len(self.grid_box.children) > 0:
                 self.grid_box.remove(self.grid_box.children[0])
 
-            # Chunk into multi-row grid (2 cards per row)
-            ROW_SIZE = 2
+            # Chunk into rows sized to the current window width
+            ROW_SIZE = max(1, self._grid_columns)
             for i in range(0, len(self._filtered_clones), ROW_SIZE):
                 chunk = self._filtered_clones[i:i + ROW_SIZE]
                 row_box = toga.Box(style=Pack(direction=ROW, margin_bottom=12))
@@ -331,9 +353,11 @@ class CloneListView(toga.Box):
             self.btn_delete_table.text = t("btn_batch_delete", count=count)
 
     async def on_table_activate(self, widget: toga.Table, row=None, **kwargs):
+        # Double-click launches the clone — the natural Finder/Launchpad mapping;
+        # editing stays on the explicit toolbar button.
         record = self.get_selected_record(row)
         if record:
-            await self.on_edit_clone(record)
+            await self.on_launch_clone(record)
 
     def _extract_clone_name(self, item, known_names: set[str]) -> Optional[str]:
         if item is None:

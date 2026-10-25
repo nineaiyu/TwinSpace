@@ -13,7 +13,7 @@ from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
 from twinspace.gui.components.top_bar import TopHeaderBar
 from twinspace.gui.components.wrapping_label import WrappingLabel
-from twinspace.gui.patch_cocoa import configure_cocoa_card
+from twinspace.gui.patch_cocoa import configure_cocoa_card, configure_cocoa_danger_button
 from twinspace.gui.services.environment_service import EnvironmentInfo, EnvironmentService
 from twinspace.gui.theme import Theme
 from twinspace.gui.windows.environment_create import EnvironmentCreateWindow
@@ -151,7 +151,7 @@ class EnvironmentListView(toga.Box):
         btn_open = toga.Button(
             t("environment_btn_open_all"),
             on_press=lambda widget, name=env.name: asyncio.create_task(self._open_all(name)),
-            style=Pack(height=28, font_size=12.5, margin_right=8),
+            style=Pack(height=28, font_size=12.5, font_weight="bold", margin_right=8),
         )
         btn_manage = toga.Button(
             t("environment_btn_manage"),
@@ -180,6 +180,8 @@ class EnvironmentListView(toga.Box):
         actions.add(btn_manage)
         actions.add(btn_update)
         actions.add(btn_backup)
+        actions.add(toga.Box(style=Pack(flex=1)))
+        configure_cocoa_danger_button(btn_remove)
         actions.add(btn_remove)
         inner.add(actions)
 

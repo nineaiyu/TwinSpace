@@ -64,11 +64,11 @@ def test_recipe_list_view_refresh(tmp_path):
 
         # Clear search and test origin filter
         view.on_search_query_changed("")
-        view.on_filter_changed(RecipeListView.FILTER_BUILTIN)
+        view.on_filter_changed(view.filter_builtin)
         assert len(view._filtered_recipes) >= 1
 
         # Test sorting
-        view.on_sort_changed(RecipeListView.SORT_NAME_DESC)
+        view.on_sort_changed(view.sort_name_desc)
         assert len(view._filtered_recipes) >= 1
         assert view._filtered_recipes[0]["app_name"].lower() >= view._filtered_recipes[-1]["app_name"].lower()
 

@@ -188,23 +188,30 @@ def test_clone_list_view_refresh(tmp_path):
         view.on_view_mode_changed("grid")
         assert view.view_mode == "grid"
 
-        # Search filter
-        view.on_search_query_changed("NotMatching")
+        # Search filter (on_search_query_changed debounces; drive the sync path)
+        def _search(value: str):
+            view.on_search_query_changed(value)
+            if view._search_debounce is not None:
+                view._search_debounce.cancel()
+                view._search_debounce = None
+            view._apply_filter()
+
+        _search("NotMatching")
         assert len(view._filtered_clones) == 0
 
-        view.on_search_query_changed("TG")
+        _search("TG")
         assert len(view._filtered_clones) == 1
 
         # Clear search and test strategy filter
-        view.on_search_query_changed("")
-        view.on_filter_changed(CloneListView.FILTER_SOFT)
+        _search("")
+        view.on_filter_changed(view.filter_soft)
         assert len(view._filtered_clones) == 0
 
-        view.on_filter_changed(CloneListView.FILTER_HARD)
+        view.on_filter_changed(view.filter_hard)
         assert len(view._filtered_clones) == 1
 
         # Sort
-        view.on_sort_changed(CloneListView.SORT_NAME)
+        view.on_sort_changed(view.sort_name)
         assert len(view._filtered_clones) == 1
 
         # Table selection enables open_dir button
@@ -237,10 +244,10 @@ def test_clone_list_view_refresh(tmp_path):
             mock_up.assert_not_awaited()
         view._busy_clones.clear()
 
-        # Test double-click (on_activate) on table row opens edit window
-        with patch.object(view, "on_edit_clone", new_callable=AsyncMock) as mock_edit:
+        # Test double-click (on_activate) on table row launches the clone
+        with patch.object(view, "on_launch_clone", new_callable=AsyncMock) as mock_launch:
             await view.on_table_activate(view.table, row=view.table.data[0])
-            mock_edit.assert_awaited_once_with(record)
+            mock_launch.assert_awaited_once_with(record)
 
     asyncio.run(_test())
 

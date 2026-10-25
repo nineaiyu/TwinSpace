@@ -22,6 +22,8 @@ from twinspace.gui.patch_cocoa import (
     configure_cocoa_window_movable,
     is_dark_mode,
     patch_cocoa_widgets,
+    refresh_dark_mode_cache,
+    set_window_min_size,
 )
 from twinspace.gui.services.clone_service import CloneService
 from twinspace.gui.services.doctor_service import DoctorService
@@ -180,8 +182,11 @@ class TwinSpaceApp(toga.App):
         self.root_box.add(self.content_container)
 
         self.main_window.content = self.root_box
+        set_window_min_size(self.main_window, 980, 640)
         self.main_window.on_hide = self._on_window_hide
         self.main_window.on_close = self._on_window_close
+        self.main_window.on_resize = self._on_window_resize
+        self._resize_debounce = None
         self.on_exit = self._on_app_exit
         self.main_window.show()
         # Enable window drag from top bar background (macOS HIG drag zone)
@@ -195,8 +200,13 @@ class TwinSpaceApp(toga.App):
         # Initial refresh
         self.safe_create_task(self.clone_view.refresh_clones())
 
-        # Defensive startup check for xcode-select developer tools
-        self.safe_create_task(self._startup_environment_check())
+        # Defensive startup check, then land brand-new users on Environments
+        async def _startup_checks():
+            ok = await self._startup_environment_check()
+            if ok:
+                await self._maybe_first_run_redirect()
+
+        self.safe_create_task(_startup_checks())
 
     async def _startup_environment_check(self) -> bool:
         """Defensively verify xcode-select toolchain on startup and auto-navigate to Doctor if missing."""
@@ -214,6 +224,70 @@ class TwinSpaceApp(toga.App):
         except Exception as e:
             logger.warning(f"Unexpected error in _startup_environment_check: {e}")
             return True
+
+    async def _maybe_first_run_redirect(self) -> None:
+        """Land brand-new users on the Environments page — the product's core workflow."""
+        try:
+            loop = asyncio.get_running_loop()
+            clones = await self.clone_service.list_clones()
+            envs = await loop.run_in_executor(None, self.environment_service.list_environments)
+            if not clones and not envs:
+                logger.info("First run detected (no clones, no environments); starting on Environments.")
+                if hasattr(self, "sidebar") and self.sidebar:
+                    self.sidebar.select_item("environments")
+                else:
+                    self.switch_view("environments")
+        except Exception as e:
+            logger.debug(f"First-run redirect skipped: {e}")
+
+    def _on_window_resize(self, *args):
+        """Debounce window resizes, then forward the new width to the active view."""
+        try:
+            if self._resize_debounce is not None:
+                self._resize_debounce.cancel()
+        except Exception:
+            pass
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._resize_debounce = loop.call_later(0.25, self._dispatch_window_resize)
+
+    def _dispatch_window_resize(self):
+        self._resize_debounce = None
+        view_names = {
+            "clones": "clone_view",
+            "environments": "environment_view",
+            "recipes": "recipe_view",
+            "probe": "probe_view",
+            "doctor": "doctor_view",
+            "logs": "logs_view",
+            "settings": "settings_view",
+        }
+        attr = view_names.get(self.current_view_name)
+        view = getattr(self, attr, None) if attr else None
+        if view is None or not hasattr(view, "on_window_resize"):
+            return
+        try:
+            width = int(self.main_window.size[0])
+        except Exception:
+            return
+        view.on_window_resize(width)
+
+    def _maybe_refresh_appearance(self) -> bool:
+        """Re-check the system appearance; rebuild the UI if Dark Mode toggled since startup."""
+        try:
+            previous = is_dark_mode()
+            current = refresh_dark_mode_cache()
+        except Exception:
+            return False
+        if current == previous:
+            return False
+        logger.info("System appearance changed; rebuilding UI with the new palette.")
+        Theme.apply_mode(current)
+        apply_cocoa_appearance(current)
+        self.retranslate_ui()
+        return True
 
     def _on_window_hide(self, window: Any) -> None:
         """Handle window minimize/hide event when tray mode is active."""
@@ -357,6 +431,9 @@ class TwinSpaceApp(toga.App):
 
     def switch_view(self, view_name: str):
         """Switch right content area between feature views."""
+        if self._maybe_refresh_appearance():
+            # retranslate_ui() already rebuilt and re-mounted the active view.
+            return
         self.current_view_name = view_name
 
         # Clear content container

@@ -112,7 +112,10 @@ def test_sidebar_on_check_update_download_progress(toga_app, monkeypatch):
         # Allow any loop.call_soon_threadsafe tasks to run
         await asyncio.sleep(0.05)
 
-        assert exit_called == [0]
+        # Updates shut down through the app's clean exit path; hard-exit only fires
+        # when no exit_application is available.
+        mock_app.exit_application.assert_called_once()
+        assert exit_called == []
         assert mock_app.main_window.info_dialog.called
         set_language(None)
 

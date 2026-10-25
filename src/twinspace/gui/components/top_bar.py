@@ -7,19 +7,12 @@ from toga.style import Pack
 from toga.style.pack import CENTER, COLUMN, ROW
 
 from twinspace.core.i18n import t
+from twinspace.gui.patch_cocoa import configure_cocoa_sidebar_active
 from twinspace.gui.theme import Theme
 
 
 class TopHeaderBar(toga.Box):
     """Top header panel with a large section title and a compact pinned action toolbar."""
-
-    @classmethod
-    def get_view_grid_label(cls) -> str:
-        return t("topbar_view_grid")
-
-    @classmethod
-    def get_view_list_label(cls) -> str:
-        return t("topbar_view_list")
 
     def __init__(
         self,
@@ -84,7 +77,7 @@ class TopHeaderBar(toga.Box):
                 placeholder=search_placeholder,
                 on_change=self._handle_search,
                 style=Pack(
-                    width=190,
+                    width=240,
                     margin_right=10,
                     background_color=Theme.BG_CARD,
                     color=Theme.TEXT_PRIMARY,
@@ -112,15 +105,26 @@ class TopHeaderBar(toga.Box):
             )
             toolbar_row.add(self.select_sort)
 
-        # (d) View Mode dropdown (列表视图 / 卡片视图 下拉单选框)
+        # (d) View mode toggle: a segmented-style pair of buttons, always visible
         if on_view_change:
             view_items = view_modes or [t("topbar_view_list"), t("topbar_view_grid")]
-            self.select_view = toga.Selection(
-                items=view_items,
-                on_change=self._handle_view_change,
-                style=Pack(width=115, margin_right=10),
+            self._view_labels = {"list": view_items[0], "grid": view_items[-1]}
+            self.btn_view_list = toga.Button(
+                self._view_labels["list"],
+                on_press=lambda w: self._set_view_mode("list"),
+                style=Pack(height=28, font_size=12.5, margin_right=4),
             )
-            toolbar_row.add(self.select_view)
+            self.btn_view_grid = toga.Button(
+                self._view_labels["grid"],
+                on_press=lambda w: self._set_view_mode("grid"),
+                style=Pack(height=28, font_size=12.5, margin_right=10),
+            )
+            toolbar_row.add(self.btn_view_list)
+            toolbar_row.add(self.btn_view_grid)
+            self._refresh_view_toggle()
+        else:
+            self.btn_view_list = None
+            self.btn_view_grid = None
 
         # (e) Flexible horizontal spacer
         toolbar_row.add(toga.Box(style=Pack(flex=1)))
@@ -145,32 +149,28 @@ class TopHeaderBar(toga.Box):
         if self.on_sort_cb and widget.value is not None:
             self.on_sort_cb(str(widget.value))
 
-    def _handle_view_change(self, widget: toga.Selection):
-        if widget.value is not None:
-            val_str = str(widget.value)
-            list_keywords = ("列表", "list")
-            mode = "list" if any(k in val_str.lower() for k in list_keywords) else "grid"
-            self.current_view_mode = mode
-            if self.on_view_change_cb:
-                self.on_view_change_cb(mode)
+    def _set_view_mode(self, mode: str):
+        self.current_view_mode = mode
+        self._refresh_view_toggle()
+        if self.on_view_change_cb:
+            self.on_view_change_cb(mode)
+
+    def _refresh_view_toggle(self):
+        """Highlight the active side of the segmented view toggle."""
+        for mode, btn in (("list", self.btn_view_list), ("grid", self.btn_view_grid)):
+            if btn is None:
+                continue
+            active = mode == self.current_view_mode
+            btn.style.font_weight = "bold" if active else "normal"
+            try:
+                native_btn = getattr(getattr(btn, "_impl", None), "native", None)
+                configure_cocoa_sidebar_active(native_btn, active)
+            except Exception:
+                pass
 
     def set_view_mode(self, mode: str):
         """Programmatically switch view mode."""
-        self.current_view_mode = mode
-        if hasattr(self, "select_view"):
-            list_keywords = ("列表", "list")
-            for item in self.select_view.items:
-                item_val = getattr(item, "value", item)
-                item_str = str(item_val).lower()
-                is_list_item = any(k in item_str for k in list_keywords)
-                if mode == "list" and is_list_item:
-                    self.select_view.value = item_val
-                    break
-                elif mode == "grid" and not is_list_item:
-                    self.select_view.value = item_val
-                    break
-        if self.on_view_change_cb:
-            self.on_view_change_cb(mode)
+        self._set_view_mode(mode)
 
     def update_title(self, new_title: str):
         if self.label_title:
