@@ -727,10 +727,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Environment '{name}' already has all apps from this file.",
         "zh": "环境 '{name}' 已包含此文件中的全部应用。",
     },
-    "env_import_done": {
-        "en": "Imported {count} app(s) into environment '{name}'.",
-        "zh": "已导入 {count} 个应用到环境 '{name}'。",
-    },
     "env_templates_title": {
         "en": "Built-in templates",
         "zh": "内置模板",
@@ -746,10 +742,6 @@ MESSAGES: dict[str, dict[str, str]] = {
     "env_restore_confirm": {
         "en": "Restore {archive} into environment '{name}'? Existing files are overwritten.",
         "zh": "将 {archive} 恢复到环境 '{name}'？现有文件将被覆盖。",
-    },
-    "env_restore_safety": {
-        "en": "Safety backup: {path}",
-        "zh": "安全备份: {path}",
     },
     "env_restore_done_list": {
         "en": "Restored: {apps}",
@@ -774,6 +766,86 @@ MESSAGES: dict[str, dict[str, str]] = {
     "env_err_param_clone_format": {
         "en": "Use --clone-name APP=NAME.",
         "zh": "请使用 --clone-name 应用=名称 的格式。",
+    },
+    "env_browser_section": {
+        "en": "Browser Binding",
+        "zh": "浏览器绑定",
+    },
+    "env_browser_mode_chrome": {
+        "en": "Environment Chrome (default)",
+        "zh": "环境专属 Chrome（默认）",
+    },
+    "env_browser_mode_system": {
+        "en": "System default browser (no binding)",
+        "zh": "系统默认浏览器（不绑定）",
+    },
+    "env_browser_mode_external": {
+        "en": "External browser (.app)",
+        "zh": "外部浏览器（.app）",
+    },
+    "env_browser_path_placeholder": {
+        "en": "Pick or enter a browser .app path",
+        "zh": "选择或输入浏览器 .app 路径",
+    },
+    "env_browser_browse": {
+        "en": "Browse…",
+        "zh": "浏览…",
+    },
+    "env_browser_hint_chrome": {
+        "en": "Links and OAuth from other apps in this environment open in this environment's own Chrome clone, with the environment's isolated profile.",
+        "zh": "环境内其他应用的链接与 OAuth 将使用本环境的 Chrome 分身打开，Profile 隔离保存在环境内。",
+    },
+    "env_browser_hint_system": {
+        "en": "No binding: links open in the macOS default browser.",
+        "zh": "不绑定浏览器：链接将打开 macOS 系统默认浏览器。",
+    },
+    "env_browser_hint_external": {
+        "en": "Links open in the external browser; the browsing profile stays isolated inside the environment.",
+        "zh": "环境内应用的链接将用该外部浏览器打开，浏览 Profile 隔离保存在环境内。",
+    },
+    "env_browser_invalid": {
+        "en": "Please pick a valid macOS .app browser bundle.",
+        "zh": "请选择有效的 macOS .app 浏览器应用。",
+    },
+    "env_btn_export": {
+        "en": "Export Template",
+        "zh": "导出模板",
+    },
+    "env_btn_restore": {
+        "en": "Restore Backup",
+        "zh": "恢复备份",
+    },
+    "env_btn_import": {
+        "en": "Import Template",
+        "zh": "导入模板",
+    },
+    "env_export_done": {
+        "en": "Template exported to: {path}",
+        "zh": "模板已导出：{path}",
+    },
+    "env_restore_confirm_gui": {
+        "en": "Restoring will overwrite existing data in environment '{name}' (a safety backup is created first). Continue?",
+        "zh": "恢复将覆盖环境 “{name}” 内的现有数据（会先自动创建安全备份）。确定继续吗？",
+    },
+    "env_restore_done": {
+        "en": "Restored: {apps}",
+        "zh": "已恢复：{apps}",
+    },
+    "env_restore_safety": {
+        "en": "Safety backup: {path}",
+        "zh": "安全备份：{path}",
+    },
+    "env_import_confirm": {
+        "en": "Import template '{name}'? Apps to add: {apps} (existing apps are skipped).",
+        "zh": "导入模板 “{name}”？将新增以下应用：{apps}（已存在的自动跳过）。",
+    },
+    "env_import_done": {
+        "en": "Imported {count} app(s) into environment '{name}'.",
+        "zh": "已导入 {count} 个应用到环境 “{name}”。",
+    },
+    "env_import_no_new": {
+        "en": "All apps from this template already exist in this environment.",
+        "zh": "模板中的应用都已存在于该环境。",
     },
     "env_err_param_setenv_format": {
         "en": "Use --set-env APP=KEY=VALUE.",

@@ -19,6 +19,8 @@ class TopHeaderBar(toga.Box):
         title: Optional[str] = None,
         action_label: Optional[str] = None,
         on_action: Optional[Callable[[toga.Button], None]] = None,
+        secondary_action_label: Optional[str] = None,
+        on_secondary_action: Optional[Callable[[toga.Button], None]] = None,
         search_placeholder: Optional[str] = None,
         on_search: Optional[Callable[[str], None]] = None,
         filter_items: Optional[List[str]] = None,
@@ -61,6 +63,16 @@ class TopHeaderBar(toga.Box):
             title_row.add(self.btn_action)
         else:
             self.btn_action = None
+
+        if on_secondary_action and secondary_action_label:
+            self.btn_secondary = toga.Button(
+                secondary_action_label,
+                on_press=on_secondary_action,
+                style=Pack(font_size=13, height=30, margin_left=8),
+            )
+            title_row.add(self.btn_secondary)
+        else:
+            self.btn_secondary = None
 
         self.add(title_row)
 

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any, Callable, Coroutine, Optional
 
 import toga
 from toga.style import Pack
-from toga.style.pack import CENTER, COLUMN, ROW
+from toga.style.pack import CENTER, COLUMN, HIDDEN, ROW, VISIBLE
 
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
@@ -78,6 +79,35 @@ class EnvironmentCreateWindow(toga.Window):
         self.app_box = toga.Box(style=Pack(direction=COLUMN))
         for app_def in environment_service.available_apps():
             self.app_box.add(self._build_app_row(app_def))
+
+        # Browser binding: how links/OAuth from non-Chrome env apps are opened.
+        self.select_browser_mode = toga.Selection(
+            items=[
+                t("env_browser_mode_chrome"),
+                t("env_browser_mode_system"),
+                t("env_browser_mode_external"),
+            ],
+            on_change=self._on_browser_mode_change,
+            style=Pack(width=300, font_size=12.5, margin_right=10),
+        )
+        self.input_browser_path = toga.TextInput(
+            placeholder=t("env_browser_path_placeholder"),
+            style=Pack(flex=1, font_size=12.5, margin_right=6),
+        )
+        self.btn_browser_browse = toga.Button(
+            t("env_browser_browse"),
+            on_press=lambda widget: asyncio.create_task(self._on_browse_browser()),
+            style=Pack(height=28, font_size=12.5),
+        )
+        self.browser_row = toga.Box(
+            style=Pack(direction=ROW, align_items=CENTER, margin=(4, 0, 0, 0), visibility=HIDDEN)
+        )
+        self.browser_row.add(self.input_browser_path)
+        self.browser_row.add(self.btn_browser_browse)
+        self.label_browser_hint = WrappingLabel(
+            t("env_browser_hint_chrome"),
+            style=Pack(font_size=11, color=Theme.TEXT_MUTED, margin=(2, 0, 0, 0)),
+        )
 
         self.label_status = toga.Label(
             "",
@@ -210,6 +240,16 @@ class EnvironmentCreateWindow(toga.Window):
         apps_scroll.content = apps_box
         root.add(apps_scroll)
 
+        root.add(
+            toga.Label(
+                t("env_browser_section"),
+                style=Pack(font_size=13, font_weight="bold", margin=(8, 0, 2, 0)),
+            )
+        )
+        root.add(self.select_browser_mode)
+        root.add(self.browser_row)
+        root.add(self.label_browser_hint)
+
         root.add(self.label_status)
         root.add(self.progress_bar)
 
@@ -246,6 +286,42 @@ class EnvironmentCreateWindow(toga.Window):
                     name_input.value = self._default_clone_name(app)
         finally:
             self._syncing_names = False
+
+    def _on_browser_mode_change(self, widget: toga.Selection) -> None:
+        external = widget.value == t("env_browser_mode_external")
+        self.browser_row.style.visibility = VISIBLE if external else HIDDEN
+        if external:
+            self.label_browser_hint.text = t("env_browser_hint_external")
+        elif widget.value == t("env_browser_mode_system"):
+            self.label_browser_hint.text = t("env_browser_hint_system")
+        else:
+            self.label_browser_hint.text = t("env_browser_hint_chrome")
+
+    async def _on_browse_browser(self) -> None:
+        try:
+            path = await self.dialog(
+                toga.OpenFileDialog(
+                    t("env_browser_browse"),
+                    file_types=["app"],
+                )
+            )
+        except Exception:
+            return
+        if path:
+            self.input_browser_path.value = str(path)
+
+    def _resolve_browser_path(self) -> tuple[Path | None, str | None]:
+        """Return (browser_path, error_message_key) from the current selection."""
+        mode = self.select_browser_mode.value
+        if mode != t("env_browser_mode_external"):
+            return None, None
+        raw = self.input_browser_path.value.strip().strip('"')
+        if not raw:
+            return None, "env_browser_invalid"
+        candidate = Path(raw).expanduser()
+        if candidate.suffix != ".app" or not candidate.is_dir():
+            return None, "env_browser_invalid"
+        return candidate, None
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -312,6 +388,11 @@ class EnvironmentCreateWindow(toga.Window):
             seen_names[clone_name] = app_label
             clone_names[key] = clone_name
 
+        browser_path, browser_error = self._resolve_browser_path()
+        if browser_error:
+            await self.error_dialog(t("environment_error_title"), t(browser_error))
+            return
+
         existing = self.environment_service.environment(name)
         existing_keys = existing.app_keys if existing else set()
         missing = [key for key in selected if key not in existing_keys]
@@ -341,6 +422,7 @@ class EnvironmentCreateWindow(toga.Window):
                 selected,
                 on_progress=on_progress,
                 clone_names=clone_names,
+                browser_path=browser_path,
             )
             self.progress_bar.value = len(selected)
             env = self.environment_service.environment(name)

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Optional
 
 import toga
 from toga.style import Pack
 from toga.style.pack import CENTER, COLUMN, ROW
 
+from twinspace.core.environments import EnvironmentSpec
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
 from twinspace.gui.components.top_bar import TopHeaderBar
@@ -34,10 +36,13 @@ class EnvironmentListView(toga.Box):
         self.app_instance = app
         self._environments: list[EnvironmentInfo] = []
 
+        self._importing = False
         self.top_bar = TopHeaderBar(
             title=t("environment_title", count=0),
             action_label=t("environment_btn_new"),
             on_action=self.on_new_environment,
+            secondary_action_label=t("env_btn_import"),
+            on_secondary_action=self.on_import_template,
             on_refresh=lambda widget: asyncio.create_task(self.refresh_environments()),
         )
         self.add(self.top_bar)
@@ -180,9 +185,24 @@ class EnvironmentListView(toga.Box):
         actions.add(btn_manage)
         actions.add(btn_update)
         actions.add(btn_backup)
-        actions.add(toga.Box(style=Pack(flex=1)))
+
+        secondary = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_top=6))
+        btn_export = toga.Button(
+            t("env_btn_export"),
+            on_press=lambda widget, name=env.name: asyncio.create_task(self._export_template(name)),
+            style=Pack(height=26, font_size=11.5, margin_right=6),
+        )
+        btn_restore = toga.Button(
+            t("env_btn_restore"),
+            on_press=lambda widget, name=env.name: asyncio.create_task(self._restore_backup(name)),
+            style=Pack(height=26, font_size=11.5, margin_right=6),
+        )
+        secondary.add(btn_export)
+        secondary.add(btn_restore)
+        secondary.add(toga.Box(style=Pack(flex=1)))
         configure_cocoa_danger_button(btn_remove)
-        actions.add(btn_remove)
+        secondary.add(btn_remove)
+        inner.add(secondary)
         inner.add(actions)
 
         card.add(inner)
@@ -275,6 +295,123 @@ class EnvironmentListView(toga.Box):
             t("environment_done_title"),
             t("environment_backup_done", path=str(path)),
         )
+
+    async def _export_template(self, name: str) -> None:
+        if not self.app_instance:
+            return
+        window = self.app_instance.main_window
+        try:
+            target = await window.dialog(
+                toga.SaveFileDialog(
+                    t("env_btn_export"),
+                    suggested_filename=f"{name}.yaml",
+                    file_types=["yaml", "yml"],
+                )
+            )
+        except Exception:
+            return
+        if not target:
+            return
+        loop = asyncio.get_running_loop()
+        try:
+            spec = await loop.run_in_executor(
+                None, self.environment_service.export_environment, name
+            )
+            Path(target).write_text(spec.to_yaml(), encoding="utf-8")
+        except Exception as exc:
+            await window.error_dialog(t("environment_error_title"), str(exc))
+            return
+        await window.info_dialog(
+            t("dialog_success_title") if False else t("environment_done_title"),
+            t("env_export_done", path=str(target)),
+        )
+
+    async def _restore_backup(self, name: str) -> None:
+        if not self.app_instance:
+            return
+        window = self.app_instance.main_window
+        try:
+            archive = await window.dialog(
+                toga.OpenFileDialog(t("env_btn_restore"), file_types=["gz"])
+            )
+        except Exception:
+            return
+        if not archive:
+            return
+        confirmed = await window.confirm_dialog(
+            t("env_btn_restore"),
+            t("env_restore_confirm_gui", name=name),
+        )
+        if not confirmed:
+            return
+        loop = asyncio.get_running_loop()
+        try:
+            restored, errors, safety = await loop.run_in_executor(
+                None, self.environment_service.restore_environment, name, Path(archive)
+            )
+        except Exception as exc:
+            await window.error_dialog(t("environment_error_title"), str(exc))
+            return
+        await self._on_environment_changed()
+        if errors:
+            await window.error_dialog(
+                t("environment_error_title"), "\n".join(str(e) for e in errors)
+            )
+        else:
+            await window.info_dialog(
+                t("environment_done_title"),
+                t("env_restore_done", apps=", ".join(restored) if restored else "-")
+                + "\n"
+                + t("env_restore_safety", path=str(safety)),
+            )
+
+    async def on_import_template(self, widget=None) -> None:
+        if not self.app_instance or self._importing:
+            return
+        window = self.app_instance.main_window
+        try:
+            source = await window.dialog(
+                toga.OpenFileDialog(t("env_btn_import"), file_types=["yaml", "yml"])
+            )
+        except Exception:
+            return
+        if not source:
+            return
+        self._importing = True
+        if self.top_bar.btn_secondary is not None:
+            self.top_bar.btn_secondary.enabled = False
+        try:
+            loop = asyncio.get_running_loop()
+            spec = await loop.run_in_executor(
+                None, lambda: EnvironmentSpec.from_yaml(Path(source).read_text(encoding="utf-8"))
+            )
+            existing = self.environment_service.environment(spec.name)
+            existing_keys = existing.app_keys if existing else set()
+            new_apps = [app.key for app in spec.apps if app.key not in existing_keys]
+            if not new_apps:
+                await window.info_dialog(
+                    t("environment_done_title"), t("env_import_no_new")
+                )
+                return
+            confirmed = await window.confirm_dialog(
+                t("env_btn_import"),
+                t("env_import_confirm", name=spec.name, apps=", ".join(new_apps)),
+            )
+            if not confirmed:
+                return
+            created = await self.environment_service.import_environment(spec)
+            await self._on_environment_changed()
+            await window.info_dialog(
+                t("environment_done_title"),
+                t("env_import_done", count=len(created), name=spec.name),
+            )
+        except Exception as exc:
+            logger.exception("Environment template import failed")
+            await window.error_dialog(t("environment_error_title"), str(exc))
+        finally:
+            self._importing = False
+            if self.top_bar.btn_secondary is not None:
+                self.top_bar.btn_secondary.enabled = True
 
     async def _remove(self, name: str) -> None:
         if not self.app_instance:

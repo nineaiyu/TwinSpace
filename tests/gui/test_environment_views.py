@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import toga
@@ -231,10 +232,11 @@ def test_environment_create_window_passes_custom_names(toga_app, tmp_path, monke
 
     captured = {}
 
-    async def fake_create(name, keys, on_progress=None, clone_names=None):
+    async def fake_create(name, keys, on_progress=None, clone_names=None, browser_path=None):
         captured["name"] = name
         captured["keys"] = list(keys)
         captured["clone_names"] = clone_names
+        captured["browser_path"] = browser_path
         return []
 
     async def noop_dialog(*args, **kwargs):
@@ -249,6 +251,8 @@ def test_environment_create_window_passes_custom_names(toga_app, tmp_path, monke
     assert captured["name"] == "phone1"
     assert captured["keys"] == ["chrome", "zcode"]
     assert captured["clone_names"] == {"chrome": "ChromeAcct", "zcode": "ZCodeAcct"}
+    # Default browser binding mode passes no external browser override.
+    assert captured["browser_path"] is None
 
 
 def _label_texts(widget) -> list[str]:
@@ -331,3 +335,98 @@ def test_environment_card_exposes_update_and_backup(toga_app, tmp_path):
     collect(view.list_box)
     assert "Update All" in button_texts
     assert "Backup" in button_texts
+
+
+def test_environment_create_window_browser_modes(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=StateManager(state_file=tmp_path / "c.yaml"))
+    window = EnvironmentCreateWindow(environment_service=service)
+
+    # Default mode: environment Chrome, no external override.
+    assert window._resolve_browser_path() == (None, None)
+
+    # System default mode: also no override.
+    window.select_browser_mode.value = "System default browser (no binding)"
+    assert window._resolve_browser_path() == (None, None)
+
+    # External mode with an empty path -> validation error key.
+    window.select_browser_mode.value = "External browser (.app)"
+    assert window._resolve_browser_path() == (None, "env_browser_invalid")
+
+    # External mode with a non-.app path -> validation error key.
+    window.input_browser_path.value = str(tmp_path / "NotABrowser")
+    assert window._resolve_browser_path() == (None, "env_browser_invalid")
+
+    # External mode with a valid .app bundle -> resolved path.
+    browser = tmp_path / "External Browser.app"
+    browser.mkdir()
+    window.input_browser_path.value = str(browser)
+    resolved, error = window._resolve_browser_path()
+    assert error is None
+    assert resolved == browser
+
+
+def test_environment_list_export_restore_import(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=StateManager(state_file=tmp_path / "clones.yaml"))
+    service.state_manager.add(
+        CloneRecord(
+            clone_name="ZCode-phone1",
+            source_app="ZCode",
+            source_path="/Applications/ZCode.app",
+            bundle_id="dev.zcode.app",
+            strategy="hard_clone",
+            dest_path=str(tmp_path / "ZCode-phone1.app"),
+            data_dir=str(tmp_path / "env" / "ZCode-phone1"),
+            created_at="2026-10-25T00:00:00Z",
+            env_group="phone1",
+            env_dir=str(tmp_path / "env"),
+        )
+    )
+    view = EnvironmentListView(environment_service=service)
+    asyncio.run(view.refresh_environments())
+
+    # Secondary top-bar action (import) and per-card secondary row exist.
+    assert view.top_bar.btn_secondary is not None
+
+    mock_app = MagicMock()
+    mock_app.main_window.dialog = AsyncMock(return_value=tmp_path / "phone1.yaml")
+    mock_app.main_window.info_dialog = AsyncMock()
+    mock_app.main_window.error_dialog = AsyncMock()
+    mock_app.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view.app_instance = mock_app
+
+    # Export writes the portable template next to the chosen path.
+    target = tmp_path / "phone1.yaml"
+    mock_app.main_window.dialog = AsyncMock(return_value=target)
+    asyncio.run(view._export_template("phone1"))
+    assert target.exists()
+    assert "version: 1" in target.read_text(encoding="utf-8")
+    mock_app.main_window.info_dialog.assert_awaited_once()
+
+    # Restore: confirm accepted -> service called, safety info shown.
+    calls = {}
+    service.restore_environment = lambda name, archive: calls.update(
+        name=name, archive=archive
+    ) or (["ZCode-phone1"], [], Path("/safety.tar.gz"))
+    archive = tmp_path / "backup.tar.gz"
+    mock_app.main_window.dialog = AsyncMock(return_value=archive)
+    asyncio.run(view._restore_backup("phone1"))
+    assert calls == {"name": "phone1", "archive": archive}
+    mock_app.main_window.info_dialog.assert_awaited()
+
+    # Import: confirm accepted -> import_environment receives the parsed spec.
+    yaml_file = tmp_path / "template.yaml"
+    yaml_file.write_text(
+        "version: 1\nname: phone2\napps:\n  - key: chrome\n    clone_name: Chrome-phone2\n",
+        encoding="utf-8",
+    )
+    imported = {}
+
+    async def fake_import(spec, target_name=None, on_progress=None):
+        imported["spec"] = spec
+        return ["Chrome-phone2"]
+
+    service.import_environment = fake_import
+    mock_app.main_window.dialog = AsyncMock(return_value=yaml_file)
+    asyncio.run(view.on_import_template())
+    assert imported["spec"].name == "phone2"
+    mock_app.main_window.info_dialog.assert_awaited()
