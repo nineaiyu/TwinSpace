@@ -111,6 +111,22 @@ twinspace env create phone1 --apps zcode \
 | `TWINSPACE_COCOA_HOME_HOOK` | 启用 Cocoa 层 HOME 重定向钩子 |
 | `TWINSPACE_DATA_DIR` / `TWINSPACE_ENV_DIR` | 规则模板中的隔离数据根占位符 |
 
+#### 在宿主机上使用环境里的浏览器
+
+环境的 Chrome 分身（`~/TwinSpace/Apps/Chrome-<环境名>.app`）本身就是一个
+独立签名的应用，宿主机可以直接使用：
+
+- **像普通应用一样启动**：访达双击、Spotlight、Dock，或
+  `open -a "Chrome-<环境名>"`。它始终使用环境内的隔离 Profile（该账号的
+  登录态），与日常浏览器互不干扰。
+- **让宿主机的链接用它打开**：右键链接选择“打开方式”，使用
+  `open -na "Chrome-<环境名>" --args <网址>`，或在
+  系统设置 → 桌面与程序坞 中把它设为**默认浏览器**。浏览器分身保留了
+  URL scheme 注册，会与原 Chrome 一起出现在默认浏览器候选列表中。
+- CLI 可用 `twinspace env open <环境名> --apps chrome` 启动。
+- 绑定在 `env update` 后依然有效：分身的 Bundle ID 与路径不变，
+  默认浏览器选择无需重设。
+
 内置模板：`all`、`phone`（Chrome + ZCode + WorkBuddy + CodeBuddy）、
 `dev`（Chrome + CodeBuddy + Qoder + Trae）。GUI 的「我的环境」提供
 「新建环境」「全部更新」「备份数据」入口。

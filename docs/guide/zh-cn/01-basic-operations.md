@@ -285,6 +285,13 @@ twinspace env create phone1 --apps zcode \
 >   命名空间、OAuth scheme、HOME 钩子等）见项目
 >   [中文 README](https://github.com/nineaiyu/TwinSpace/blob/main/Readme_zh.md#浏览器绑定与外部浏览器)。
 
+### 在宿主机上使用环境浏览器
+
+环境的 Chrome 分身是一个独立应用：从访达、Spotlight 或 Dock 启动即可用该
+账号的隔离 Profile 浏览；也可以在 系统设置 → 桌面与程序坞 中把它设为
+macOS 默认浏览器——浏览器分身保留 URL scheme 注册，会出现在候选列表中。
+该设置在 `env update` 后依然有效。
+
 ### 环境日常操作
 
 ```bash

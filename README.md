@@ -115,6 +115,23 @@ Notes:
 | `TWINSPACE_COCOA_HOME_HOOK` | Enable the Cocoa HOME redirection hook |
 | `TWINSPACE_DATA_DIR` / `TWINSPACE_ENV_DIR` | Recipe placeholders for the isolated data roots |
 
+#### Using an environment browser from the host
+
+The environment's Chrome clone (`~/TwinSpace/Apps/Chrome-<env>.app`) is a
+standalone signed app — the host can use it directly:
+
+- **Launch it like any app**: Finder double-click, Spotlight, Dock, or
+  `open -a "Chrome-<env>"`. It always opens with the environment's isolated
+  profile (that account's logins), separate from your daily browser.
+- **Open host links in it**: right-click a link and choose *Open With*, use
+  `open -na "Chrome-<env>" --args <url>`, or set it as the macOS **default
+  browser** in System Settings → Desktop & Dock. Browser clones keep their URL
+  scheme registration, so they appear in the default-browser list alongside
+  the original.
+- `twinspace env open <env> --apps chrome` launches it from the CLI.
+- The binding survives `env update`: the clone keeps its bundle id and path,
+  so a default-browser choice does not need to be redone.
+
 Built-in templates: `all`, `phone` (Chrome + ZCode + WorkBuddy + CodeBuddy) and
 `dev` (Chrome + CodeBuddy + Qoder + Trae). The GUI exposes the same workflows in
 **My Environments** (`+ New Environment`, `Update All`, `Backup`).

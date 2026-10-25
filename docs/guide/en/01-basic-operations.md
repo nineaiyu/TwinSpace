@@ -290,6 +290,14 @@ twinspace env create phone1 --apps zcode \
 >   fallback browser, Keychain namespace, OAuth schemes, HOME hook, ...) is
 >   available in the project [README](https://github.com/nineaiyu/TwinSpace#browser-binding--external-browsers).
 
+### Using the Environment Browser from the Host
+
+The environment's Chrome clone is a standalone app: launch it from Finder,
+Spotlight or the Dock to browse with that account's isolated profile, or set
+it as the macOS default browser in System Settings → Desktop & Dock — browser
+clones keep their URL scheme registration and appear in the candidate list.
+The setup survives `env update`.
+
 ### Routine Environment Operations
 
 ```bash
