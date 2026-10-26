@@ -14,6 +14,7 @@ from twinspace.core.config import DEFAULT_APPS_DIR, DEFAULT_DATA_DIR, get_config
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
 from twinspace.core.models import AppInfo
+from twinspace.gui import cocoa_events
 from twinspace.gui.components.wrapping_label import WrappingLabel
 from twinspace.gui.patch_cocoa import configure_cocoa_window, patch_cocoa_widgets
 from twinspace.gui.services.clone_service import CloneService
@@ -59,6 +60,7 @@ class WizardWindow(toga.Window):
         # Bottom navigation buttons
         self.btn_prev = toga.Button(t("win_wizard_btn_back"), on_press=lambda w: asyncio.create_task(self.go_prev()), enabled=False, style=Pack(margin=4, height=30, font_size=13))
         self.btn_next = toga.Button(t("win_wizard_btn_next"), on_press=lambda w: asyncio.create_task(self.go_next()), style=Pack(margin=4, height=30, font_size=13, font_weight="bold"))
+        cocoa_events.style_primary_button(self.btn_next)
         self.btn_cancel = toga.Button(t("btn_cancel"), on_press=lambda w: self.close(), style=Pack(margin=4, height=30, font_size=13))
 
         # Initialize UI elements for all 7 steps

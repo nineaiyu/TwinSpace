@@ -28,31 +28,51 @@ class LogsView(toga.Box):
         self.app_instance = app
         self._raw_log_lines: list[str] = []
         self._current_filter: str = ""
+        self._current_level: str = ""
 
         # Top Header Bar
         self.top_bar = TopHeaderBar(
             title=t("nav_logs"),
             search_placeholder=t("logs_search_placeholder"),
             on_search=self.on_filter_logs,
+            filter_items=[
+                t("logs_filter_all"),
+                t("logs_filter_info"),
+                t("logs_filter_warning"),
+                t("logs_filter_error"),
+            ],
+            on_filter_change=self.on_level_changed,
             action_label=t("logs_btn_clear"),
             on_action=self.on_clear_logs,
+            action_symbol="trash",
+            refresh_symbol="arrow.clockwise",
             on_refresh=self.on_refresh_logs,
         )
         self.add(self.top_bar)
 
-        # Monospace Log Text Area
+        # Monospace log surface inside an elevated card
+        self.log_card = toga.Box(
+            style=Pack(
+                direction=COLUMN,
+                flex=1,
+                margin=(0, 24, 20, 24),
+                background_color=Theme.BG_CARD,
+            )
+        )
+        self.log_inner = toga.Box(style=Pack(direction=COLUMN, flex=1, margin=(10, 12, 10, 12)))
         self.log_text = toga.MultilineTextInput(
             readonly=True,
             style=Pack(
                 flex=1,
-                margin=(0, 24, 20, 24),
                 font_family="monospace",
                 font_size=12,
                 background_color=Theme.BG_CARD,
                 color=Theme.TEXT_PRIMARY,
             ),
         )
-        self.add(self.log_text)
+        self.log_inner.add(self.log_text)
+        self.log_card.add(self.log_inner)
+        self.add(self.log_card)
 
         # Load persisted disk logs
         self.reload_from_disk()
@@ -119,6 +139,11 @@ class LogsView(toga.Box):
             else:
                 filtered = [line for line in self._raw_log_lines if query in line.lower()]
 
+            if self._current_level:
+                filtered = [
+                    line for line in filtered if self._matches_level(line)
+                ]
+
             if hasattr(self, "log_text") and self.log_text:
                 self.log_text.value = "\n".join(filtered)
             count = len(filtered)
@@ -133,8 +158,26 @@ class LogsView(toga.Box):
 
 
 
+    def _matches_level(self, line: str) -> bool:
+        if self._current_level == "INFO":
+            return "[INFO]" in line
+        if self._current_level == "WARNING":
+            return "[WARNING]" in line or "[WARN]" in line
+        if self._current_level == "ERROR":
+            return "[ERROR]" in line
+        return True
+
     def on_filter_logs(self, query: str):
         self._current_filter = query
+        self._update_log_display()
+
+    def on_level_changed(self, value: str):
+        mapping = {
+            t("logs_filter_info"): "INFO",
+            t("logs_filter_warning"): "WARNING",
+            t("logs_filter_error"): "ERROR",
+        }
+        self._current_level = mapping.get(value, "")
         self._update_log_display()
 
     def on_clear_logs(self, widget: toga.Button):

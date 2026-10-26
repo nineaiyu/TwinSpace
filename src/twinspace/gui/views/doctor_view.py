@@ -9,6 +9,8 @@ from toga.style.pack import CENTER, COLUMN, ROW
 
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
+from twinspace.gui import cocoa_events
+from twinspace.gui.components.form_card import FormCard
 from twinspace.gui.components.top_bar import TopHeaderBar
 from twinspace.gui.services.doctor_service import DoctorService
 from twinspace.gui.theme import Theme
@@ -29,6 +31,7 @@ class DoctorView(toga.Box):
             title=t("nav_doctor"),
             action_label=t("doctor_btn_recheck"),
             on_action=lambda w: self.app_instance.safe_create_task(self.run_checks()) if (self.app_instance and hasattr(self.app_instance, "safe_create_task")) else asyncio.create_task(self.run_checks()),
+            action_symbol="arrow.clockwise",
         )
         self.add(self.top_bar)
 
@@ -36,9 +39,9 @@ class DoctorView(toga.Box):
         self.add(content_box)
 
         # Summary badge card
-        self.card_summary = toga.Box(style=Pack(direction=COLUMN, margin_bottom=14, background_color=Theme.BG_CARD))
-        inner_summary = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin=(14, 18, 14, 18), flex=1))
-        self.label_summary = toga.Label(t("doctor_summary_initial"), style=Pack(font_weight="bold", font_size=15, flex=1, color=Theme.TEXT_PRIMARY))
+        self.card_summary = FormCard()
+        inner_summary = toga.Box(style=Pack(direction=ROW, align_items=CENTER, flex=1))
+        self.label_summary = toga.Label(t("doctor_summary_initial"), style=Pack(font_weight="bold", font_size=Theme.FONT_SUBHEADER, flex=1, color=Theme.TEXT_PRIMARY))
         inner_summary.add(self.label_summary)
 
         # One-click install Xcode Command Line Tools button
@@ -53,6 +56,7 @@ class DoctorView(toga.Box):
                 visibility="hidden",
             ),
         )
+        cocoa_events.configure_button_icon(self.btn_install_xcode, "arrow.down.circle")
         inner_summary.add(self.btn_install_xcode)
 
         self.card_summary.add(inner_summary)
@@ -68,7 +72,9 @@ class DoctorView(toga.Box):
             ],
             style=Pack(flex=1),
         )
-        content_box.add(self.table)
+        table_card = FormCard(padding=(8, 8, 8, 8), margin_bottom=0, fill=True)
+        table_card.add(self.table)
+        content_box.add(table_card)
 
     async def action_install_xcode(self, widget: Optional[toga.Button] = None):
         """Invoke macOS native Xcode Command Line Tools installer dialog with user guidance."""
@@ -131,9 +137,11 @@ class DoctorView(toga.Box):
         self.table.data = table_data
         if passed_count == total_count:
             self.label_summary.text = t("doctor_summary_all_passed", passed=passed_count, total=total_count)
+            self.label_summary.style.color = Theme.BTN_SUCCESS
             self.btn_install_xcode.style.visibility = "hidden"
         else:
             self.label_summary.text = t("doctor_summary_issues_found", count=total_count - passed_count)
+            self.label_summary.style.color = Theme.BTN_WARNING
             if not (xcode_select_passed and codesign_passed):
                 self.btn_install_xcode.style.visibility = "visible"
             else:

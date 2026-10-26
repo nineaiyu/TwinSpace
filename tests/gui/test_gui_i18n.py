@@ -17,7 +17,7 @@ from twinspace.gui.views.settings_view import SettingsView
 def test_sidebar_nav_i18n_multi_language():
     for lang, expected_clones in [
         ("en", "Clones"),
-        ("zh", "我的分身"),
+        ("zh", "所有分身"),
     ]:
         set_language(lang)
         sidebar = SidebarNav(on_select=lambda k: None)
@@ -29,12 +29,12 @@ def test_top_header_bar_i18n():
     set_language("en")
     top_bar_en = TopHeaderBar(on_action=lambda w: None, on_refresh=lambda w: None)
     assert top_bar_en.btn_action.text == "+ New Clone"
-    assert top_bar_en.btn_refresh.text == "🔄 Refresh"
+    assert top_bar_en.btn_refresh.text == "Refresh"
 
     set_language("zh")
     top_bar_zh = TopHeaderBar(on_action=lambda w: None, on_refresh=lambda w: None)
     assert top_bar_zh.btn_action.text == "+ 新建分身"
-    assert top_bar_zh.btn_refresh.text == "🔄 刷新"
+    assert top_bar_zh.btn_refresh.text == "刷新"
 
 
 def test_views_i18n_multi_language():
@@ -77,7 +77,7 @@ def test_app_retranslate_ui(tmp_path, monkeypatch):
         # Default Chinese or system
         set_language("zh")
         app.retranslate_ui()
-        assert "我的分身" in app.sidebar.buttons["clones"].text
+        assert "所有分身" in app.sidebar.buttons["clones"].text
         assert "更新日志" in app.settings_view.btn_release_notes.text
 
         # Switch to English

@@ -10,10 +10,12 @@ import toga
 from toga.style import Pack
 from toga.style.pack import CENTER, COLUMN, HIDDEN, ROW, VISIBLE
 
+from twinspace.core.device_identity import identity_for_environment
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
+from twinspace.gui import cocoa_events
 from twinspace.gui.components.wrapping_label import WrappingLabel
-from twinspace.gui.patch_cocoa import configure_cocoa_window
+from twinspace.gui.patch_cocoa import configure_cocoa_card, configure_cocoa_window
 from twinspace.gui.services.environment_service import (
     EnvironmentApp,
     EnvironmentService,
@@ -129,6 +131,7 @@ class EnvironmentCreateWindow(toga.Window):
             on_press=lambda widget: asyncio.create_task(self._on_create()),
             style=Pack(height=30, font_size=13, font_weight="bold"),
         )
+        cocoa_events.style_primary_button(self.btn_create)
 
         self.content = self._build_layout()
         self.on_close = self._on_close
@@ -187,6 +190,11 @@ class EnvironmentCreateWindow(toga.Window):
         )
 
         row = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_bottom=7))
+        app_icon = cocoa_events.load_app_icon(installed_path, size=24) if installed_path else None
+        if app_icon is not None:
+            row.add(
+                toga.ImageView(app_icon, style=Pack(width=22, height=22, margin_right=8))
+            )
         row.add(switch)
         row.add(name_input)
         row.add(detail)
@@ -239,6 +247,51 @@ class EnvironmentCreateWindow(toga.Window):
         apps_box.add(self.app_box)
         apps_scroll.content = apps_box
         root.add(apps_scroll)
+
+        if self._existing_env:
+            identity = identity_for_environment(self._existing_env.name)
+            device_card = toga.Box(
+                style=Pack(
+                    direction=COLUMN,
+                    margin=(0, 0, 8, 0),
+                    background_color=Theme.BG_CARD,
+                )
+            )
+            device_inner = toga.Box(style=Pack(direction=COLUMN, margin=(10, 12, 10, 12)))
+            device_inner.add(
+                toga.Label(
+                    t("detail_section_device"),
+                    style=Pack(
+                        font_size=12.5,
+                        font_weight="bold",
+                        color=Theme.TEXT_PRIMARY,
+                        margin_bottom=4,
+                    ),
+                )
+            )
+            for key, value in (
+                (t("detail_label_device_uuid"), identity.platform_uuid),
+                (t("detail_label_device_serial"), identity.serial),
+                (t("detail_label_device_hostname"), identity.hostname),
+            ):
+                device_inner.add(
+                    toga.Label(
+                        f"{key}: {value}",
+                        style=Pack(
+                            font_size=11.5,
+                            color=Theme.TEXT_MUTED,
+                            margin_bottom=2,
+                        ),
+                    )
+                )
+            device_card.add(device_inner)
+            try:
+                configure_cocoa_card(
+                    device_card._impl.native, corner_radius=10.0, border_width=0.5
+                )
+            except Exception:
+                pass
+            root.add(device_card)
 
         root.add(
             toga.Label(

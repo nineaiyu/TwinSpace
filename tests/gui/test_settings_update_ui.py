@@ -71,11 +71,11 @@ def test_sidebar_on_check_update_failure(toga_app):
 def test_sidebar_retranslate_updates_check_update_btn():
     set_language("en")
     sidebar = SidebarNav(on_select=lambda k: None)
-    assert sidebar.btn_check_update.text == "🔄 Check for Updates"
+    assert sidebar.btn_check_update.text == "Check for Updates"
 
     set_language("zh")
     sidebar.retranslate()
-    assert sidebar.btn_check_update.text == "🔄 检查更新"
+    assert sidebar.btn_check_update.text == "检查更新"
     set_language(None)
 
 

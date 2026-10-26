@@ -273,21 +273,21 @@ def test_clone_list_view_table_header_sort():
     view.on_table_header_sort(1, view.table.columns[1], ascending=True)
     assert [r.source_app for r in view._filtered_clones] == ["App1", "App2"]
 
-    # Sort column 2 (Strategy) ASC
-    view.on_table_header_sort(2, view.table.columns[2], ascending=True)
+    # Sort column 3 (Strategy) ASC
+    view.on_table_header_sort(3, view.table.columns[3], ascending=True)
     assert [r.strategy for r in view._filtered_clones] == ["hard_clone", "soft_clone"]
 
-    # Sort column 4 (Notes) ASC — both empty, order preserved
-    view.on_table_header_sort(4, view.table.columns[4], ascending=True)
+    # Sort column 5 (Notes) ASC — both empty, order preserved
+    view.on_table_header_sort(5, view.table.columns[5], ascending=True)
     assert len(view._filtered_clones) == 2  # no crash, stable
 
-    # Sort column 5 (Created At) DESC
-    view.on_table_header_sort(5, view.table.columns[5], ascending=False)
+    # Sort column 6 (Created At) DESC
+    view.on_table_header_sort(6, view.table.columns[6], ascending=False)
     assert [r.clone_name for r in view._filtered_clones] == ["Alpha", "Beta"]
     assert view.top_bar.select_sort.value == view.sort_newest
 
-    # Sort column 5 (Created At) ASC
-    view.on_table_header_sort(5, view.table.columns[5], ascending=True)
+    # Sort column 6 (Created At) ASC
+    view.on_table_header_sort(6, view.table.columns[6], ascending=True)
     assert [r.clone_name for r in view._filtered_clones] == ["Beta", "Alpha"]
     assert view.top_bar.select_sort.value == view.sort_oldest
 
@@ -403,3 +403,101 @@ def test_clone_list_view_batch_delete_flow(tmp_path):
 
 
 
+
+
+def test_clone_list_exposes_environment_column_and_filter():
+    from twinspace.core.i18n import t
+
+    view = CloneListView()
+    view._raw_clones = [
+        CloneRecord(
+            clone_name="EnvOne",
+            source_app="ZCode",
+            source_path="/Applications/ZCode.app",
+            bundle_id="dev.zcode.app",
+            strategy="hard_clone",
+            dest_path="/p1",
+            data_dir="/d1",
+            created_at="2026-08-20T10:00:00",
+            env_group="phone1",
+        ),
+        CloneRecord(
+            clone_name="EnvTwo",
+            source_app="ZCode",
+            source_path="/Applications/ZCode.app",
+            bundle_id="dev.zcode.app",
+            strategy="hard_clone",
+            dest_path="/p2",
+            data_dir="/d2",
+            created_at="2026-08-21T10:00:00",
+            env_group="phone2",
+        ),
+        CloneRecord(
+            clone_name="Standalone",
+            source_app="Other",
+            source_path="/Applications/Other.app",
+            bundle_id="com.example.other",
+            strategy="hard_clone",
+            dest_path="/p3",
+            data_dir="/d3",
+            created_at="2026-08-22T10:00:00",
+        ),
+    ]
+    view._sync_env_filters()
+
+    assert view.table.columns[2].heading == t("list_col_env")
+    assert set(view._env_filter_labels.values()) == {"phone1", "phone2"}
+
+    label = next(key for key, value in view._env_filter_labels.items() if value == "phone1")
+    view.on_filter_changed(label)
+    assert [record.clone_name for record in view._filtered_clones] == ["EnvOne"]
+    assert view.table.data[0].environment == "phone1"
+
+    view.on_filter_changed(view.filter_all)
+    assert len(view._filtered_clones) == 3
+
+
+def test_clone_edit_window_updates_display_name():
+    record = CloneRecord(
+        clone_name="WeChat2",
+        source_app="WeChat",
+        source_path="/Applications/WeChat.app",
+        bundle_id="com.tencent.xinWeChat",
+        strategy="hard_clone",
+        dest_path="/Applications/WeChat2.app",
+        data_dir="/Data/WeChat2",
+        created_at="2026-08-19T20:00:00Z",
+        new_bundle_id="com.tencent.xinWeChat.clone1",
+    )
+    window = CloneEditWindow(record=record)
+    window.input_display_name.value = "Work WeChat"
+    updated = window.get_updated_record()
+    assert updated.display_name == "Work WeChat"
+    assert window.identity.platform_uuid in window.label_identity_uuid.text
+
+
+def test_clone_detail_window_shows_environment_device_identity():
+    from twinspace.core.device_identity import identity_for_environment
+
+    record = CloneRecord(
+        clone_name="ZCode-phone1",
+        source_app="ZCode",
+        source_path="/Applications/ZCode.app",
+        bundle_id="dev.zcode.app",
+        strategy="hard_clone",
+        dest_path="/Applications/ZCode-phone1.app",
+        data_dir="/Data/Environments/phone1/ZCode-phone1",
+        created_at="2026-08-19T20:00:00Z",
+        new_bundle_id="dev.zcode.phone1",
+        env_group="phone1",
+        env_dir="/Data/Environments/phone1",
+    )
+    window = CloneDetailWindow(record=record)
+    expected = identity_for_environment("phone1")
+
+    assert window.identity.platform_uuid == expected.platform_uuid
+    assert window.label_device_uuid.text == expected.platform_uuid
+    assert window.label_device_hostname.text == expected.hostname
+    assert window.label_env_group.text == "phone1"
+    assert expected.platform_uuid in window.get_summary_text()
+    assert expected.hostname in window.get_summary_text()

@@ -12,6 +12,7 @@ from twinspace import __version__
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
 from twinspace.core.resources import get_app_icon_path
+from twinspace.gui import cocoa_events
 from twinspace.gui.patch_cocoa import (
     configure_cocoa_sidebar_active,
     configure_cocoa_single_line_label,
@@ -57,6 +58,16 @@ class SidebarNav(toga.Box):
 
     MAIN_NAV_KEYS = ["clones", "environments", "recipes", "probe", "doctor"]
     BOTTOM_NAV_KEYS = ["logs", "settings"]
+    NAV_SYMBOLS = {
+        "clones": "square.on.square",
+        "environments": "square.grid.2x2",
+        "recipes": "book",
+        "probe": "magnifyingglass",
+        "doctor": "stethoscope",
+        "logs": "text.alignleft",
+        "settings": "gearshape",
+        "check_update": "arrow.triangle.2.circlepath",
+    }
 
     def __init__(
         self,
@@ -64,7 +75,7 @@ class SidebarNav(toga.Box):
         active_key: str = "clones",
         app: toga.App | None = None,
     ):
-        super().__init__(style=Pack(direction=COLUMN, width=240, margin=0, background_color=Theme.BG_SIDEBAR))
+        super().__init__(style=Pack(direction=COLUMN, width=240, margin=0))
         self.app_instance = app
         self.on_select = on_select
         self.active_key = active_key
@@ -72,7 +83,7 @@ class SidebarNav(toga.Box):
         self.update_service = UpdateService()
 
         # Brand header with logo icon
-        header_box = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin=(20, 14, 16, 14)))
+        header_box = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin=(44, 14, 16, 14)))
 
         logo_path = get_app_icon_path("png")
         if logo_path and logo_path.exists():
@@ -97,8 +108,9 @@ class SidebarNav(toga.Box):
             btn = toga.Button(
                 t(f"nav_{key}"),
                 on_press=self._create_select_handler(key),
-                style=Pack(margin_bottom=5, height=30, font_size=13),
+                style=Pack(margin_bottom=4, height=32, font_size=13),
             )
+            cocoa_events.configure_button_icon(btn, self.NAV_SYMBOLS.get(key, ""))
             self.buttons[key] = btn
             self.main_box.add(btn)
         self.add(self.main_box)
@@ -112,8 +124,9 @@ class SidebarNav(toga.Box):
             btn = toga.Button(
                 t(f"nav_{key}"),
                 on_press=self._create_select_handler(key),
-                style=Pack(margin_bottom=4, height=28, font_size=13),
+                style=Pack(margin_bottom=3, height=30, font_size=13),
             )
+            cocoa_events.configure_button_icon(btn, self.NAV_SYMBOLS.get(key, ""))
             self.buttons[key] = btn
             self.bottom_box.add(btn)
 
@@ -121,7 +134,10 @@ class SidebarNav(toga.Box):
         self.btn_check_update = toga.Button(
             t("settings_btn_check_update"),
             on_press=self.on_check_update,
-            style=Pack(margin_top=2, margin_bottom=4, height=28, font_size=13),
+            style=Pack(margin_top=2, margin_bottom=4, height=30, font_size=13),
+        )
+        cocoa_events.configure_button_icon(
+            self.btn_check_update, self.NAV_SYMBOLS["check_update"]
         )
         self.bottom_box.add(self.btn_check_update)
 

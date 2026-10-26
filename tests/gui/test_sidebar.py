@@ -42,7 +42,7 @@ def test_sidebar_nav_retranslate():
 
     set_language("zh")
     sidebar.retranslate()
-    assert "我的分身" in sidebar.buttons["clones"].text
+    assert "所有分身" in sidebar.buttons["clones"].text
     assert "环境" in sidebar.buttons["environments"].text
 
 

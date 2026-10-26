@@ -9,6 +9,7 @@ from toga.style.pack import CENTER, COLUMN, ROW
 
 from twinspace.core.i18n import t
 from twinspace.core.state import CloneRecord
+from twinspace.gui import cocoa_events
 from twinspace.gui.patch_cocoa import configure_cocoa_danger_button
 from twinspace.gui.theme import Theme
 from twinspace.validation import redact_url_credentials
@@ -32,18 +33,35 @@ class CloneCard(toga.Box):
 
         # Card Header: Icon + Name + Strategy Tag
         header = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin=(12, 14, 6, 14)))
+        app_icon = cocoa_events.load_app_icon(record.dest_path, size=32)
+        if app_icon is not None:
+            header.add(
+                toga.ImageView(app_icon, style=Pack(width=32, height=32, margin_right=10))
+            )
         self.label_name = toga.Label(
             record.clone_name,
-            style=Pack(font_weight="bold", font_size=15, flex=1, color=Theme.TEXT_PRIMARY),
+            style=Pack(font_weight="bold", font_size=16, flex=1, color=Theme.TEXT_PRIMARY),
         )
         is_soft = record.strategy == "soft_clone"
-        strat_badge = ("● " + t("card_strategy_soft")) if is_soft else ("▲ " + t("card_strategy_hard"))
+        strat_badge = t("card_strategy_soft") if is_soft else t("card_strategy_hard")
         strat_color = Theme.BTN_SUCCESS if is_soft else Theme.ACCENT_BLUE
         self.label_strategy = toga.Label(
             strat_badge,
             style=Pack(font_size=12, font_weight="bold", color=strat_color),
         )
+        self.label_env = None
         header.add(self.label_name)
+        if getattr(record, "env_group", ""):
+            self.label_env = toga.Label(
+                t("card_env_badge", name=record.env_group),
+                style=Pack(
+                    font_size=11,
+                    font_weight="bold",
+                    color=Theme.BADGE_CUSTOM_TEXT,
+                    margin_right=8,
+                ),
+            )
+            header.add(self.label_env)
         header.add(self.label_strategy)
         self.add(header)
 

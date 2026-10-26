@@ -8,7 +8,9 @@ from toga.style import Pack
 from toga.style.pack import CENTER, COLUMN, ROW
 
 from twinspace.core.i18n import t
+from twinspace.gui import cocoa_events
 from twinspace.gui.components.top_bar import TopHeaderBar
+from twinspace.gui.patch_cocoa import configure_cocoa_danger_button
 from twinspace.gui.services.recipe_service import RecipeService
 from twinspace.gui.theme import Theme
 from twinspace.gui.windows.recipe_edit import RecipeEditWindow
@@ -45,6 +47,8 @@ class RecipeListView(toga.Box):
             title=t("view_recipes_title", count=0),
             action_label=t("btn_new_recipe"),
             on_action=self.on_new_recipe,
+            action_symbol="plus",
+            refresh_symbol="arrow.clockwise",
             search_placeholder=t("view_recipes_search_placeholder"),
             on_search=self.on_search_query_changed,
             filter_items=[self.filter_all, self.filter_builtin, self.filter_custom],
@@ -66,8 +70,10 @@ class RecipeListView(toga.Box):
         self.grid_box = toga.Box(style=Pack(direction=COLUMN, margin=4))
         self.grid_scroll.content = self.grid_box
 
-        # Table view container & action bar
-        self.table_box = toga.Box(style=Pack(direction=COLUMN, flex=1))
+        # Table view container & action bar, presented as an elevated card.
+        self.table_box = toga.Box(
+            style=Pack(direction=COLUMN, flex=1, background_color=Theme.BG_CARD)
+        )
         self.table = toga.Table(
             columns=[
                 t("recipe_col_app_name"),
@@ -78,15 +84,20 @@ class RecipeListView(toga.Box):
             multiple_select=True,
             on_select=self.on_table_select,
             on_activate=self.on_table_activate,
-            style=Pack(flex=1),
+            style=Pack(flex=1, margin=(8, 8, 0, 8)),
         )
         self.table.on_header_sort = self.on_table_header_sort
         self.table_box.add(self.table)
 
         self.btn_edit = toga.Button(t("btn_edit"), on_press=self.on_edit_recipe, enabled=False, style=Pack(margin_right=6, height=28, font_size=12.5, font_weight="bold"))
         self.btn_delete = toga.Button(t("btn_delete"), on_press=self.on_delete_recipe, enabled=False, style=Pack(height=28, font_size=12.5))
+        cocoa_events.configure_button_icon(self.btn_edit, "pencil")
+        cocoa_events.configure_button_icon(self.btn_delete, "trash")
+        configure_cocoa_danger_button(self.btn_delete)
 
-        actions_box = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_top=8))
+        actions_box = toga.Box(
+            style=Pack(direction=ROW, align_items=CENTER, margin=(8, 8, 8, 8))
+        )
         actions_box.add(self.btn_edit)
         actions_box.add(self.btn_delete)
         self.table_box.add(actions_box)

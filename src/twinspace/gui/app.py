@@ -19,12 +19,15 @@ logger = get_logger("gui.app")
 from twinspace.gui.components.sidebar import SidebarNav
 from twinspace.gui.patch_cocoa import (
     apply_cocoa_appearance,
+    apply_cocoa_sidebar_material,
+    configure_cocoa_window_chrome,
     configure_cocoa_window_movable,
     drain_pending_cocoa_work,
     is_dark_mode,
     patch_cocoa_widgets,
     refresh_dark_mode_cache,
     set_window_min_size,
+    update_cocoa_sidebar_material,
 )
 from twinspace.gui.services.clone_service import CloneService
 from twinspace.gui.services.doctor_service import DoctorService
@@ -172,6 +175,7 @@ class TwinSpaceApp(toga.App):
 
         # Left Sidebar Navigation
         self.sidebar = SidebarNav(on_select=self.switch_view, active_key="clones", app=self)
+        apply_cocoa_sidebar_material(self.sidebar)
 
         # Right-side dynamic view container
         self.content_container = toga.Box(style=Pack(direction=COLUMN, flex=1, background_color=Theme.BG_WINDOW))
@@ -190,6 +194,14 @@ class TwinSpaceApp(toga.App):
         self._resize_debounce = None
         self.on_exit = self._on_app_exit
         self.main_window.show()
+        # Modern full-height chrome (content under a transparent titlebar).
+        configure_cocoa_window_chrome(self.main_window)
+        # The sidebar bounds are only known after the first layout pass.
+        async def _refresh_sidebar_material() -> None:
+            await asyncio.sleep(0.2)
+            update_cocoa_sidebar_material(self.sidebar)
+
+        self.safe_create_task(_refresh_sidebar_material())
         # Enable window drag from top bar background (macOS HIG drag zone)
         configure_cocoa_window_movable(self.main_window)
 
@@ -287,6 +299,7 @@ class TwinSpaceApp(toga.App):
             width = int(self.main_window.size[0])
         except Exception:
             return
+        update_cocoa_sidebar_material(self.sidebar)
         view.on_window_resize(width)
 
     def _maybe_refresh_appearance(self) -> bool:

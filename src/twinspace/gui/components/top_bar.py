@@ -7,6 +7,7 @@ from toga.style import Pack
 from toga.style.pack import CENTER, COLUMN, ROW
 
 from twinspace.core.i18n import t
+from twinspace.gui import cocoa_events
 from twinspace.gui.patch_cocoa import configure_cocoa_sidebar_active
 from twinspace.gui.theme import Theme
 
@@ -19,8 +20,11 @@ class TopHeaderBar(toga.Box):
         title: Optional[str] = None,
         action_label: Optional[str] = None,
         on_action: Optional[Callable[[toga.Button], None]] = None,
+        action_symbol: Optional[str] = None,
         secondary_action_label: Optional[str] = None,
         on_secondary_action: Optional[Callable[[toga.Button], None]] = None,
+        secondary_action_symbol: Optional[str] = None,
+        refresh_symbol: Optional[str] = None,
         search_placeholder: Optional[str] = None,
         on_search: Optional[Callable[[str], None]] = None,
         filter_items: Optional[List[str]] = None,
@@ -31,7 +35,7 @@ class TopHeaderBar(toga.Box):
         on_view_change: Optional[Callable[[str], None]] = None,
         on_refresh: Optional[Callable[[toga.Button], None]] = None,
     ):
-        super().__init__(style=Pack(direction=COLUMN, margin=(18, 24, 12, 24)))
+        super().__init__(style=Pack(direction=COLUMN, margin=(26, 28, 14, 28)))
         self.on_search_cb = on_search
         self.on_view_change_cb = on_view_change
         self.on_filter_cb = on_filter_change
@@ -48,7 +52,7 @@ class TopHeaderBar(toga.Box):
         if title:
             self.label_title = toga.Label(
                 title,
-                style=Pack(font_weight="bold", font_size=20, margin_right=12, color=Theme.TEXT_PRIMARY),
+                style=Pack(font_weight="bold", font_size=24, margin_right=12, color=Theme.TEXT_PRIMARY),
             )
             title_row.add(self.label_title)
         else:
@@ -60,6 +64,9 @@ class TopHeaderBar(toga.Box):
                 on_press=on_action,
                 style=Pack(font_weight="bold", font_size=13, height=30),
             )
+            if action_symbol:
+                cocoa_events.configure_button_icon(self.btn_action, action_symbol)
+            cocoa_events.style_primary_button(self.btn_action)
             title_row.add(self.btn_action)
         else:
             self.btn_action = None
@@ -70,14 +77,24 @@ class TopHeaderBar(toga.Box):
                 on_press=on_secondary_action,
                 style=Pack(font_size=13, height=30, margin_left=8),
             )
+            if secondary_action_symbol:
+                cocoa_events.configure_button_icon(
+                    self.btn_secondary, secondary_action_symbol
+                )
             title_row.add(self.btn_secondary)
         else:
             self.btn_secondary = None
 
         self.add(title_row)
 
-        # Divider separating title row from action toolbar
-        self.divider = toga.Divider(style=Pack(margin=(2, 0, 12, 0)))
+        # Hairline separating the large title from the action toolbar.
+        self.divider = toga.Box(
+            style=Pack(
+                height=1,
+                margin=(0, 0, 12, 0),
+                background_color=Theme.BORDER_SUBTLE,
+            )
+        )
         self.add(self.divider)
 
         # 2. Pinned Compact Action Toolbar Row
@@ -90,6 +107,7 @@ class TopHeaderBar(toga.Box):
                 on_change=self._handle_search,
                 style=Pack(
                     width=240,
+                    height=28,
                     margin_right=10,
                     background_color=Theme.BG_CARD,
                     color=Theme.TEXT_PRIMARY,
@@ -144,6 +162,8 @@ class TopHeaderBar(toga.Box):
         # (f) Refresh Button at far right
         if on_refresh:
             self.btn_refresh = toga.Button(t("topbar_btn_refresh"), on_press=on_refresh, style=Pack(height=28, font_size=13))
+            if refresh_symbol:
+                cocoa_events.configure_button_icon(self.btn_refresh, refresh_symbol)
             toolbar_row.add(self.btn_refresh)
 
         if len(toolbar_row.children) > 1 or (len(toolbar_row.children) == 1 and on_refresh):
@@ -187,4 +207,14 @@ class TopHeaderBar(toga.Box):
     def update_title(self, new_title: str):
         if self.label_title:
             self.label_title.text = new_title
+
+    def update_filter_items(self, items: list[str]) -> None:
+        """Refresh the filter dropdown, preserving the current selection when possible."""
+        select = getattr(self, "select_filter", None)
+        if select is None:
+            return
+        current = select.value
+        select.items = list(items)
+        if current in items:
+            select.value = current
 

@@ -1,7 +1,5 @@
 """CloneTask dataclass — bundles all parameters for a single clone operation."""
 
-import hashlib
-import re
 import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -17,6 +15,16 @@ from twinspace.validation import (
     validate_path_component,
 )
 
+from .device_identity import (
+    DeviceIdentity,
+    identity_for_clone,
+)
+from .device_identity import (
+    instance_number as _instance_number,
+)
+from .device_identity import (
+    keychain_prefix as _keychain_prefix,
+)
 from .models import AppInfo
 
 
@@ -63,78 +71,46 @@ class CloneTask:
     @property
     def instance_number(self) -> str:
         """Return a stable numeric instance id used by apps with multi-instance switches."""
-        match = re.search(r"(\d+)$", self.clone_name)
-        if match:
-            try:
-                number = int(match.group(1))
-                if 1 <= number <= 9999:
-                    return str(number)
-            except ValueError:
-                pass
-        digest = hashlib.sha256(f"{self.clone_name}|{self.new_bundle_id}".encode()).hexdigest()
-        return str(1000 + int(digest[:8], 16) % 9000)
+        return _instance_number(self.clone_name, self.new_bundle_id)
 
     @property
     def keychain_prefix(self) -> str:
         """Return a stable, filesystem/keychain-safe namespace prefix for this clone."""
-        digest = hashlib.sha256(f"{self.clone_name}|{self.new_bundle_id}".encode()).hexdigest()[:16]
-        return f"twinspace.{digest}."
+        return _keychain_prefix(self.clone_name, self.new_bundle_id)
+
+    @property
+    def device_identity(self) -> DeviceIdentity:
+        """Return the simulated hardware identity shared by this clone's scope."""
+        return identity_for_clone(
+            self.clone_name,
+            self.new_bundle_id,
+            self.env_group or "",
+        )
 
     @property
     def device_identity_key(self) -> str:
-        """Return the scope that shares one simulated machine identity.
-
-        Apps installed in the same environment must report the same hardware,
-        because they would run on one physical machine. Standalone clones fall
-        back to their own name and bundle id.
-        """
-        if self.env_group:
-            return f"env|{self.env_group}"
-        return f"clone|{self.clone_name}|{self.new_bundle_id}"
+        """Return the scope that shares one simulated machine identity."""
+        return self.device_identity.scope
 
     @property
     def device_uuid(self) -> str:
         """Return the platform UUID reported through IOKit for this environment."""
-        digest = hashlib.sha256(
-            f"{self.device_identity_key}|platform-uuid".encode()
-        ).hexdigest()
-        chars = list(digest[:32].upper())
-        chars[12] = "4"
-        chars[16] = "89AB"[int(chars[16], 16) % 4]
-        text = "".join(chars)
-        return f"{text[:8]}-{text[8:12]}-{text[12:16]}-{text[16:20]}-{text[20:]}"
+        return self.device_identity.platform_uuid
 
     @property
     def device_serial(self) -> str:
         """Return the platform serial number reported through IOKit."""
-        digest = hashlib.sha256(
-            f"{self.device_identity_key}|platform-serial".encode()
-        ).hexdigest()
-        alphabet = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-        value = int(digest[:16], 16)
-        chars = []
-        for _ in range(9):
-            value, remainder = divmod(value, len(alphabet))
-            chars.append(alphabet[remainder])
-        return "C02" + "".join(chars)
+        return self.device_identity.serial
 
     @property
     def device_seed(self) -> str:
         """Return the seed used to derive disk UUIDs and MAC addresses."""
-        return hashlib.sha256(
-            f"{self.device_identity_key}|device-seed".encode()
-        ).hexdigest()[:16]
+        return self.device_identity.seed
 
     @property
     def device_hostname(self) -> str:
         """Return the hostname reported by gethostname() for this environment."""
-        digest = hashlib.sha256(
-            f"{self.device_identity_key}|hostname".encode()
-        ).hexdigest()[:6]
-        base = self.env_group or self.clone_name
-        slug = re.sub(r"[^a-z0-9-]+", "-", base.lower()).strip("-")
-        slug = slug[:24].strip("-") or "clone"
-        return f"{slug}-{digest}.local"
+        return self.device_identity.hostname
 
 
 @contextmanager

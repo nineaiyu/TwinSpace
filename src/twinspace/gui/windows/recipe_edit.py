@@ -8,6 +8,7 @@ from toga.style.pack import CENTER, COLUMN, ROW
 
 from twinspace.core.i18n import t
 from twinspace.core.locale import SUPPORTED_LANGUAGES
+from twinspace.gui import cocoa_events
 from twinspace.gui.patch_cocoa import configure_cocoa_window
 from twinspace.gui.theme import Theme
 from twinspace.recipes.models import AppType, ProxyConfig, Recipe
@@ -182,6 +183,7 @@ class RecipeEditWindow(toga.Window):
             on_press=self.on_save_press,
             style=Pack(flex=1, margin_left=8, height=30, font_weight="bold", font_size=13),
         )
+        cocoa_events.style_primary_button(self.btn_save)
         self.btn_cancel = toga.Button(
             t("btn_cancel"),
             on_press=lambda widget: self.close(),

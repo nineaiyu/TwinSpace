@@ -254,3 +254,28 @@ def test_settings_view_proxy_validation_errors(tmp_path: Path, monkeypatch):
 
 
 
+
+
+def test_logs_view_filters_by_level(tmp_path):
+    from twinspace.core.i18n import t
+
+    log_file = tmp_path / "level.log"
+    setup_logging(log_file=log_file)
+    logger = get_logger("level_test")
+    logger.info("plain info entry")
+    logger.warning("warning entry")
+    logger.error("error entry")
+
+    view = LogsView()
+    view.on_level_changed(t("logs_filter_error"))
+    assert "error entry" in view.log_text.value
+    assert "warning entry" not in view.log_text.value
+    assert "plain info entry" not in view.log_text.value
+
+    view.on_level_changed(t("logs_filter_warning"))
+    assert "warning entry" in view.log_text.value
+    assert "plain info entry" not in view.log_text.value
+
+    view.on_level_changed(t("logs_filter_all"))
+    assert "warning entry" in view.log_text.value
+    assert "plain info entry" in view.log_text.value

@@ -5,8 +5,16 @@ import threading
 from collections import deque
 from typing import Any
 
+from twinspace.gui.theme import Theme
+
 _is_patched = False
 _dark_mode_cache: bool | None = None
+
+# Flattened table metrics shared with the clone list: 44pt rows leave room for a
+# 22pt app icon, which reads far better than Toga's hardcoded 16pt cell icon.
+TABLE_ROW_HEIGHT = 44.0
+TABLE_ICON_SIZE = 22.0
+TABLE_ICON_TEXT_GAP = 8.0
 
 _MAIN_THREAD = threading.main_thread()
 
@@ -267,7 +275,7 @@ def configure_cocoa_table(native_table: Any, row_height: float = 34.0) -> None:
         if hasattr(native_table, "setRowHeight_"):
             native_table.setRowHeight_(row_height)
         if hasattr(native_table, "setUsesAlternatingRowBackgroundColors_"):
-            native_table.setUsesAlternatingRowBackgroundColors_(True)
+            native_table.setUsesAlternatingRowBackgroundColors_(False)
         from toga_cocoa.libs import NSFont
         if hasattr(native_table, "tableColumns"):
             for col in native_table.tableColumns:
@@ -392,10 +400,10 @@ def configure_cocoa_card(native_view: Any, corner_radius: float = 10.0, border_w
                     from rubicon.objc import ObjCClass
                     NSShadow = ObjCClass("NSShadow")
                     shadow = NSShadow.alloc().init()
-                    shadow.shadowOffset = (0, -1)
-                    shadow.shadowBlurRadius = 4.0
+                    shadow.shadowOffset = (0, -2)
+                    shadow.shadowBlurRadius = 10.0
                     if hasattr(NSColor, "colorWithRed_green_blue_alpha_"):
-                        shadow_alpha = 0.25 if is_dark_mode() else 0.08
+                        shadow_alpha = 0.38 if is_dark_mode() else 0.07
                         shadow.shadowColor = NSColor.colorWithRed_green_blue_alpha_(0.0, 0.0, 0.0, shadow_alpha)
                     native_view.setShadow_(shadow)
                 except Exception:
@@ -404,43 +412,119 @@ def configure_cocoa_card(native_view: Any, corner_radius: float = 10.0, border_w
         pass
 
 
-def configure_cocoa_sidebar_active(native_btn: Any, active: bool) -> None:
-    """Set or clear the Cocoa-level background highlight on a sidebar button NSView for active state.
+def _ns_color_from_hex(value: str) -> Any | None:
+    text = value.strip().lstrip("#")
+    if len(text) != 6:
+        return None
+    try:
+        red = int(text[0:2], 16) / 255.0
+        green = int(text[2:4], 16) / 255.0
+        blue = int(text[4:6], 16) / 255.0
+    except ValueError:
+        return None
+    try:
+        from rubicon.objc import ObjCClass
 
-    Uses the NSView layer backgroundColor to paint Theme.BG_SIDEBAR_ACTIVE (#DFE1E8 or #2D3039 in dark mode)
-    behind the active nav item, matching native macOS sidebar selection styling.
-    """
+        return ObjCClass("NSColor").colorWithSRGBRed_green_blue_alpha_(
+            red, green, blue, 1.0
+        )
+    except Exception:
+        return None
+
+
+def configure_cocoa_sidebar_active(native_btn: Any, active: bool) -> None:
+    """Paint a rounded accent-tinted pill behind the active navigation item."""
     if sys.platform != "darwin" or native_btn is None:
         return
     try:
         from toga_cocoa.libs.appkit import NSColor
+
         if hasattr(native_btn, "setWantsLayer_"):
             native_btn.setWantsLayer_(True)
         layer = getattr(native_btn, "layer", None)
         if layer is None:
             return
         if active:
-            if is_dark_mode():
-                # Dark mode active pill: #2D3039 -> r=0.176 g=0.188 b=0.224 a=1.0
-                bg = NSColor.colorWithRed_green_blue_alpha_(0.176, 0.188, 0.224, 1.0)
-            else:
-                # #DFE1E8 → r=0.875 g=0.882 b=0.910 a=1.0
-                bg = NSColor.colorWithRed_green_blue_alpha_(0.875, 0.882, 0.910, 1.0)
-        else:
-            bg = NSColor.clearColor
-        if hasattr(bg, "CGColor"):
-            cg = bg.CGColor
-            if hasattr(layer, "setBackgroundColor_"):
-                layer.setBackgroundColor_(cg)
-            elif hasattr(layer, "backgroundColor"):
-                layer.backgroundColor = cg
-        # Rounded corners for the active highlight pill
-        if active:
+            bg = _ns_color_from_hex(Theme.BG_SIDEBAR_ACTIVE)
+            if bg is not None and hasattr(bg, "CGColor"):
+                layer.setBackgroundColor_(bg.CGColor)
             if hasattr(layer, "setCornerRadius_"):
-                layer.setCornerRadius_(6.0)
+                layer.setCornerRadius_(8.0)
+            if hasattr(native_btn, "setContentTintColor_"):
+                native_btn.setContentTintColor_(NSColor.controlAccentColor)
         else:
+            if hasattr(layer, "setBackgroundColor_"):
+                layer.setBackgroundColor_(None)
             if hasattr(layer, "setCornerRadius_"):
                 layer.setCornerRadius_(0.0)
+            if hasattr(native_btn, "setContentTintColor_"):
+                native_btn.setContentTintColor_(None)
+    except Exception:
+        pass
+
+
+def configure_cocoa_window_chrome(window: Any) -> None:
+    """Adopt the modern full-height window chrome used by current macOS apps.
+
+    Extends the content view under the titlebar, hides the title text and keeps
+    the traffic lights, matching Finder / Notes / Arc style layouts.
+    """
+    if sys.platform != "darwin" or window is None:
+        return
+    native = getattr(getattr(window, "_impl", None), "native", None)
+    if native is None:
+        return
+    try:
+        style_mask = native.styleMask
+        full_size_content = 1 << 15  # NSWindowStyleMaskFullSizeContentView
+        native.setStyleMask_(style_mask | full_size_content)
+        if hasattr(native, "setTitlebarAppearsTransparent_"):
+            native.setTitlebarAppearsTransparent_(True)
+        if hasattr(native, "setTitleVisibility_"):
+            native.setTitleVisibility_(1)  # NSWindowTitleHidden
+        if hasattr(native, "setMovableByWindowBackground_"):
+            native.setMovableByWindowBackground_(True)
+    except Exception:
+        pass
+
+
+def apply_cocoa_sidebar_material(sidebar_widget: Any) -> None:
+    """Place a native vibrant material behind the sidebar content."""
+    if sys.platform != "darwin" or sidebar_widget is None:
+        return
+    native = getattr(getattr(sidebar_widget, "_impl", None), "native", None)
+    if native is None:
+        return
+    try:
+        from rubicon.objc import ObjCClass
+
+        effect_class = ObjCClass("NSVisualEffectView")
+        effect = effect_class.alloc().initWithFrame_(native.bounds)
+        effect.setMaterial_(3)  # NSVisualEffectMaterialSidebar
+        effect.setBlendingMode_(0)  # NSVisualEffectBlendingModeBehindWindow
+        effect.setState_(1)  # NSVisualEffectStateActive
+        effect.setAutoresizingMask_(2 | 16)  # WidthSizable | HeightSizable
+        effect.setFrame_(native.bounds)
+        subviews = native.subviews
+        if subviews and len(subviews) > 0:
+            native.addSubview_positioned_relativeTo_(effect, -1, subviews[0])
+        else:
+            native.addSubview_(effect)
+        sidebar_widget._twinspace_sidebar_effect = effect
+    except Exception:
+        pass
+
+
+def update_cocoa_sidebar_material(sidebar_widget: Any) -> None:
+    """Resize the vibrant sidebar backdrop after layout or window resizing."""
+    if sys.platform != "darwin" or sidebar_widget is None:
+        return
+    effect = getattr(sidebar_widget, "_twinspace_sidebar_effect", None)
+    native = getattr(getattr(sidebar_widget, "_impl", None), "native", None)
+    if effect is None or native is None:
+        return
+    try:
+        effect.setFrame_(native.bounds)
     except Exception:
         pass
 
@@ -660,17 +744,18 @@ def patch_cocoa_widgets() -> None:
             try:
                 from toga_cocoa.libs import (
                     SEL,
-                    NSBezelBorder,
                     NSScrollView,
                     NSTableViewColumnAutoresizingStyle,
                 )
+                from toga_cocoa.libs.appkit import NSColor
 
                 def _patched_table_create(self):
                     self.native = NSScrollView.alloc().init()
                     self.native.hasVerticalScroller = True
                     self.native.hasHorizontalScroller = False
-                    self.native.autohidesScrollers = False
-                    self.native.borderType = NSBezelBorder
+                    self.native.autohidesScrollers = True
+                    self.native.borderType = 0  # NSNoBorder
+                    self.native.drawsBackground = False
 
                     self.native_table = TwinSpaceTable.alloc().init()
                     self.native_table.interface = self.interface
@@ -678,9 +763,29 @@ def patch_cocoa_widgets() -> None:
                     self.native_table.columnAutoresizingStyle = (
                         NSTableViewColumnAutoresizingStyle.Uniform
                     )
-                    self.native_table.usesAlternatingRowBackgroundColors = True
+                    self.native_table.usesAlternatingRowBackgroundColors = False
                     self.native_table.allowsMultipleSelection = self.interface.multiple_select
                     self.native_table.allowsColumnReordering = False
+                    try:
+                        self.native_table.backgroundColor = NSColor.clearColor
+                        if hasattr(self.native_table, "setStyle_"):
+                            self.native_table.setStyle_(1)  # NSTableViewStyleFullWidth
+                        if hasattr(self.native_table, "setGridStyleMask_"):
+                            self.native_table.setGridStyleMask_(0)
+                        # Match the table surface to the surrounding card instead
+                        # of the default clip view control background (pure black).
+                        card_color = _ns_color_from_hex(Theme.BG_CARD)
+                        if card_color is not None:
+                            self.native.drawsBackground = True
+                            if hasattr(self.native, "setBackgroundColor_"):
+                                self.native.setBackgroundColor_(card_color)
+                            clip_view = self.native.contentView
+                            if hasattr(clip_view, "setBackgroundColor_"):
+                                clip_view.setBackgroundColor_(card_color)
+                            if hasattr(clip_view, "setDrawsBackground_"):
+                                clip_view.setDrawsBackground_(True)
+                    except Exception:
+                        pass
 
                     self.columns = []
                     if not self.interface._show_headings:
@@ -696,23 +801,56 @@ def patch_cocoa_widgets() -> None:
                     self.native.documentView = self.native_table
                     self.add_constraints()
 
-                    configure_cocoa_table(self.native_table, row_height=34.0)
+                    configure_cocoa_table(
+                        self.native_table, row_height=TABLE_ROW_HEIGHT
+                    )
 
                 CocoaTable.create = _patched_table_create
             except Exception:
                 pass
 
-        _orig_icon_setup = TogaIconView.setup
+        _orig_icon_setup = getattr(TogaIconView, "setup", None)
+        if _orig_icon_setup is not None:
 
-        def _patched_icon_setup(self):
-            _orig_icon_setup(self)
-            try:
-                if hasattr(self, "textField") and self.textField is not None:
-                    self.textField.setFont_(NSFont.systemFontOfSize_(13.0))
-            except Exception:
-                pass
+            def _patched_icon_setup(self):
+                _orig_icon_setup(self)
+                try:
+                    if hasattr(self, "textField") and self.textField is not None:
+                        self.textField.setFont_(NSFont.systemFontOfSize_(13.0))
+                except Exception:
+                    pass
 
-        TogaIconView.setup = _patched_icon_setup
+            TogaIconView.setup = _patched_icon_setup
+
+        # 5b. Table icon cells: Toga hardcodes a 16pt icon width (cells.py
+        # setImage_ sets iv_width_constraint.constant = 16), which looks cramped
+        # next to taller rows. Swap in a subclass with our metrics.
+        try:
+            from rubicon.objc import objc_method
+            from toga_cocoa.widgets import table as _cocoa_table_module
+            from toga_cocoa.widgets.internal import cells as _cocoa_cells
+
+            class TwinSpaceIconView(_cocoa_cells.TogaIconView):
+                @objc_method
+                def setImage_(self, image):
+                    if not self.imageView:  # pragma: no cover - defensive
+                        self.setup()
+                    if image:
+                        self.imageView.image = image
+                        self.iv_width_constraint.constant = TABLE_ICON_SIZE
+                        self.tv_left_constraint.constant = TABLE_ICON_TEXT_GAP
+                        if hasattr(self.imageView, "setImageScaling_"):
+                            # NSImageScaleProportionallyUpOrDown
+                            self.imageView.setImageScaling_(3)
+                    else:
+                        self.imageView.image = None
+                        self.iv_width_constraint.constant = 0
+                        self.tv_left_constraint.constant = 0
+
+            _cocoa_cells.TogaIconView = TwinSpaceIconView
+            _cocoa_table_module.TogaIconView = TwinSpaceIconView
+        except Exception:
+            pass
 
         # 6. Box / Card Surface Patch
         try:
@@ -721,10 +859,24 @@ def patch_cocoa_widgets() -> None:
 
             def _patched_box_set_bg(self, color):
                 _orig_box_set_bg(self, color)
-                if color is not None:
-                    c_str = str(color).upper()
-                    if "#FFFFFF" in c_str or "RGBA(255, 255, 255" in c_str or "RGB(255, 255, 255" in c_str or c_str == "WHITE":
-                        configure_cocoa_card(self.native, corner_radius=10.0, border_width=0.5)
+                if color is None:
+                    return
+                try:
+                    from toga.colors import Color
+
+                    parsed = Color.parse(color)
+                    card = Color.parse(Theme.BG_CARD)
+                    is_card = (parsed.r, parsed.g, parsed.b) == (
+                        card.r,
+                        card.g,
+                        card.b,
+                    )
+                except Exception:
+                    is_card = False
+                if is_card:
+                    configure_cocoa_card(
+                        self.native, corner_radius=14.0, border_width=0.5
+                    )
 
             CocoaBox.set_background_color = _patched_box_set_bg
         except Exception:

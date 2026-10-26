@@ -9,6 +9,7 @@ from twinspace.core.environments import apps as environment_apps
 from twinspace.core.environments import manager as environment_manager_module
 from twinspace.core.models import AppInfo
 from twinspace.core.state import CloneRecord, StateManager
+from twinspace.gui.components.app_tile import AppTile
 from twinspace.gui.services.environment_service import EnvironmentApp, EnvironmentService
 from twinspace.gui.views.environment_list import EnvironmentListView
 from twinspace.gui.windows.environment_create import EnvironmentCreateWindow
@@ -262,6 +263,13 @@ def _label_texts(widget) -> list[str]:
     return texts
 
 
+def _app_tiles(widget) -> list[AppTile]:
+    tiles = [widget] if isinstance(widget, AppTile) else []
+    for child in getattr(widget, "children", []):
+        tiles.extend(_app_tiles(child))
+    return tiles
+
+
 def test_environment_card_shows_clone_names(toga_app, tmp_path):
     state = StateManager(state_file=tmp_path / "clones.yaml")
     state.add(
@@ -298,9 +306,9 @@ def test_environment_card_shows_clone_names(toga_app, tmp_path):
     view._environments = service.list_environments()
     view._render()
 
-    texts = _label_texts(view.list_box)
-    assert any("Google Chrome · Chrome-work" in text for text in texts)
-    assert any("ZCode · ZCode-work" in text for text in texts)
+    tiles = {tile.clone_name: tile for tile in _app_tiles(view.list_box)}
+    assert tiles["Chrome-work"].label_text == "Google Chrome"
+    assert tiles["ZCode-work"].label_text == "ZCode"
 
 
 def test_environment_card_exposes_update_and_backup(toga_app, tmp_path):
@@ -432,7 +440,7 @@ def test_environment_list_export_restore_import(toga_app, tmp_path):
     mock_app.main_window.info_dialog.assert_awaited()
 
 
-def test_environment_card_has_per_app_open_close_buttons(toga_app, tmp_path):
+def test_environment_card_marks_running_apps(toga_app, tmp_path):
     state = StateManager(state_file=tmp_path / "clones.yaml")
     for name, source, bundle in (
         ("Chrome-work", "Google Chrome", "com.google.Chrome"),
@@ -459,17 +467,11 @@ def test_environment_card_has_per_app_open_close_buttons(toga_app, tmp_path):
     view._running_clones = {"Chrome-work"}
     view._render()
 
-    button_texts = []
-
-    def collect(widget):
-        if isinstance(widget, toga.Button):
-            button_texts.append(widget.text)
-        for child in getattr(widget, "children", []):
-            collect(child)
-
-    collect(view.list_box)
-    assert "Close" in button_texts
-    assert button_texts.count("Open") == 1
+    tiles = {tile.clone_name: tile for tile in _app_tiles(view.list_box)}
+    assert tiles["Chrome-work"].running is True
+    assert tiles["ZCode-work"].running is False
+    assert tiles["Chrome-work"].status_label.text != ""
+    assert tiles["ZCode-work"].status_label.text == ""
 
 
 def test_environment_toggle_app_opens_and_quits_selected_app(toga_app, tmp_path):

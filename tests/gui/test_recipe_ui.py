@@ -153,14 +153,14 @@ def test_recipe_list_view_multi_select_and_button_states():
         view.on_table_select(view.table)
         assert view.btn_edit.enabled is False
         assert view.btn_delete.enabled is False
-        assert "🗑️" in view.btn_delete.text
+        assert view.btn_delete.text
 
     # 2. Single custom selection
     with patch.object(view, "get_selected_recipe_items", return_value=[view._filtered_recipes[0]]):
         view.on_table_select(view.table)
         assert view.btn_edit.enabled is True
         assert view.btn_delete.enabled is True
-        assert "🗑️" in view.btn_delete.text
+        assert view.btn_delete.text
 
     # 3. Single built-in selection
     with patch.object(view, "get_selected_recipe_items", return_value=[view._filtered_recipes[2]]):

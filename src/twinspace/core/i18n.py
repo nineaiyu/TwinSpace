@@ -380,12 +380,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "数据存储目录",
     },
     "nav_clones": {
-        "en": "📱 My Clones",
-        "zh": "📱 我的分身",
+        "en": "All Clones",
+        "zh": "所有分身",
     },
     "nav_environments": {
-        "en": "🗂 My Environments",
-        "zh": "🗂 我的环境",
+        "en": "Environments",
+        "zh": "我的环境",
     },
     "environment_title": {
         "en": "My Environments ({count})",
@@ -406,6 +406,38 @@ MESSAGES: dict[str, dict[str, str]] = {
     "environment_app_close": {
         "en": "Close",
         "zh": "关闭",
+    },
+    "env_app_menu_edit": {
+        "en": "Edit Configuration…",
+        "zh": "编辑配置…",
+    },
+    "env_app_menu_reveal": {
+        "en": "Reveal in Finder",
+        "zh": "在 Finder 中显示",
+    },
+    "env_app_menu_update": {
+        "en": "Rebuild from Source",
+        "zh": "从源应用重建",
+    },
+    "env_app_tile_hint": {
+        "en": "{app} · {clone}\nDouble-click to open · Right-click for options",
+        "zh": "{app} · {clone}\n双击打开 · 右键查看更多",
+    },
+    "env_menu_more": {
+        "en": "More actions",
+        "zh": "更多操作",
+    },
+    "env_menu_reveal_dir": {
+        "en": "Reveal Environment Folder",
+        "zh": "在 Finder 中显示环境目录",
+    },
+    "environment_app_update_confirm": {
+        "en": "Rebuild {app} from its current source app? Quit it first.",
+        "zh": "要按当前源应用重新构建 {app} 吗？请先退出该应用。",
+    },
+    "environment_app_update_done": {
+        "en": "{app} rebuilt from its source app.",
+        "zh": "{app} 已按源应用重建。",
     },
     "environment_btn_manage": {
         "en": "Add Apps",
@@ -458,6 +490,14 @@ MESSAGES: dict[str, dict[str, str]] = {
     "environment_hint": {
         "en": "Each environment has its own data, Keychain namespace and Chrome profile. Apps in this environment only open this environment's browser.",
         "zh": "每个环境使用独立的数据、Keychain 命名空间和 Chrome Profile；本环境的 App 只会打开本环境的浏览器。",
+    },
+    "environment_interaction_hint": {
+        "en": "Double-click an app to open it · Right-click for more actions",
+        "zh": "双击应用打开 · 右键查看更多操作",
+    },
+    "environment_loading": {
+        "en": "Loading environments…",
+        "zh": "正在加载环境…",
     },
     "environment_window_title": {
         "en": "New Environment",
@@ -868,68 +908,68 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "{key} 的分身名称不能为空。",
     },
     "nav_recipes": {
-        "en": "📖 Recipes",
-        "zh": "📖 分身规则",
+        "en": "Recipes",
+        "zh": "分身规则",
     },
     "nav_probe": {
-        "en": "🔍 App Probe",
-        "zh": "🔍 应用探测",
+        "en": "App Probe",
+        "zh": "应用探测",
     },
     "nav_doctor": {
-        "en": "🩺 Doctor",
-        "zh": "🩺 环境自检",
+        "en": "Doctor",
+        "zh": "环境自检",
     },
     "nav_logs": {
-        "en": "📋 Logs",
-        "zh": "📋 运行日志",
+        "en": "Logs",
+        "zh": "运行日志",
     },
     "nav_settings": {
-        "en": "⚙️ Settings",
-        "zh": "⚙️ 全局设置",
+        "en": "Settings",
+        "zh": "全局设置",
     },
     "topbar_view_grid": {
-        "en": "🔲 Grid View",
-        "zh": "🔲 卡片视图",
+        "en": "Grid View",
+        "zh": "卡片视图",
     },
     "topbar_view_list": {
-        "en": "📋 List View",
-        "zh": "📋 列表视图",
+        "en": "List View",
+        "zh": "列表视图",
     },
     "topbar_search_placeholder": {
-        "en": "🔍 Search...",
-        "zh": "🔍 搜索...",
+        "en": "Search...",
+        "zh": "搜索...",
     },
     "topbar_btn_refresh": {
-        "en": "🔄 Refresh",
-        "zh": "🔄 刷新",
+        "en": "Refresh",
+        "zh": "刷新",
     },
     "btn_launch": {
-        "en": "▶️ Launch",
-        "zh": "▶️ 启动",
+        "en": "Launch",
+        "zh": "启动",
     },
     "btn_open_clone_dir": {
-        "en": "📁 Open Folder",
-        "zh": "📁 打开分身所在目录",
+        "en": "Open Folder",
+        "zh": "打开分身所在目录",
     },
     "btn_update": {
-        "en": "🔄 Update",
-        "zh": "🔄 更新",
+        "en": "Update",
+        "zh": "更新",
     },
     "btn_updating": {
-        "en": "🔄 Updating...",
-        "zh": "🔄 更新中...",
+        "en": "Updating...",
+        "zh": "更新中...",
     },
     "btn_edit": {
-        "en": "✏️ Edit",
-        "zh": "✏️ 编辑",
+        "en": "Edit",
+        "zh": "编辑",
     },
     "btn_detail": {
-        "en": "ℹ️ Details",
-        "zh": "ℹ️ 详情",
+        "en": "Details",
+        "zh": "详情",
     },
     "btn_delete": {
-        "en": "🗑️ Delete",
-        "zh": "🗑️ 删除",
+        "en": "Delete",
+        "zh": "删除",
     },
     "btn_open_dir_short": {
         "en": "Dir",
@@ -952,32 +992,32 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "删除",
     },
     "btn_batch_update": {
-        "en": "🔄 Update ({count})",
-        "zh": "🔄 批量更新 ({count})",
+        "en": "Update ({count})",
+        "zh": "批量更新 ({count})",
     },
     "btn_batch_delete": {
-        "en": "🗑️ Delete ({count})",
-        "zh": "🗑️ 批量删除 ({count})",
+        "en": "Delete ({count})",
+        "zh": "批量删除 ({count})",
     },
     "btn_updating_progress": {
-        "en": "🔄 Updating ({current}/{total})...",
-        "zh": "🔄 正在更新 ({current}/{total})...",
+        "en": "Updating ({current}/{total})...",
+        "zh": "正在更新 ({current}/{total})...",
     },
     "btn_deleting_progress": {
-        "en": "🗑️ Deleting ({current}/{total})...",
-        "zh": "🗑️ 正在删除 ({current}/{total})...",
+        "en": "Deleting ({current}/{total})...",
+        "zh": "正在删除 ({current}/{total})...",
     },
     "btn_browse_app": {
-        "en": "📂 Browse App...",
-        "zh": "📂 浏览应用...",
+        "en": "Browse App...",
+        "zh": "浏览应用...",
     },
     "btn_browse_dir": {
-        "en": "📂 Browse...",
-        "zh": "📂 浏览目录...",
+        "en": "Browse...",
+        "zh": "浏览目录...",
     },
     "btn_save_changes": {
-        "en": "💾 Save Changes",
-        "zh": "💾 保存修改",
+        "en": "Save Changes",
+        "zh": "保存修改",
     },
     "btn_cancel": {
         "en": "Cancel",
@@ -1020,16 +1060,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "未启用代理",
     },
     "view_clones_title": {
-        "en": "📱 My Clones ({count})",
-        "zh": "📱 我的分身 ({count})",
+        "en": "All Clones ({count})",
+        "zh": "所有分身 ({count})",
     },
     "view_clones_title_filtered": {
-        "en": "📱 My Clones (Filtered {filter_count}/{total_count})",
-        "zh": "📱 我的分身 (筛选 {filter_count}/{total_count})",
+        "en": "All Clones (Filtered {filter_count}/{total_count})",
+        "zh": "所有分身 (筛选 {filter_count}/{total_count})",
     },
     "view_clones_search_placeholder": {
-        "en": "🔍 Search clone / source app...",
-        "zh": "🔍 搜索分身 / 源应用...",
+        "en": "Search clone / source app...",
+        "zh": "搜索分身 / 源应用...",
     },
     "view_clones_filter_all": {
         "en": "All",
@@ -1042,6 +1082,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "view_clones_filter_soft": {
         "en": "Soft",
         "zh": "软包装",
+    },
+    "view_clones_filter_env": {
+        "en": "Env: {name}",
+        "zh": "环境: {name}",
     },
     "view_clones_filter_proxy": {
         "en": "Proxy On",
@@ -1072,16 +1116,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "点击上方「+ 新建分身」立即创建",
     },
     "view_recipes_title": {
-        "en": "📖 Clone Recipes ({count})",
-        "zh": "📖 分身规则 ({count})",
+        "en": "Clone Recipes ({count})",
+        "zh": "分身规则 ({count})",
     },
     "view_recipes_title_filtered": {
-        "en": "📖 Clone Recipes (Filtered {filter_count}/{total_count})",
-        "zh": "📖 分身规则 (筛选 {filter_count}/{total_count})",
+        "en": "Clone Recipes (Filtered {filter_count}/{total_count})",
+        "zh": "分身规则 (筛选 {filter_count}/{total_count})",
     },
     "view_recipes_search_placeholder": {
-        "en": "🔍 Search recipes / Bundle ID...",
-        "zh": "🔍 搜索应用规则 / Bundle ID...",
+        "en": "Search recipes / Bundle ID...",
+        "zh": "搜索应用规则 / Bundle ID...",
     },
     "view_recipes_filter_all": {
         "en": "All",
@@ -1112,12 +1156,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "暂无匹配的分身规则，可点击右上角「+ 新建规则」添加自定义规则。",
     },
     "settings_btn_save": {
-        "en": "💾 Save Preferences",
-        "zh": "💾 保存设置",
+        "en": "Save Preferences",
+        "zh": "保存设置",
     },
     "settings_card_storage": {
-        "en": "📁 Storage & Data Management",
-        "zh": "📁 数据与存储管理",
+        "en": "Storage & Data Management",
+        "zh": "数据与存储管理",
     },
     "settings_label_apps_dir": {
         "en": "Cloned Apps Directory: {path}",
@@ -1128,8 +1172,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "数据隔离存放目录: {path}",
     },
     "settings_btn_open_finder": {
-        "en": "📂 Reveal in Finder (~/TwinSpace)",
-        "zh": "📂 在 Finder 中打开数据目录 (~/TwinSpace)",
+        "en": "Reveal in Finder (~/TwinSpace)",
+        "zh": "在 Finder 中打开数据目录 (~/TwinSpace)",
     },
     "settings_label_root": {
         "en": "Root Workspace:",
@@ -1140,16 +1184,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "（分身应用、隔离数据及分身规则将自动归档在该根工作目录下）",
     },
     "settings_card_proxy": {
-        "en": "🌐 Default Proxy Configuration (Optional)",
-        "zh": "🌐 默认代理配置 (可选)",
+        "en": "Default Proxy Configuration (Optional)",
+        "zh": "默认代理配置 (可选)",
     },
     "settings_switch_proxy_default": {
         "en": "Enable proxy by default when creating clones",
         "zh": "创建分身时默认启用代理",
     },
     "settings_card_tray": {
-        "en": "🪟 Window & Tray Preferences",
-        "zh": "🪟 窗口与系统托盘偏好",
+        "en": "Window & Tray Preferences",
+        "zh": "窗口与系统托盘偏好",
     },
     "settings_switch_minimize_to_tray": {
         "en": "Minimize to System Tray",
@@ -1168,8 +1212,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "退出 TwinSpace",
     },
     "settings_card_language": {
-        "en": "🌐 Interface Language",
-        "zh": "🌐 界面语言",
+        "en": "Interface Language",
+        "zh": "界面语言",
     },
     "settings_label_language": {
         "en": "Language:",
@@ -1180,8 +1224,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "切换界面语言后即时生效，无需重启应用。",
     },
     "settings_card_about": {
-        "en": "ℹ️ About TwinSpace",
-        "zh": "ℹ️ 关于 TwinSpace",
+        "en": "About TwinSpace",
+        "zh": "关于 TwinSpace",
     },
     "settings_label_version": {
         "en": "TwinSpace Version: v{ver}",
@@ -1196,12 +1240,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "macOS 系统架构: {ver}",
     },
     "doctor_summary_all_passed": {
-        "en": "✅ All environment checks passed ({passed}/{total})",
-        "zh": "✅ 所有环境检测项全部通过 ({passed}/{total})",
+        "en": "All environment checks passed ({passed}/{total})",
+        "zh": "所有环境检测项全部通过 ({passed}/{total})",
     },
     "doctor_summary_issues_found": {
-        "en": "⚠️ Found {count} unready environment component(s), please check hints below.",
-        "zh": "⚠️ 发现 {count} 项未就绪环境组件，请参考列表修复建议",
+        "en": "Found {count} unready environment component(s), please check hints below.",
+        "zh": "发现 {count} 项未就绪环境组件，请参考列表修复建议",
     },
     "doctor_col_status": {
         "en": "Status",
@@ -1224,8 +1268,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "❌ 缺失",
     },
     "doctor_btn_recheck": {
-        "en": "🔄 Recheck",
-        "zh": "🔄 重新检测",
+        "en": "Recheck",
+        "zh": "重新检测",
     },
     "doctor_summary_initial": {
         "en": "⏳ Click Recheck to start diagnostics",
@@ -1240,8 +1284,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "❌ 缺失",
     },
     "doctor_btn_install_xcode": {
-        "en": "📦 Install Xcode Command Line Tools",
-        "zh": "📦 一键安装 Xcode 命令行工具",
+        "en": "Install Xcode Command Line Tools",
+        "zh": "一键安装 Xcode 命令行工具",
     },
     "doctor_hint_xcode_select": {
         "en": "Click 'Install Xcode Command Line Tools' above or run: xcode-select --install",
@@ -1253,11 +1297,11 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     "doctor_dialog_install_msg": {
         "en": "The macOS native installation dialog has been opened.\n\nPlease follow Apple's system prompt to complete the download and installation (~2GB).\n\nOnce the installation completes, please click the [🔄 Recheck] button.",
-        "zh": "已为您唤起 macOS 系统原生安装弹窗。\n\n请在系统弹窗中点击【安装】并等待下载安装完成（约 2GB）。\n\n安装完成后，请点击界面右上角【🔄 重新检测】按钮。",
+        "zh": "已为您唤起 macOS 系统原生安装弹窗。\n\n请在系统弹窗中点击【安装】并等待下载安装完成（约 2GB）。\n\n安装完成后，请点击界面右上角【重新检测】按钮。",
     },
     "doctor_dialog_install_already_msg": {
         "en": "Xcode Command Line Tools installation is already in progress or already installed.\n\nPlease complete the system installer or click [🔄 Recheck].",
-        "zh": "Xcode 命令行工具已在安装中或已安装。\n\n请完成系统安装流程或点击【🔄 重新检测】。",
+        "zh": "Xcode 命令行工具已在安装中或已安装。\n\n请完成系统安装流程或点击【重新检测】。",
     },
     "doctor_dialog_install_error_msg": {
         "en": "Failed to launch Xcode installer:\n{error}\n\nPlease try running in Terminal: xcode-select --install",
@@ -1284,24 +1328,24 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "检查目录权限: chmod u+rwx {path}",
     },
     "probe_btn_start": {
-        "en": "🔍 Start Probe",
-        "zh": "🔍 开始探测",
+        "en": "Start Probe",
+        "zh": "开始探测",
     },
     "probe_card_target": {
-        "en": "📦 Select Target Application",
-        "zh": "📦 选择目标应用",
+        "en": "Select Target Application",
+        "zh": "选择目标应用",
     },
     "probe_input_placeholder": {
         "en": "Enter application path or browse /Applications...",
         "zh": "请输入应用路径或浏览 /Applications...",
     },
     "probe_card_results": {
-        "en": "🔬 Prober Analysis Report",
-        "zh": "🔬 应用探测分析报告",
+        "en": "Prober Analysis Report",
+        "zh": "应用探测分析报告",
     },
     "probe_btn_save_recipe": {
-        "en": "💾 Save as Custom Recipe",
-        "zh": "💾 保存为自定义 Recipe 规则",
+        "en": "Save as Custom Recipe",
+        "zh": "保存为自定义 Recipe 规则",
     },
     "probe_sandbox_yes": {
         "en": "Enabled (App Sandbox)",
@@ -1328,20 +1372,36 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "自定义",
     },
     "logs_title_total": {
-        "en": "📋 Logs ({total} lines)",
-        "zh": "📋 运行日志 ({total} 行)",
+        "en": "Logs ({total} lines)",
+        "zh": "运行日志 ({total} 行)",
     },
     "logs_title_filtered": {
-        "en": "📋 Logs (Filtered {count}/{total} lines)",
-        "zh": "📋 运行日志 (筛选 {count}/{total} 行)",
+        "en": "Logs (Filtered {count}/{total} lines)",
+        "zh": "运行日志 (筛选 {count}/{total} 行)",
     },
     "logs_search_placeholder": {
-        "en": "🔍 Search log keywords...",
-        "zh": "🔍 搜索日志关键字...",
+        "en": "Search log keywords...",
+        "zh": "搜索日志关键字...",
+    },
+    "logs_filter_all": {
+        "en": "All levels",
+        "zh": "全部级别",
+    },
+    "logs_filter_info": {
+        "en": "Info",
+        "zh": "信息",
+    },
+    "logs_filter_warning": {
+        "en": "Warning",
+        "zh": "警告",
+    },
+    "logs_filter_error": {
+        "en": "Error",
+        "zh": "错误",
     },
     "logs_btn_clear": {
-        "en": "🗑️ Clear Logs",
-        "zh": "🗑️ 清空日志",
+        "en": "Clear Logs",
+        "zh": "清空日志",
     },
     "dialog_info_title": {
         "en": "Information",
@@ -1551,6 +1611,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Language:",
         "zh": "语言环境:",
     },
+    "win_edit_display_name": {
+        "en": "Display Name:",
+        "zh": "显示名称:",
+    },
     "detail_label_language": {
         "en": "Language",
         "zh": "语言环境",
@@ -1558,6 +1622,130 @@ MESSAGES: dict[str, dict[str, str]] = {
     "detail_label_injection": {
         "en": "Injection Strategy",
         "zh": "注入模式",
+    },
+    "detail_label_display_name": {
+        "en": "Display Name",
+        "zh": "显示名称",
+    },
+    "detail_label_source_app": {
+        "en": "Source App",
+        "zh": "源应用",
+    },
+    "detail_label_source_path": {
+        "en": "Source Path",
+        "zh": "源路径",
+    },
+    "detail_label_bundle_id": {
+        "en": "Bundle ID",
+        "zh": "Bundle ID",
+    },
+    "detail_label_new_bundle_id": {
+        "en": "Clone Bundle ID",
+        "zh": "分身 Bundle ID",
+    },
+    "detail_label_strategy": {
+        "en": "Build Strategy",
+        "zh": "构建策略",
+    },
+    "detail_label_created_at": {
+        "en": "Created",
+        "zh": "创建时间",
+    },
+    "detail_label_proxy": {
+        "en": "Proxy",
+        "zh": "代理",
+    },
+    "detail_section_environment": {
+        "en": "Environment & Data",
+        "zh": "环境与数据",
+    },
+    "detail_label_env_group": {
+        "en": "Environment",
+        "zh": "所属环境",
+    },
+    "detail_label_env_dir": {
+        "en": "Environment Folder",
+        "zh": "环境目录",
+    },
+    "detail_label_keychain_prefix": {
+        "en": "Keychain Prefix",
+        "zh": "Keychain 前缀",
+    },
+    "detail_section_device": {
+        "en": "Device Identity",
+        "zh": "设备身份",
+    },
+    "detail_device_hint": {
+        "en": "All apps in the same environment report this simulated machine identity.",
+        "zh": "同一环境内的所有 App 共享这套模拟设备身份。",
+    },
+    "detail_label_device_uuid": {
+        "en": "Platform UUID",
+        "zh": "平台 UUID",
+    },
+    "device_window_title": {
+        "en": "Device Identity · {name}",
+        "zh": "设备身份 · {name}",
+    },
+    "env_menu_device": {
+        "en": "Device Identity…",
+        "zh": "设备身份…",
+    },
+    "env_device_line": {
+        "en": "Device {uuid}… · {hostname}",
+        "zh": "设备 {uuid}… · {hostname}",
+    },
+    "detail_label_device_serial": {
+        "en": "Serial Number",
+        "zh": "序列号",
+    },
+    "detail_label_device_hostname": {
+        "en": "Hostname",
+        "zh": "主机名",
+    },
+    "detail_label_device_seed": {
+        "en": "Device Seed",
+        "zh": "设备种子",
+    },
+    "detail_label_instance_number": {
+        "en": "Instance Number",
+        "zh": "实例编号",
+    },
+    "detail_section_network": {
+        "en": "Network & Proxy",
+        "zh": "网络与代理",
+    },
+    "detail_section_notes": {
+        "en": "Notes & Overrides",
+        "zh": "备注与环境变量",
+    },
+    "detail_label_notes": {
+        "en": "Notes",
+        "zh": "备注",
+    },
+    "detail_label_env_overrides": {
+        "en": "Env Overrides",
+        "zh": "环境变量覆盖",
+    },
+    "detail_section_technical": {
+        "en": "Technical Details",
+        "zh": "技术明细",
+    },
+    "detail_btn_open_data": {
+        "en": "Open Data Folder",
+        "zh": "打开数据目录",
+    },
+    "btn_copy_short": {
+        "en": "Copy",
+        "zh": "复制",
+    },
+    "card_env_badge": {
+        "en": "Env: {name}",
+        "zh": "环境: {name}",
+    },
+    "list_col_env": {
+        "en": "Environment",
+        "zh": "所属环境",
     },
     "lang_system": {
         "en": "Follow System (Default)",
@@ -1636,8 +1824,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "下一步 ▶",
     },
     "win_wizard_btn_clone_now": {
-        "en": "🚀 Clone Now",
-        "zh": "🚀 立即创建",
+        "en": "Clone Now",
+        "zh": "立即创建",
     },
     "win_detail_title": {
         "en": "Clone Details: {name}",
@@ -1852,8 +2040,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "环境变量解析错误：第 {line_num} 行 '{line}' 格式无效，必须为 KEY=VALUE 格式。",
     },
     "settings_btn_check_update": {
-        "en": "🔄 Check for Updates",
-        "zh": "🔄 检查更新",
+        "en": "Check for Updates",
+        "zh": "检查更新",
     },
     "update_checking": {
         "en": "Checking for updates...",
@@ -1904,8 +2092,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "❌ 检查更新失败: HTTP {code}",
     },
     "settings_btn_release_notes": {
-        "en": "📄 Release Notes",
-        "zh": "📄 更新日志 (Release Notes)",
+        "en": "Release Notes",
+        "zh": "更新日志 (Release Notes)",
     },
     "release_notes_window_title": {
         "en": "TwinSpace Release Notes",
@@ -1916,8 +2104,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "语言版本:",
     },
     "release_notes_btn_open_external": {
-        "en": "📂 Open in Editor",
-        "zh": "📂 在外部打开",
+        "en": "Open in Editor",
+        "zh": "在外部打开",
     },
     "release_notes_btn_close": {
         "en": "Close",

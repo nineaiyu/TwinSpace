@@ -3,18 +3,20 @@
 import asyncio
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import toga
+from toga.sources import AccessorColumn
 from toga.style import Pack
 from toga.style.pack import CENTER, COLUMN, ROW
 
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
 from twinspace.core.state import CloneRecord
+from twinspace.gui import cocoa_events
 from twinspace.gui.components.clone_card import CloneCard
 from twinspace.gui.components.top_bar import TopHeaderBar
-from twinspace.gui.patch_cocoa import configure_cocoa_danger_button
+from twinspace.gui.patch_cocoa import TABLE_ICON_SIZE, configure_cocoa_danger_button
 from twinspace.gui.services.clone_service import CloneService
 from twinspace.gui.theme import Theme
 from twinspace.gui.windows.clone_detail import CloneDetailWindow
@@ -22,6 +24,20 @@ from twinspace.gui.windows.clone_edit import CloneEditWindow
 from twinspace.validation import redact_url_credentials
 
 logger = get_logger("gui.clone_list")
+
+
+class CloneNameColumn(AccessorColumn):
+    """Name column that also renders the clone's application icon."""
+
+    def __init__(self, heading: str, accessor: str, icon_provider: Any):
+        super().__init__(heading, accessor)
+        self._icon_provider = icon_provider
+
+    def icon(self, row: Any) -> Any | None:
+        try:
+            return self._icon_provider(getattr(row, self.accessor, None))
+        except Exception:
+            return None
 
 
 class CloneListView(toga.Box):
@@ -34,6 +50,8 @@ class CloneListView(toga.Box):
         self._raw_clones: list[CloneRecord] = []
         self._filtered_clones: list[CloneRecord] = []
         self._busy_clones: set[str] = set()
+        self._icon_by_clone: dict[str, Any] = {}
+        self._records_by_name: dict[str, CloneRecord] = {}
         self.view_mode: str = "list"  # "grid" or "list"
         self.search_query: str = ""
         self._search_debounce = None
@@ -51,12 +69,15 @@ class CloneListView(toga.Box):
 
         self.selected_filter: str = self.filter_all
         self.selected_sort: str = self.sort_newest
+        self._env_filter_labels: dict[str, str] = {}
 
         # Top Header Bar with big section title and compact pinned toolbar
         self.top_bar = TopHeaderBar(
             title=t("view_clones_title", count=0),
             action_label=t("btn_new_clone"),
             on_action=self.on_action_new_clone,
+            action_symbol="plus",
+            refresh_symbol="arrow.clockwise",
             search_placeholder=t("view_clones_search_placeholder"),
             on_search=self.on_search_query_changed,
             filter_items=[self.filter_all, self.filter_hard, self.filter_soft, self.filter_proxy],
@@ -78,12 +99,15 @@ class CloneListView(toga.Box):
         self.grid_box = toga.Box(style=Pack(direction=COLUMN, margin=4))
         self.grid_scroll.content = self.grid_box
 
-        # Table view & action bar
-        self.table_box = toga.Box(style=Pack(direction=COLUMN, flex=1))
+        # Table view & action bar, presented as a single elevated card.
+        self.table_box = toga.Box(
+            style=Pack(direction=COLUMN, flex=1, background_color=Theme.BG_CARD)
+        )
         self.table = toga.Table(
             columns=[
-                t("list_col_name"),
+                CloneNameColumn(t("list_col_name"), "name", self._icon_for_clone),
                 t("list_col_source_app"),
+                t("list_col_env"),
                 t("list_col_strategy"),
                 t("list_col_proxy"),
                 t("list_col_notes"),
@@ -92,7 +116,7 @@ class CloneListView(toga.Box):
             multiple_select=True,
             on_select=self.on_table_select,
             on_activate=self.on_table_activate,
-            style=Pack(flex=1),
+            style=Pack(flex=1, margin=(8, 8, 0, 8)),
         )
         self.table.on_header_sort = self.on_table_header_sort
         self.table_box.add(self.table)
@@ -104,7 +128,19 @@ class CloneListView(toga.Box):
         self.btn_detail_table = toga.Button(t("btn_detail"), on_press=lambda w: asyncio.create_task(self.on_detail_clone(self.get_selected_record())), enabled=False, style=Pack(margin_right=6, height=28, font_size=12.5))
         self.btn_delete_table = toga.Button(t("btn_delete"), on_press=lambda w: asyncio.create_task(self.on_delete_clone(self.get_selected_records())), enabled=False, style=Pack(height=28, font_size=12.5))
 
-        actions_box = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_top=8))
+        for button, symbol in (
+            (self.btn_launch_table, "play.fill"),
+            (self.btn_open_dir_table, "folder"),
+            (self.btn_update_table, "arrow.clockwise"),
+            (self.btn_edit_table, "pencil"),
+            (self.btn_detail_table, "info.circle"),
+            (self.btn_delete_table, "trash"),
+        ):
+            cocoa_events.configure_button_icon(button, symbol)
+
+        actions_box = toga.Box(
+            style=Pack(direction=ROW, align_items=CENTER, margin=(8, 8, 8, 8))
+        )
         actions_box.add(self.btn_launch_table)
         actions_box.add(self.btn_open_dir_table)
         actions_box.add(self.btn_update_table)
@@ -118,21 +154,34 @@ class CloneListView(toga.Box):
         # Empty state — centered, HIG-compliant two-line layout
         self._empty_box = toga.Box(style=Pack(direction=COLUMN, flex=1, align_items=CENTER))
         self._empty_box.add(toga.Box(style=Pack(flex=1)))  # top spacer
+        empty_symbol = cocoa_events.system_symbol_toga_image("square.on.square", 44)
+        if empty_symbol is not None:
+            self._empty_box.add(
+                toga.ImageView(
+                    empty_symbol,
+                    style=Pack(width=44, height=44, margin_bottom=12),
+                )
+            )
         self._empty_box.add(toga.Label(
             t("view_clones_empty_hint"),
             style=Pack(font_size=16, font_weight="bold", color=Theme.TEXT_MUTED, margin_bottom=8),
         ))
         empty_actions = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_top=14))
-        empty_actions.add(toga.Button(
+        empty_env_button = toga.Button(
             t("view_clones_empty_cta_env"),
             on_press=self.on_goto_environments,
             style=Pack(height=32, font_size=13, font_weight="bold", margin_right=10),
-        ))
-        empty_actions.add(toga.Button(
+        )
+        cocoa_events.configure_button_icon(empty_env_button, "square.grid.2x2")
+        cocoa_events.style_primary_button(empty_env_button)
+        empty_new_button = toga.Button(
             t("btn_new_clone"),
             on_press=self.on_action_new_clone,
             style=Pack(height=32, font_size=13),
-        ))
+        )
+        cocoa_events.configure_button_icon(empty_new_button, "plus")
+        empty_actions.add(empty_env_button)
+        empty_actions.add(empty_new_button)
         self._empty_box.add(empty_actions)
         self._empty_box.add(toga.Box(style=Pack(flex=2)))  # bottom spacer (2x = shift slightly above center)
 
@@ -186,13 +235,18 @@ class CloneListView(toga.Box):
                     self.top_bar.select_sort.value = self.sort_name
         elif col_index == 1:  # Source App
             self._filtered_clones.sort(key=lambda r: r.source_app.lower(), reverse=not ascending)
-        elif col_index == 2:  # Strategy
+        elif col_index == 2:  # Environment
+            self._filtered_clones.sort(
+                key=lambda r: (getattr(r, "env_group", "") or "").lower(),
+                reverse=not ascending,
+            )
+        elif col_index == 3:  # Strategy
             self._filtered_clones.sort(key=lambda r: r.strategy.lower(), reverse=not ascending)
-        elif col_index == 3:  # Proxy
+        elif col_index == 4:  # Proxy
             self._filtered_clones.sort(key=lambda r: (r.proxy_enabled, r.proxy_summary), reverse=not ascending)
-        elif col_index == 4:  # Notes
+        elif col_index == 5:  # Notes
             self._filtered_clones.sort(key=lambda r: (getattr(r, "notes", "") or "").lower(), reverse=not ascending)
-        elif col_index == 5:  # Created At
+        elif col_index == 6:  # Created At
             self._filtered_clones.sort(key=lambda r: r.created_at, reverse=not ascending)
             target_sort = self.sort_oldest if ascending else self.sort_newest
             self.selected_sort = target_sort
@@ -219,9 +273,12 @@ class CloneListView(toga.Box):
                 or self.search_query in (getattr(r, "notes", "") or "").lower()
             ]
 
-        # 2. Strategy / Proxy Category Filter (substring match covers zh/en labels)
+        # 2. Environment / Strategy / Proxy Filter
         selected_filter = str(self.selected_filter)
-        if "hard" in selected_filter.lower() or "物理" in selected_filter:
+        if selected_filter in self._env_filter_labels:
+            env_name = self._env_filter_labels[selected_filter]
+            items = [r for r in items if (getattr(r, "env_group", "") or "") == env_name]
+        elif "hard" in selected_filter.lower() or "物理" in selected_filter:
             items = [r for r in items if r.strategy == "hard_clone"]
         elif "soft" in selected_filter.lower() or "软" in selected_filter:
             items = [r for r in items if r.strategy == "soft_clone"]
@@ -276,6 +333,7 @@ class CloneListView(toga.Box):
                     )
                     row_box.add(card)
                 self.grid_box.add(row_box)
+                cocoa_events.fade_in(row_box)
 
             self.content_container.add(self.grid_scroll)
         else:
@@ -290,6 +348,7 @@ class CloneListView(toga.Box):
                 table_data.append((
                     r.clone_name,
                     r.source_app,
+                    getattr(r, "env_group", "") or "—",
                     r.strategy,
                     proxy_str,
                     notes_display,
@@ -356,8 +415,11 @@ class CloneListView(toga.Box):
         # Double-click launches the clone — the natural Finder/Launchpad mapping;
         # editing stays on the explicit toolbar button.
         record = self.get_selected_record(row)
-        if record:
-            await self.on_launch_clone(record)
+        if record is None:
+            logger.warning("Table activate could not resolve a clone from row %r", row)
+            return
+        logger.info("Table activate: launching clone=%s", record.clone_name)
+        await self.on_launch_clone(record)
 
     def _extract_clone_name(self, item, known_names: set[str]) -> Optional[str]:
         if item is None:
@@ -406,7 +468,47 @@ class CloneListView(toga.Box):
 
     async def refresh_clones(self):
         self._raw_clones = await self.clone_service.list_clones()
+        self._records_by_name = {
+            record.clone_name: record for record in self._raw_clones
+        }
+        self._icon_by_clone.clear()
+        self._sync_env_filters()
         self._apply_filter()
+
+    def _icon_for_clone(self, clone_name: Any) -> Any | None:
+        """Resolve the app icon for a table cell, caching it by clone name."""
+        name = str(clone_name or "")
+        if name in self._icon_by_clone:
+            return self._icon_by_clone[name]
+        record = self._records_by_name.get(name)
+        icon = (
+            cocoa_events.load_app_icon(record.dest_path, size=TABLE_ICON_SIZE)
+            if record is not None
+            else None
+        )
+        self._icon_by_clone[name] = icon
+        return icon
+
+    def _sync_env_filters(self) -> None:
+        """Offer one filter entry per environment alongside the strategy filters."""
+        env_names = sorted(
+            {
+                getattr(record, "env_group", "") or ""
+                for record in self._raw_clones
+            }
+            - {""}
+        )
+        labels = [self.filter_all, self.filter_hard, self.filter_soft, self.filter_proxy]
+        self._env_filter_labels = {}
+        for env_name in env_names:
+            label = t("view_clones_filter_env", name=env_name)
+            self._env_filter_labels[label] = env_name
+            labels.append(label)
+        self.top_bar.update_filter_items(labels)
+        if self.selected_filter not in labels:
+            self.selected_filter = self.filter_all
+            if getattr(self.top_bar, "select_filter", None) is not None:
+                self.top_bar.select_filter.value = self.filter_all
 
     async def on_launch_clone(self, record: Optional[CloneRecord]):
         if not record:
@@ -457,7 +559,12 @@ class CloneListView(toga.Box):
     async def on_detail_clone(self, record: Optional[CloneRecord]):
         if not record:
             return
-        win = CloneDetailWindow(record=record)
+        win = CloneDetailWindow(
+            record=record,
+            on_edit=lambda r: asyncio.create_task(self.on_edit_clone(r)),
+            on_update=lambda r: asyncio.create_task(self.on_update_clone(r)),
+            on_reveal=lambda r: asyncio.create_task(self.on_open_clone_dir(r)),
+        )
         win.show()
 
     async def on_edit_clone(self, record: Optional[CloneRecord]):
@@ -468,6 +575,7 @@ class CloneListView(toga.Box):
             await self.clone_service.update_clone_record(updated_record)
             if (
                 updated_record.language != record.language
+                or updated_record.display_name != record.display_name
                 or updated_record.proxy_summary != record.proxy_summary
                 or updated_record.proxy_enabled != record.proxy_enabled
                 or getattr(win, "credential_changed", False)

@@ -14,8 +14,10 @@ class Theme:
     # Backgrounds
     BG_WINDOW = "#F5F5F7"         # macOS System Gray 6 window background
     BG_SIDEBAR = "#ECECF0"        # macOS native sidebar neutral background
-    BG_SIDEBAR_ACTIVE = "#DFE1E8" # macOS active sidebar item highlight
+    BG_SIDEBAR_ACTIVE = "#E3EDFB" # Accent-tinted active sidebar pill
     BG_CARD = "#FFFFFF"           # Elevated card content surface
+    BG_HOVER = "#F1F2F4"          # Hover surface for icon tiles / list rows
+    BG_SELECTION = "#DCE8FB"      # Selected app tile pill
     BORDER_CARD = "#E5E5EA"       # macOS System Gray 5 separator / card border
     BORDER_SUBTLE = "#E5E5EA"     # Subtle border color
 
@@ -49,8 +51,10 @@ class Theme:
     # ── Apple HIG Typography Scale (mode-independent) ────────────────────────
     FONT_LARGE_TITLE = 20         # Large section header / main view title
     FONT_SECTION_HEADER = 15      # Card / section group header
+    FONT_CARD_TITLE = 13          # Grouped-form card section title (bold; Toga floors fractional points)
     FONT_SUBHEADER = 14           # Modal / sub-section header
     FONT_BODY = 13                # Standard readable macOS body text & form labels
+    FONT_FIELD_LABEL = 13         # Grouped-form row label (aligned with body text)
     FONT_BODY_SECONDARY = 12.5    # Secondary metadata / list items
     FONT_CAPTION = 11.5           # Small captions, hints, footnotes
     FONT_MINI = 11                # Version tags, tiny badges (HIG desktop min: 10pt; 11pt preferred for common use)
@@ -60,7 +64,8 @@ class Theme:
     HEIGHT_BTN_PRIMARY = 30       # Primary action buttons
     HEIGHT_BTN_COMPACT = 28       # Toolbar & secondary buttons
     HEIGHT_INPUT = 28             # Standard text inputs & selectors
-    CORNER_RADIUS_CARD = 10.0     # Standard macOS card corner radius
+    CORNER_RADIUS_CARD = 16.0     # Large macOS card corner radius
+    CORNER_RADIUS_CONTROL = 8.0   # Buttons / segmented controls
     CORNER_RADIUS_BUTTON = 6.0    # Standard macOS button corner radius
     BORDER_WIDTH_HAIRLINE = 0.5   # macOS subtle retina hairline border
 
@@ -76,8 +81,10 @@ class Theme:
     _LIGHT: dict = {
         "BG_WINDOW":          "#F5F5F7",
         "BG_SIDEBAR":         "#ECECF0",
-        "BG_SIDEBAR_ACTIVE":  "#DFE1E8",
+        "BG_SIDEBAR_ACTIVE":  "#E3EDFB",
         "BG_CARD":            "#FFFFFF",
+        "BG_HOVER":           "#F1F2F4",
+        "BG_SELECTION":       "#DCE8FB",
         "BORDER_CARD":        "#E5E5EA",
         "BORDER_SUBTLE":      "#E5E5EA",
         "TEXT_PRIMARY":       "#1D1D1F",
@@ -101,8 +108,10 @@ class Theme:
         # Backgrounds — Apple HIG Dark systemBackground / secondarySystemBackground
         "BG_WINDOW":          "#1C1C1E",
         "BG_SIDEBAR":         "#2C2C2E",
-        "BG_SIDEBAR_ACTIVE":  "#3A3A3C",
+        "BG_SIDEBAR_ACTIVE":  "#263A55",
         "BG_CARD":            "#2C2C2E",
+        "BG_HOVER":           "#3A3A3C",
+        "BG_SELECTION":       "#2F4B73",
         "BORDER_CARD":        "#3A3A3C",
         "BORDER_SUBTLE":      "#3A3A3C",
         # Typography — Apple HIG Dark label colors (all pass WCAG AA on #1C1C1E)

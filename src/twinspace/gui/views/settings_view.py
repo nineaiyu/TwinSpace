@@ -25,6 +25,8 @@ from twinspace.core.i18n import (
     t,
 )
 from twinspace.core.logger import get_logger
+from twinspace.gui import cocoa_events
+from twinspace.gui.components.form_card import FormCard
 from twinspace.gui.components.top_bar import TopHeaderBar
 from twinspace.gui.theme import Theme
 from twinspace.gui.windows.release_notes import ReleaseNotesWindow
@@ -50,6 +52,7 @@ class SettingsView(toga.Box):
             title=t("nav_settings"),
             action_label=t("settings_btn_save"),
             on_action=self.on_save_settings,
+            action_symbol="checkmark.circle",
         )
         self.add(self.top_bar)
 
@@ -60,12 +63,7 @@ class SettingsView(toga.Box):
         self.add(scroll)
 
         # ── Card 1: Language Preference ────────────────────────────────────── #
-        card_lang = toga.Box(style=Pack(direction=COLUMN, margin_bottom=14, background_color=Theme.BG_CARD))
-        inner_lang = toga.Box(style=Pack(direction=COLUMN, margin=(14, 18, 14, 18)))
-        inner_lang.add(toga.Label(t("settings_card_language"), style=Pack(font_weight="bold", font_size=15, margin_bottom=12, color=Theme.TEXT_PRIMARY)))
-
-        row_lang = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_bottom=6))
-        row_lang.add(toga.Label(t("settings_label_language"), style=Pack(width=120, font_size=13, color=Theme.TEXT_PRIMARY)))
+        card_lang = FormCard(t("settings_card_language"))
 
         lang_items = list(SUPPORTED_LANGUAGES_MAP.values())
         current_cfg = get_configured_language()
@@ -75,50 +73,42 @@ class SettingsView(toga.Box):
             items=lang_items,
             value=current_item,
             on_change=self._on_language_changed,
-            style=Pack(flex=1, font_size=12.0),
+            style=Pack(flex=1, font_size=12.5),
         )
-        row_lang.add(self.select_language)
-        inner_lang.add(row_lang)
-        inner_lang.add(toga.Label(t("settings_hint_language"), style=Pack(font_size=11.5, color=Theme.TEXT_MUTED, margin_top=4)))
-        card_lang.add(inner_lang)
+        card_lang.add_row(t("settings_label_language"), self.select_language, margin_bottom=0)
+        card_lang.add_hint(t("settings_hint_language"), margin_top=6, margin_bottom=0)
         content_box.add(card_lang)
 
         # ── Card 2: Data & Storage Management ──────────────────────────────── #
-        card_dir = toga.Box(style=Pack(direction=COLUMN, margin_bottom=14, background_color=Theme.BG_CARD))
-        inner_dir = toga.Box(style=Pack(direction=COLUMN, margin=(14, 18, 14, 18)))
-        inner_dir.add(toga.Label(t("settings_card_storage"), style=Pack(font_weight="bold", font_size=15, margin_bottom=12, color=Theme.TEXT_PRIMARY)))
+        card_dir = FormCard(t("settings_card_storage"))
 
         # Root Workspace Directory input row
-        row_base = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_bottom=6))
-        row_base.add(toga.Label(t("settings_label_root"), style=Pack(width=120, font_size=13, color=Theme.TEXT_PRIMARY)))
         current_base = get_config_value("base_dir", str(DEFAULT_TWINSPACE_DIR))
         self.input_base_dir = toga.TextInput(value=str(current_base), on_change=self._on_base_dir_changed, style=Pack(flex=1, margin_right=8, font_size=13.5))
         self.btn_browse_base = toga.Button(t("btn_browse_dir"), on_press=self._on_browse_base, style=Pack(height=30, font_size=13))
-        row_base.add(self.input_base_dir)
+        cocoa_events.configure_button_icon(self.btn_browse_base, "folder")
+        row_base = card_dir.add_row(t("settings_label_root"), self.input_base_dir, margin_bottom=0)
         row_base.add(self.btn_browse_base)
-        inner_dir.add(row_base)
 
-        inner_dir.add(toga.Label(t("settings_hint_paths"), style=Pack(font_size=11.5, color=Theme.TEXT_MUTED, margin_top=4, margin_bottom=10)))
+        card_dir.add_hint(t("settings_hint_paths"), margin_top=6, margin_bottom=0)
+        card_dir.add_divider(margin_top=12, margin_bottom=10)
 
         # Dynamic subdirectories labels synchronized with root directory
-        self.label_apps_dir = toga.Label(t("settings_label_apps_dir", path=str(DEFAULT_APPS_DIR)), style=Pack(font_size=12.5, color=Theme.TEXT_MUTED, margin_bottom=4))
-        self.label_data_dir = toga.Label(t("settings_label_data_dir", path=str(DEFAULT_DATA_DIR)), style=Pack(font_size=12.5, color=Theme.TEXT_MUTED, margin_bottom=10))
-        inner_dir.add(self.label_apps_dir)
-        inner_dir.add(self.label_data_dir)
+        self.label_apps_dir = toga.Label(t("settings_label_apps_dir", path=str(DEFAULT_APPS_DIR)), style=Pack(font_size=12, color=Theme.TEXT_TERTIARY, margin_bottom=4))
+        self.label_data_dir = toga.Label(t("settings_label_data_dir", path=str(DEFAULT_DATA_DIR)), style=Pack(font_size=12, color=Theme.TEXT_TERTIARY))
+        card_dir.add(self.label_apps_dir, self.label_data_dir)
 
         self.btn_open_finder = toga.Button(
             t("settings_btn_open_finder"),
             on_press=self.on_open_data_dir_in_finder,
             style=Pack(font_weight="bold", font_size=13, height=30),
         )
-        inner_dir.add(self.btn_open_finder)
-        card_dir.add(inner_dir)
+        cocoa_events.configure_button_icon(self.btn_open_finder, "folder")
+        card_dir.add_action_row(self.btn_open_finder, margin_top=12)
         content_box.add(card_dir)
 
         # ── Card 3: Default Proxy ──────────────────────────────────────────── #
-        card_proxy = toga.Box(style=Pack(direction=COLUMN, margin_bottom=14, background_color=Theme.BG_CARD))
-        inner_proxy = toga.Box(style=Pack(direction=COLUMN, margin=(14, 18, 14, 18)))
-        inner_proxy.add(toga.Label(t("settings_card_proxy"), style=Pack(font_weight="bold", font_size=15, margin_bottom=12, color=Theme.TEXT_PRIMARY)))
+        card_proxy = FormCard(t("settings_card_proxy"))
 
         cfg_proxy = get_config_value("default_proxy", {})
         default_proxy_enabled = bool(cfg_proxy.get("enabled", False))
@@ -141,90 +131,103 @@ class SettingsView(toga.Box):
             t("settings_switch_proxy_default"),
             value=default_proxy_enabled,
             on_change=self._on_proxy_toggle,
-            style=Pack(margin_bottom=8, font_size=13.5),
+            style=Pack(margin_bottom=10, font_size=13),
         )
-        inner_proxy.add(self.switch_proxy)
+        card_proxy.add(self.switch_proxy)
 
         row_proxy = toga.Box(style=Pack(direction=ROW, align_items=CENTER))
         self.select_proxy_type = toga.Selection(
             items=["http", "https", "socks5"],
             value=default_proxy_type if default_proxy_type in ["http", "https", "socks5"] else "http",
-            style=Pack(width=105, margin_right=8, font_size=12.0),
+            style=Pack(width=105, margin_right=8, font_size=12.5),
         )
         self.input_proxy_host = toga.TextInput(value=default_proxy_host, style=Pack(flex=1, margin_right=8, font_size=13.5))
         self.input_proxy_port = toga.TextInput(value=default_proxy_port, style=Pack(width=90, font_size=13.5))
         row_proxy.add(self.select_proxy_type)
         row_proxy.add(self.input_proxy_host)
         row_proxy.add(self.input_proxy_port)
-        inner_proxy.add(row_proxy)
+        card_proxy.add(row_proxy)
 
-        # Proxy Auth Section
-        box_auth = toga.Box(style=Pack(direction=COLUMN, margin_top=8, margin_left=12))
+        # Proxy Auth Section — same 120pt label column as the rest of the card.
+        card_proxy.add_divider(margin_top=14, margin_bottom=10)
+        box_auth = toga.Box(style=Pack(direction=COLUMN))
         self.switch_proxy_auth = toga.Switch(
             t("proxy_auth_enable"),
             value=default_proxy_has_auth,
             on_change=self._on_auth_toggle,
-            style=Pack(margin_top=6, margin_bottom=6, font_size=13),
+            style=Pack(margin_bottom=10, font_size=13),
         )
         box_auth.add(self.switch_proxy_auth)
 
-        row_auth = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_top=4))
-        row_auth.add(toga.Label(t("proxy_auth_username"), style=Pack(width=80, font_size=12.5, color=Theme.TEXT_PRIMARY)))
         self.input_proxy_user = toga.TextInput(
             value=default_proxy_user,
             placeholder=t("proxy_auth_username"),
-            style=Pack(flex=1, margin_right=8, font_size=13),
+            style=Pack(flex=1, font_size=13),
         )
-        row_auth.add(self.input_proxy_user)
-        row_auth.add(toga.Label(t("proxy_auth_password"), style=Pack(margin_left=8, margin_right=6, font_size=12.5, color=Theme.TEXT_PRIMARY)))
+        box_auth.add(
+            card_proxy.make_row(
+                t("proxy_auth_username"),
+                self.input_proxy_user,
+                margin_bottom=8,
+            )
+        )
+
         self.input_proxy_pass = toga.PasswordInput(
             value=default_proxy_pass,
             placeholder=t("proxy_auth_password"),
             style=Pack(flex=1, font_size=13),
         )
-        row_auth.add(self.input_proxy_pass)
-        box_auth.add(row_auth)
+        box_auth.add(
+            card_proxy.make_row(
+                t("proxy_auth_password"),
+                self.input_proxy_pass,
+                margin_bottom=0,
+            )
+        )
 
-        box_auth.add(toga.Label(t("proxy_auth_password_hint"), style=Pack(font_size=11, color=Theme.TEXT_MUTED, margin_top=4, margin_left=80)))
-        inner_proxy.add(box_auth)
-        card_proxy.add(inner_proxy)
+        box_auth.add(
+            toga.Label(
+                t("proxy_auth_password_hint"),
+                style=Pack(
+                    font_size=11,
+                    color=Theme.TEXT_MUTED,
+                    margin_top=6,
+                    margin_left=FormCard.label_width,
+                ),
+            )
+        )
+        card_proxy.add(box_auth)
         content_box.add(card_proxy)
 
         # ── Card 4: Window & Tray Preferences ──────────────────────────────── #
-        card_tray = toga.Box(style=Pack(direction=COLUMN, margin_bottom=14, background_color=Theme.BG_CARD))
-        inner_tray = toga.Box(style=Pack(direction=COLUMN, margin=(14, 18, 14, 18)))
-        inner_tray.add(toga.Label(t("settings_card_tray"), style=Pack(font_weight="bold", font_size=15, margin_bottom=12, color=Theme.TEXT_PRIMARY)))
+        card_tray = FormCard(t("settings_card_tray"))
 
         current_tray_cfg = bool(get_config_value("minimize_to_tray", False))
         self.switch_minimize_to_tray = toga.Switch(
             t("settings_switch_minimize_to_tray"),
             value=current_tray_cfg,
             on_change=self._on_minimize_to_tray_changed,
-            style=Pack(margin_bottom=6, font_size=13.5),
+            style=Pack(margin_bottom=4, font_size=13),
         )
-        inner_tray.add(self.switch_minimize_to_tray)
-        inner_tray.add(toga.Label(t("settings_hint_minimize_to_tray"), style=Pack(font_size=11.5, color=Theme.TEXT_MUTED)))
-        card_tray.add(inner_tray)
+        card_tray.add(self.switch_minimize_to_tray)
+        card_tray.add_hint(t("settings_hint_minimize_to_tray"), margin_top=2, margin_bottom=0)
         content_box.add(card_tray)
 
         # ── Card 5: System Info ────────────────────────────────────────────── #
-        card_info = toga.Box(style=Pack(direction=COLUMN, margin_bottom=14, background_color=Theme.BG_CARD))
-        inner_info = toga.Box(style=Pack(direction=COLUMN, margin=(14, 18, 14, 18)))
-        inner_info.add(toga.Label(t("settings_card_about"), style=Pack(font_weight="bold", font_size=15, margin_bottom=10, color=Theme.TEXT_PRIMARY)))
-        inner_info.add(toga.Label(t("settings_label_version", ver=__version__), style=Pack(font_size=12.5, color=Theme.TEXT_MUTED, margin_bottom=4)))
-        inner_info.add(toga.Label(t("settings_label_python", ver=platform.python_version(), arch=platform.machine()), style=Pack(font_size=12.5, color=Theme.TEXT_MUTED, margin_bottom=4)))
-        inner_info.add(toga.Label(t("settings_label_os", ver=platform.mac_ver()[0] or 'macOS'), style=Pack(font_size=12.5, color=Theme.TEXT_MUTED, margin_bottom=12)))
-
-        row_about_btns = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_bottom=6))
+        card_info = FormCard(t("settings_card_about"))
+        for info_text in (
+            t("settings_label_version", ver=__version__),
+            t("settings_label_python", ver=platform.python_version(), arch=platform.machine()),
+            t("settings_label_os", ver=platform.mac_ver()[0] or "macOS"),
+        ):
+            card_info.add(toga.Label(info_text, style=Pack(font_size=12.5, color=Theme.TEXT_MUTED, margin_bottom=5)))
 
         self.btn_release_notes = toga.Button(
             t("settings_btn_release_notes"),
             on_press=self.on_open_release_notes,
             style=Pack(height=30, font_size=13),
         )
-        row_about_btns.add(self.btn_release_notes)
-        inner_info.add(row_about_btns)
-        card_info.add(inner_info)
+        card_info.add_action_row(self.btn_release_notes, margin_top=10)
         content_box.add(card_info)
 
         self.release_notes_window: ReleaseNotesWindow | None = None

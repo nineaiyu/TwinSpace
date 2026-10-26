@@ -18,7 +18,8 @@ def test_theme_constants_light_mode():
     assert Theme.HEIGHT_BTN_PRIMARY == 30
     assert Theme.HEIGHT_BTN_COMPACT == 28
     assert Theme.HEIGHT_INPUT == 28
-    assert Theme.CORNER_RADIUS_CARD == 10.0
+    assert Theme.CORNER_RADIUS_CARD == 16.0
+    assert Theme.CORNER_RADIUS_CONTROL == 8.0
     assert Theme.BORDER_WIDTH_HAIRLINE == 0.5
 
 

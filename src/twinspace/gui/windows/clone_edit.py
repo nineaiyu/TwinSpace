@@ -7,12 +7,20 @@ import toga
 from toga.style import Pack
 from toga.style.pack import CENTER, COLUMN, ROW
 
+from twinspace.core.device_identity import identity_for_clone
 from twinspace.core.i18n import t
 from twinspace.core.locale import SUPPORTED_LANGUAGES
 from twinspace.core.state import CloneRecord
+from twinspace.gui import cocoa_events
+from twinspace.gui.components.wrapping_label import WrappingLabel
 from twinspace.gui.patch_cocoa import configure_cocoa_window
 from twinspace.gui.theme import Theme
-from twinspace.validation import validate_host, validate_proxy_credential, validate_proxy_port
+from twinspace.validation import (
+    validate_display_name,
+    validate_host,
+    validate_proxy_credential,
+    validate_proxy_port,
+)
 
 
 class CloneEditWindow(toga.Window):
@@ -21,7 +29,7 @@ class CloneEditWindow(toga.Window):
         record: CloneRecord,
         on_save: Callable[[CloneRecord], Coroutine[Any, Any, None]] | None = None,
     ):
-        super().__init__(title=t("win_edit_title", name=record.clone_name), size=(520, 490))
+        super().__init__(title=t("win_edit_title", name=record.clone_name), size=(580, 660))
         configure_cocoa_window(self, floating=False)
         self.record = record
         self.on_save_callback = on_save
@@ -100,6 +108,32 @@ class CloneEditWindow(toga.Window):
             style=Pack(flex=1, font_size=13),
         )
 
+        # Display name (Dock/Finder label)
+        self.input_display_name = toga.TextInput(
+            value=getattr(record, "display_name", None) or "",
+            placeholder=record.clone_name,
+            style=Pack(flex=1, font_size=13.5),
+        )
+
+        # Read-only simulated device identity for this scope.
+        self.identity = identity_for_clone(
+            record.clone_name,
+            record.new_bundle_id or record.bundle_id,
+            getattr(record, "env_group", "") or "",
+        )
+        self.label_identity_uuid = WrappingLabel(
+            f"{t('detail_label_device_uuid')}: {self.identity.platform_uuid}",
+            style=Pack(font_size=11.5, color=Theme.TEXT_MUTED, margin_bottom=2),
+        )
+        self.label_identity_serial = WrappingLabel(
+            f"{t('detail_label_device_serial')}: {self.identity.serial}",
+            style=Pack(font_size=11.5, color=Theme.TEXT_MUTED, margin_bottom=2),
+        )
+        self.label_identity_hostname = WrappingLabel(
+            f"{t('detail_label_device_hostname')}: {self.identity.hostname}",
+            style=Pack(font_size=11.5, color=Theme.TEXT_MUTED, margin_bottom=2),
+        )
+
         # Language selection
         self._lang_keys = list(SUPPORTED_LANGUAGES.keys())
         self._lang_display_items = [
@@ -121,6 +155,7 @@ class CloneEditWindow(toga.Window):
         )
 
         self.btn_save = toga.Button(t("btn_save_changes"), on_press=self.on_save_press, style=Pack(flex=1, margin_left=8, height=30, font_weight="bold", font_size=13))
+        cocoa_events.style_primary_button(self.btn_save)
         self.btn_cancel = toga.Button(t("btn_cancel"), on_press=lambda w: self.close(), style=Pack(flex=1, height=30, font_size=13))
 
         self.content = self._build_content()
@@ -146,6 +181,12 @@ class CloneEditWindow(toga.Window):
 
         title_label = toga.Label(t("win_edit_title", name=self.record.clone_name), style=Pack(font_weight="bold", font_size=15, margin_bottom=12, color=Theme.TEXT_PRIMARY))
         box.add(title_label)
+
+        # Display name shown in the Dock / Finder
+        row_display = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_bottom=12))
+        row_display.add(toga.Label(t("win_edit_display_name"), style=Pack(width=120, font_size=13, color=Theme.TEXT_PRIMARY)))
+        row_display.add(self.input_display_name)
+        box.add(row_display)
 
         # Language Settings
         row_lang = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_bottom=12))
@@ -182,6 +223,30 @@ class CloneEditWindow(toga.Window):
 
         box_auth.add(toga.Label(t("proxy_auth_password_hint"), style=Pack(font_size=11, color=Theme.TEXT_MUTED, margin_top=4, margin_left=80)))
         box.add(box_auth)
+
+        # Read-only simulated device identity for this scope.
+        identity_box = toga.Box(style=Pack(direction=COLUMN, margin_top=14))
+        identity_box.add(
+            toga.Label(
+                t("detail_section_device"),
+                style=Pack(
+                    font_weight="bold",
+                    font_size=13,
+                    margin_bottom=4,
+                    color=Theme.TEXT_PRIMARY,
+                ),
+            )
+        )
+        identity_box.add(self.label_identity_uuid)
+        identity_box.add(self.label_identity_serial)
+        identity_box.add(self.label_identity_hostname)
+        identity_box.add(
+            toga.Label(
+                t("detail_device_hint"),
+                style=Pack(font_size=11, color=Theme.TEXT_MUTED, margin_top=4),
+            )
+        )
+        box.add(identity_box)
 
         # Action Buttons
         btn_box = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_top=20))
@@ -257,6 +322,9 @@ class CloneEditWindow(toga.Window):
             proxy_summary = ""
 
         lang = self._get_selected_language()
+        display_name = self.input_display_name.value.strip() or None
+        if display_name:
+            validate_display_name(display_name)
 
         # Clone current record with updated proxy and language info
         updated = CloneRecord(
@@ -272,7 +340,7 @@ class CloneEditWindow(toga.Window):
             proxy_summary=proxy_summary,
             new_bundle_id=self.record.new_bundle_id,
             language=lang,
-            display_name=getattr(self.record, "display_name", None),
+            display_name=display_name,
             injection_strategy=getattr(self.record, "injection_strategy", "auto"),
             notes=self.input_notes.value.strip(),
             env_group=getattr(self.record, "env_group", ""),
