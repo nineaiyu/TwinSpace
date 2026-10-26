@@ -2,6 +2,17 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.3.0] - 2026-10-26
+
+### 🖥️ UI Rebuild & Native Interaction Fixes
+- **Environments page is now an app icon grid**: 56pt real app icons with captions and run state, double-click to open, right-click menu (Open/Close, Edit, Rebuild from source, Reveal in Finder), single-click focus pill, and 2–6 adaptive columns.
+- **Clone list upgraded**: real app icons in the name column (22pt), a new Environment column with filtering, 44pt full-width rows without zebra stripes, and SF Symbol icons on the bottom action bar.
+- **One visual language**: full-size content window with a transparent titlebar, native sidebar material with an accent-tinted selection pill, 24pt titles and a 28pt search field; cards share 14/16pt corners and a soft shadow in both appearances.
+- **Grouped-form pass**: settings, probe and doctor pages now use the same form card (13pt group title, 120pt label column, hairline separators, naturally sized buttons).
+- **Fixed dead right-click menu items and double-click**: the native menu and gesture actions were wired with `invoke_` / `handleDoubleClick_` (missing colon), so AppKit could not find the receiver and silently dropped the action — the menu opened but items did nothing, and double-click never fired. They now use `invoke:` / `handleDoubleClick:`, and click/double-click/hover/menu handlers are installed on every view of a tile (Toga lays tiles out flat, so the icon and caption are siblings rather than subviews).
+- **Configurable table icon column**: Toga's hardcoded 16pt cell icon width is overridden.
+- **Deterministic device identity**: environment identity is derived from a stable scope hash, previewable without rebuilding a clone; environment cards show the UUID prefix and hostname, plus a device identity window.
+
 ## [v1.2.2] - 2026-10-26
 
 ### 🛠️ Stability Fix
