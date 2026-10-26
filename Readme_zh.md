@@ -106,6 +106,10 @@ twinspace env create phone1 --apps zcode \
 | `TWINSPACE_BROWSER_EXTRA_ARGS` | 劫持启动时附加的 Chromium 风格启动参数 |
 | `TWINSPACE_KEYCHAIN_PREFIX` | 本分身钥匙串服务的命名空间前缀 |
 | `TWINSPACE_KEYCHAIN_EXCLUDE_SERVICES` | 不参与命名空间隔离的钥匙串服务 |
+| `TWINSPACE_DEVICE_UUID` | 本环境通过 IOKit 返回的 `IOPlatformUUID` |
+| `TWINSPACE_DEVICE_SERIAL` | 本环境通过 IOKit 返回的 `IOPlatformSerialNumber` |
+| `TWINSPACE_DEVICE_SEED` | 派生磁盘 UUID 与网卡 MAC 的环境种子 |
+| `TWINSPACE_DEVICE_HOSTNAME` | 本环境 `gethostname` 返回的主机名 |
 | `TWINSPACE_OAUTH_SCHEMES` | 固定绑定到环境浏览器的 OAuth/URL scheme |
 | `TWINSPACE_SCHEME_ALLOW_REGISTRATION` | 允许分身注册 URL scheme 处理器 |
 | `TWINSPACE_COCOA_HOME_HOOK` | 启用 Cocoa 层 HOME 重定向钩子 |
@@ -148,7 +152,8 @@ macOS 原生桌面图形客户端提供直观、全功能的应用分身管理�
 
 1. **隔离环境 (My Environments)**：
    - 按账号创建环境，把 Chrome、ZCode、WorkBuddy、CodeBuddy、Qoder、Trae 加进同一环境。
-   - 在环境卡片上直接全部打开、批量更新或备份数据，每个 App 的分身名可单独修改。
+   - 在环境卡片上直接全部打开、批量更新或备份数据；每个 App 一行，可单独打开/关闭。
+   - 每个 App 的分身名可单独修改。
    - 首次使用（尚无分身与环境）时自动引导到本页面。
 2. **仪表盘与分身卡片 (Dashboard)**：
    - 列表/卡片双视图，支持搜索、策略筛选与排序；卡片网格列数随窗口宽度自适应。

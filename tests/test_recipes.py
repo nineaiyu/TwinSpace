@@ -385,6 +385,10 @@ def test_load_builtin_trae_isolation_recipe():
     assert "--extensions-dir={{TWINSPACE_DATA_DIR}}/Extensions" in recipe.launch_args
     assert "--disable-updates" in recipe.launch_args
     assert recipe.environment_injection["TWINSPACE_COCOA_HOME_HOOK"] == "1"
+    assert recipe.environment_injection["TWINSPACE_DEVICE_UUID"] == "{{TWINSPACE_DEVICE_UUID}}"
+    assert recipe.environment_injection["TWINSPACE_DEVICE_SERIAL"] == "{{TWINSPACE_DEVICE_SERIAL}}"
+    assert recipe.environment_injection["TWINSPACE_DEVICE_SEED"] == "{{TWINSPACE_DEVICE_SEED}}"
+    assert recipe.environment_injection["TWINSPACE_DEVICE_HOSTNAME"] == "{{TWINSPACE_DEVICE_HOSTNAME}}"
     assert recipe.environment_injection["TWINSPACE_OAUTH_SCHEMES"] == "trae-cn"
     assert recipe.environment_injection["TWINSPACE_BROWSER_DATA_DIR"] == "{{TWINSPACE_ENV_DIR}}/Browser"
     assert "Library/Keychains" in recipe.symlink_whitelist
@@ -568,3 +572,22 @@ def test_chatgpt_recipes_have_isolation_flags():
 
 
 
+
+
+@pytest.mark.parametrize(
+    "bundle_id",
+    [
+        "dev.zcode.app",
+        "com.tencent.codebuddycn",
+        "com.qodercn.app",
+        "com.tencent.workbuddy.mac",
+        "cn.trae.app",
+    ],
+)
+def test_environment_recipes_isolate_device_identity(bundle_id):
+    recipe = RecipeLoader.match(bundle_id)
+    env = recipe.environment_injection
+    assert env["TWINSPACE_DEVICE_UUID"] == "{{TWINSPACE_DEVICE_UUID}}"
+    assert env["TWINSPACE_DEVICE_SERIAL"] == "{{TWINSPACE_DEVICE_SERIAL}}"
+    assert env["TWINSPACE_DEVICE_SEED"] == "{{TWINSPACE_DEVICE_SEED}}"
+    assert env["TWINSPACE_DEVICE_HOSTNAME"] == "{{TWINSPACE_DEVICE_HOSTNAME}}"

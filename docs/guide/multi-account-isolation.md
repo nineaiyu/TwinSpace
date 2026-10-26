@@ -163,6 +163,45 @@ Qoder 目前没有公开的禁用更新环境变量，建议在 Qoder 设置里�
 需要升级时，先退出克隆，再更新 `/Applications` 里的原应用，最后执行
 `twinspace update <clone>`。更新命令会检测克隆是否仍在运行，运行中会拒绝更新。
 
+### 2.5 硬件设备标识（可选）
+
+部分应用会把账号状态、试用或签到额度绑定到硬件标识上，例如通过 IOKit 读取
+`IOPlatformUUID` / `IOPlatformSerialNumber`。这些值在真实机器上所有克隆完全相同。
+内置的 ZCode / WorkBuddy / CodeBuddy / Qoder / Trae 规则默认开启隔离，自定义规则
+可以按下面的方式显式开启：
+
+```yaml
+environment_injection:
+  TWINSPACE_DEVICE_UUID: '{{TWINSPACE_DEVICE_UUID}}'
+  TWINSPACE_DEVICE_SERIAL: '{{TWINSPACE_DEVICE_SERIAL}}'
+  TWINSPACE_DEVICE_SEED: '{{TWINSPACE_DEVICE_SEED}}'
+  TWINSPACE_DEVICE_HOSTNAME: '{{TWINSPACE_DEVICE_HOSTNAME}}'
+```
+
+隔离 dylib 会 interpose `IORegistryEntryCreateCFProperty` /
+`IORegistryEntrySearchCFProperty`，把这两个 key 替换为当前环境的确定性取值。
+取值按**环境**派生（同一环境内的所有 App 共享同一套硬件身份，符合“一台机器跑多个
+App”的实际情况；无环境的独立分身按分身名派生），`update` 后保持不变。内置的
+ZCode / WorkBuddy / CodeBuddy / Qoder / Trae 规则已启用，其他应用可以用
+`--set-env` 按需开启。
+
+同一套规则还覆盖：
+
+| 变量 | 拦截点 | 效果 |
+| :--- | :--- | :--- |
+| `TWINSPACE_DEVICE_SEED` | `DADiskCopyDescription` | 磁盘 media/volume UUID、device GUID 按 `seed + 原值` 派生 |
+| `TWINSPACE_DEVICE_SEED` | `getifaddrs` | 每个网卡的 MAC 按 `seed + 网卡名 + 原 MAC` 派生，保留本地管理位 |
+| `TWINSPACE_DEVICE_HOSTNAME` | `gethostname` | 返回环境专属主机名 |
+
+派生都以原值为输入，因此多块磁盘、多个网卡之间仍然彼此不同；同一个环境
+重启、更新后取值保持不变。
+
+仍无法隔离的硬件/系统信息（进程外或系统级）：
+
+- `ioreg`、`diskutil`、`system_profiler` 等**子进程**输出的硬件信息
+- `hw.model`、CPU 型号、内存大小（伪造会影响 Chromium/图形栈的硬件探测，因此不处理）
+- 出口 IP（需要给每个分身单独配代理）、已安装应用列表、字体、输入法、显示器信息
+
 ## 3. 创建 5 个环境
 
 ### 方式 A：GUI（推荐）
@@ -183,6 +222,7 @@ Qoder 目前没有公开的禁用更新环境变量，建议在 Qoder 设置里�
 创建过程中会显示每个 App 的进度。完成后回到「我的环境」页面，可以：
 
 - **全部打开**：一次启动该环境的 Chrome 和全部 App
+- **单个打开/关闭**：每个 App 一行，右侧按钮只启动或退出这一个 App
 - **添加 App**：向已有环境补充缺失的 App
 - **全部更新**：原应用升级后批量重建环境内的 App
 - **备份数据**：把环境内全部 App 的数据归档到 `~/TwinSpace/Backups`

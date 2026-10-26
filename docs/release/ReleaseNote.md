@@ -2,6 +2,15 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.2.1] - 2026-10-26
+
+### 🧬 Per-Environment Device Identity & Per-App Control
+- **Environment-scoped hardware identity**: every environment gets its own `IOPlatformUUID`, platform serial, disk media/volume UUID and device GUID, per-interface MAC addresses and hostname. Apps inside one environment share the same identity; different environments stay isolated.
+- **Four read paths covered**: IOKit, DiskArbitration, `getifaddrs` and `gethostname`, so apps no longer treat multiple environments on one machine as the same device.
+- **Enabled by default** for ZCode, WorkBuddy, CodeBuddy CN, Qoder CN and Trae CN; custom recipes can opt in via the `TWINSPACE_DEVICE_*` variables.
+- **Per-app control on environment cards**: each app row has its own Open / Close button without affecting the rest of the environment; Open All is still available.
+- **Docs**: hardware-identity isolation and the list of system-level values that cannot be isolated.
+
 ## [v1.2.0] - 2026-10-25
 
 ### 🌐 External Browsers, GUI/CLI Parity & New Icon

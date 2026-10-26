@@ -80,6 +80,62 @@ class CloneTask:
         digest = hashlib.sha256(f"{self.clone_name}|{self.new_bundle_id}".encode()).hexdigest()[:16]
         return f"twinspace.{digest}."
 
+    @property
+    def device_identity_key(self) -> str:
+        """Return the scope that shares one simulated machine identity.
+
+        Apps installed in the same environment must report the same hardware,
+        because they would run on one physical machine. Standalone clones fall
+        back to their own name and bundle id.
+        """
+        if self.env_group:
+            return f"env|{self.env_group}"
+        return f"clone|{self.clone_name}|{self.new_bundle_id}"
+
+    @property
+    def device_uuid(self) -> str:
+        """Return the platform UUID reported through IOKit for this environment."""
+        digest = hashlib.sha256(
+            f"{self.device_identity_key}|platform-uuid".encode()
+        ).hexdigest()
+        chars = list(digest[:32].upper())
+        chars[12] = "4"
+        chars[16] = "89AB"[int(chars[16], 16) % 4]
+        text = "".join(chars)
+        return f"{text[:8]}-{text[8:12]}-{text[12:16]}-{text[16:20]}-{text[20:]}"
+
+    @property
+    def device_serial(self) -> str:
+        """Return the platform serial number reported through IOKit."""
+        digest = hashlib.sha256(
+            f"{self.device_identity_key}|platform-serial".encode()
+        ).hexdigest()
+        alphabet = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+        value = int(digest[:16], 16)
+        chars = []
+        for _ in range(9):
+            value, remainder = divmod(value, len(alphabet))
+            chars.append(alphabet[remainder])
+        return "C02" + "".join(chars)
+
+    @property
+    def device_seed(self) -> str:
+        """Return the seed used to derive disk UUIDs and MAC addresses."""
+        return hashlib.sha256(
+            f"{self.device_identity_key}|device-seed".encode()
+        ).hexdigest()[:16]
+
+    @property
+    def device_hostname(self) -> str:
+        """Return the hostname reported by gethostname() for this environment."""
+        digest = hashlib.sha256(
+            f"{self.device_identity_key}|hostname".encode()
+        ).hexdigest()[:6]
+        base = self.env_group or self.clone_name
+        slug = re.sub(r"[^a-z0-9-]+", "-", base.lower()).strip("-")
+        slug = slug[:24].strip("-") or "clone"
+        return f"{slug}-{digest}.local"
+
 
 @contextmanager
 def preserve_clone_icon(dest_path: Path) -> Iterator[Path | None]:

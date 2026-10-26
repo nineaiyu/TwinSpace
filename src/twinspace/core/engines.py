@@ -35,6 +35,10 @@ class CloneEngine:
         "TWINSPACE_OAUTH_SCHEMES",
         "TWINSPACE_SCHEME_ALLOW_REGISTRATION",
         "TWINSPACE_COCOA_HOME_HOOK",
+        "TWINSPACE_DEVICE_UUID",
+        "TWINSPACE_DEVICE_SERIAL",
+        "TWINSPACE_DEVICE_SEED",
+        "TWINSPACE_DEVICE_HOSTNAME",
     )
 
     @staticmethod
@@ -47,6 +51,10 @@ class CloneEngine:
             "TWINSPACE_BUNDLE_ID": task.new_bundle_id,
             "TWINSPACE_INSTANCE_NUMBER": task.instance_number,
             "TWINSPACE_KEYCHAIN_PREFIX": task.keychain_prefix,
+            "TWINSPACE_DEVICE_UUID": task.device_uuid,
+            "TWINSPACE_DEVICE_SERIAL": task.device_serial,
+            "TWINSPACE_DEVICE_SEED": task.device_seed,
+            "TWINSPACE_DEVICE_HOSTNAME": task.device_hostname,
             "TWINSPACE_DEST_PATH": str(task.dest_path),
             "TWINSPACE_APPS_DIR": str(task.dest_path.parent),
         }
@@ -671,6 +679,12 @@ fi
             #import <Foundation/Foundation.h>
             #import <Security/Security.h>
             #import <CoreServices/CoreServices.h>
+            #import <IOKit/IOKitLib.h>
+            #import <DiskArbitration/DiskArbitration.h>
+            #import <CommonCrypto/CommonDigest.h>
+            #import <ifaddrs.h>
+            #import <net/if_dl.h>
+            #import <sys/socket.h>
             #import <objc/runtime.h>
             #import <unistd.h>
             #import <pwd.h>
@@ -811,6 +825,164 @@ fi
             TWINSPACE_DYLD_INTERPOSE(TwinSpaceGetpwuid, getpwuid)
             TWINSPACE_DYLD_INTERPOSE(TwinSpaceGetpwuidR, getpwuid_r)
             TWINSPACE_DYLD_INTERPOSE(TwinSpaceConfstr, confstr)
+
+            // Platform identity: apps that fingerprint the host through IOKit
+            // see the real machine UUID/serial, so every clone of the same app
+            // looks like the same device. Recipes can opt into per-clone
+            // values by setting TWINSPACE_DEVICE_UUID / TWINSPACE_DEVICE_SERIAL.
+
+            static NSString *TwinSpaceDeviceUUID(void) {
+                static NSString *value;
+                static dispatch_once_t once;
+                dispatch_once(&once, ^{ value = TwinSpaceEnv(@"TWINSPACE_DEVICE_UUID"); });
+                return value;
+            }
+
+            static NSString *TwinSpaceDeviceSerial(void) {
+                static NSString *value;
+                static dispatch_once_t once;
+                dispatch_once(&once, ^{ value = TwinSpaceEnv(@"TWINSPACE_DEVICE_SERIAL"); });
+                return value;
+            }
+
+            static NSString *TwinSpacePlatformOverride(CFStringRef key) {
+                if (!key) return nil;
+                NSString *name = (__bridge NSString *)key;
+                if ([name isEqualToString:@"IOPlatformUUID"]) return TwinSpaceDeviceUUID();
+                if ([name isEqualToString:@"IOPlatformSerialNumber"]) return TwinSpaceDeviceSerial();
+                return nil;
+            }
+
+            static CFTypeRef TwinSpaceIORegistryEntryCreateCFProperty(
+                io_registry_entry_t entry,
+                CFStringRef key,
+                CFAllocatorRef allocator,
+                IOOptionBits options) {
+                NSString *override = TwinSpacePlatformOverride(key);
+                if (override.length) {
+                    TwinSpaceLog(@"platform property %@ -> %@", key, override);
+                    return CFBridgingRetain(override);
+                }
+                return IORegistryEntryCreateCFProperty(entry, key, allocator, options);
+            }
+
+            static CFTypeRef TwinSpaceIORegistryEntrySearchCFProperty(
+                io_registry_entry_t entry,
+                const io_name_t plane,
+                CFStringRef key,
+                CFAllocatorRef allocator,
+                IOOptionBits options) {
+                NSString *override = TwinSpacePlatformOverride(key);
+                if (override.length) return CFBridgingRetain(override);
+                return IORegistryEntrySearchCFProperty(entry, plane, key, allocator, options);
+            }
+
+            TWINSPACE_DYLD_INTERPOSE(TwinSpaceIORegistryEntryCreateCFProperty, IORegistryEntryCreateCFProperty)
+            TWINSPACE_DYLD_INTERPOSE(TwinSpaceIORegistryEntrySearchCFProperty, IORegistryEntrySearchCFProperty)
+
+            // Additional hardware identity: disk UUIDs (DiskArbitration),
+            // interface MAC addresses (getifaddrs) and the hostname. Every value
+            // is derived from TWINSPACE_DEVICE_SEED plus the original, so each
+            // clone keeps stable yet distinct identifiers for its disks and
+            // network interfaces.
+
+            static NSString *TwinSpaceDeviceSeed(void) {
+                static NSString *value;
+                static dispatch_once_t once;
+                dispatch_once(&once, ^{ value = TwinSpaceEnv(@"TWINSPACE_DEVICE_SEED"); });
+                return value;
+            }
+
+            static BOOL TwinSpaceSeedDigest(NSString *original,
+                                            unsigned char out[CC_MD5_DIGEST_LENGTH]) {
+                NSString *seed = TwinSpaceDeviceSeed();
+                if (!seed.length || !original.length) return NO;
+                NSString *input = [NSString stringWithFormat:@"%@|%@", seed, original];
+                CC_MD5(input.UTF8String, (CC_LONG)strlen(input.UTF8String), out);
+                return YES;
+            }
+
+            static CFUUIDRef TwinSpaceDerivedUUID(CFTypeRef value) {
+                if (!value) return NULL;
+                NSString *text = nil;
+                CFTypeID type = CFGetTypeID(value);
+                if (type == CFUUIDGetTypeID()) {
+                    CFStringRef rendered = CFUUIDCreateString(kCFAllocatorDefault, (CFUUIDRef)value);
+                    text = rendered ? (__bridge_transfer NSString *)rendered : nil;
+                } else if (type == CFStringGetTypeID()) {
+                    text = (__bridge NSString *)value;
+                }
+                if (!text.length) return NULL;
+                unsigned char digest[CC_MD5_DIGEST_LENGTH];
+                if (!TwinSpaceSeedDigest(text, digest)) return NULL;
+                return CFUUIDCreateWithBytes(kCFAllocatorDefault,
+                    digest[0], digest[1], digest[2], digest[3], digest[4], digest[5],
+                    digest[6], digest[7], digest[8], digest[9], digest[10], digest[11],
+                    digest[12], digest[13], digest[14], digest[15]);
+            }
+
+            static CFDataRef TwinSpaceDerivedGUIDData(CFDataRef data) {
+                if (!data) return NULL;
+                NSString *text = [(__bridge NSData *)data description];
+                unsigned char digest[CC_MD5_DIGEST_LENGTH];
+                if (!TwinSpaceSeedDigest(text, digest)) return NULL;
+                return CFDataCreate(kCFAllocatorDefault, digest, CC_MD5_DIGEST_LENGTH);
+            }
+
+            static CFDictionaryRef TwinSpaceDADiskCopyDescription(DADiskRef disk) {
+                CFDictionaryRef original = DADiskCopyDescription(disk);
+                if (!original) return NULL;
+                if (!TwinSpaceDeviceSeed().length) return original;
+                NSMutableDictionary *dict = [(__bridge NSDictionary *)original mutableCopy];
+                CFRelease(original);
+                for (NSString *key in @[
+                        (__bridge NSString *)kDADiskDescriptionMediaUUIDKey,
+                        (__bridge NSString *)kDADiskDescriptionVolumeUUIDKey]) {
+                    CFUUIDRef derived = TwinSpaceDerivedUUID((__bridge CFTypeRef)dict[key]);
+                    if (derived) dict[key] = (__bridge_transfer id)derived;
+                }
+                NSString *guidKey = (__bridge NSString *)kDADiskDescriptionDeviceGUIDKey;
+                CFDataRef derivedGUID = TwinSpaceDerivedGUIDData((__bridge CFDataRef)dict[guidKey]);
+                if (derivedGUID) dict[guidKey] = (__bridge_transfer id)derivedGUID;
+                return CFBridgingRetain(dict);
+            }
+
+            static int TwinSpaceGetifaddrs(struct ifaddrs **ifap) {
+                int status = getifaddrs(ifap);
+                if (status != 0 || !ifap || !*ifap || !TwinSpaceDeviceSeed().length) return status;
+                for (struct ifaddrs *ifa = *ifap; ifa; ifa = ifa->ifa_next) {
+                    if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_LINK) continue;
+                    if (!ifa->ifa_name || strncmp(ifa->ifa_name, "lo", 2) == 0) continue;
+                    struct sockaddr_dl *link = (struct sockaddr_dl *)ifa->ifa_addr;
+                    if (link->sdl_alen != 6) continue;
+                    unsigned char *mac = (unsigned char *)LLADDR(link);
+                    NSString *material = [NSString stringWithFormat:
+                        @"%s|%02x:%02x:%02x:%02x:%02x:%02x",
+                        ifa->ifa_name, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]];
+                    unsigned char digest[CC_MD5_DIGEST_LENGTH];
+                    if (!TwinSpaceSeedDigest(material, digest)) continue;
+                    memcpy(mac, digest, 6);
+                    mac[0] = (unsigned char)((mac[0] & 0xFC) | 0x02);
+                }
+                return status;
+            }
+
+            static int TwinSpaceGethostname(char *name, size_t len) {
+                NSString *override = TwinSpaceEnv(@"TWINSPACE_DEVICE_HOSTNAME");
+                if (override.length && name && len > 0) {
+                    const char *utf8 = override.UTF8String;
+                    size_t count = strlen(utf8);
+                    if (count >= len) count = len - 1;
+                    memcpy(name, utf8, count);
+                    name[count] = '\0';
+                    return 0;
+                }
+                return gethostname(name, len);
+            }
+
+            TWINSPACE_DYLD_INTERPOSE(TwinSpaceDADiskCopyDescription, DADiskCopyDescription)
+            TWINSPACE_DYLD_INTERPOSE(TwinSpaceGetifaddrs, getifaddrs)
+            TWINSPACE_DYLD_INTERPOSE(TwinSpaceGethostname, gethostname)
 
             static NSString *TwinSpaceKeychainPrefix(void) {
                 static NSString *prefix;
@@ -1155,6 +1327,7 @@ fi
             f"mkdir -p {dst_frameworks}\n"
             f"{clang_cmd} -dynamiclib -fobjc-arc -O2 -arch arm64 -arch x86_64 "
             f"-framework Foundation -framework AppKit -framework Security -framework CoreServices "
+            f"-framework IOKit -framework DiskArbitration "
             f"-install_name @executable_path/../Frameworks/libtwinspace_isolation.dylib "
             f"-o {dst_frameworks}/libtwinspace_isolation.dylib -x objective-c - << 'TWINSPACE_ISOLATION_EOF'\n"
             + source

@@ -1,7 +1,10 @@
 """Unit tests for CloneEngines (SoftCloneEngine and HardCloneEngine) and CloneTask."""
 
+import hashlib
+import os
 import shlex
 import subprocess
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -108,6 +111,92 @@ class TestCloneTask:
         assert env["NAME"] == "TestApp 2"
         assert env["TWINSPACE_KEYCHAIN_PREFIX"] == sample_task.keychain_prefix
         assert CloneEngine._needs_isolation_hook(env)
+
+    def test_device_identity_is_stable_and_clone_specific(self, sample_task):
+        first_uuid = sample_task.device_uuid
+        assert first_uuid == sample_task.device_uuid
+        assert len(first_uuid) == 36
+        assert first_uuid[14] == "4"
+        assert first_uuid[19] in "89AB"
+        assert len(sample_task.device_serial) == 12
+
+        other = CloneTask(
+            source=sample_task.source,
+            dest_path=Path("/Applications/TestApp3.app"),
+            data_dir=Path("/Users/test/data3"),
+            recipe=sample_task.recipe,
+            clone_name="TestApp 3",
+            new_bundle_id="com.example.testapp.clone3",
+        )
+        assert other.device_uuid != first_uuid
+        assert other.device_serial != sample_task.device_serial
+
+    def test_device_identity_template_resolution(self, sample_task):
+        sample_task.recipe.environment_injection = {
+            "TWINSPACE_DEVICE_UUID": "{{TWINSPACE_DEVICE_UUID}}",
+            "TWINSPACE_DEVICE_SERIAL": "{{TWINSPACE_DEVICE_SERIAL}}",
+            "TWINSPACE_DEVICE_SEED": "{{TWINSPACE_DEVICE_SEED}}",
+            "TWINSPACE_DEVICE_HOSTNAME": "{{TWINSPACE_DEVICE_HOSTNAME}}",
+        }
+        env = CloneEngine._resolve_env(sample_task)
+        assert env["TWINSPACE_DEVICE_UUID"] == sample_task.device_uuid
+        assert env["TWINSPACE_DEVICE_SERIAL"] == sample_task.device_serial
+        assert env["TWINSPACE_DEVICE_SEED"] == sample_task.device_seed
+        assert env["TWINSPACE_DEVICE_HOSTNAME"] == sample_task.device_hostname
+        assert CloneEngine._needs_isolation_hook(env)
+
+    def test_device_identity_is_shared_inside_one_environment(self, base_recipe):
+        source = AppInfo(
+            path=Path("/Applications/TestApp.app"),
+            bundle_id="com.example.testapp",
+            app_name="TestApp",
+            executable=Path("/Applications/TestApp.app/Contents/MacOS/TestApp"),
+            has_sandbox=False,
+        )
+
+        def build(clone_name: str, bundle_id: str, env_group: str | None) -> CloneTask:
+            return CloneTask(
+                source=source,
+                dest_path=Path(f"/Applications/{clone_name}.app"),
+                data_dir=Path(f"/Users/test/Data/Environments/{env_group or 'standalone'}/{clone_name}"),
+                recipe=base_recipe,
+                clone_name=clone_name,
+                new_bundle_id=bundle_id,
+                env_group=env_group,
+                env_dir=Path(f"/Users/test/Data/Environments/{env_group}") if env_group else None,
+            )
+
+        trae = build("Trae-m", "cn.trae.app.twinspace.1", "m")
+        codebuddy = build("CodeBuddy-m", "com.tencent.codebuddycn.twinspace.1", "m")
+        other_env = build("Trae-n", "cn.trae.app.twinspace.2", "n")
+
+        assert trae.device_uuid == codebuddy.device_uuid
+        assert trae.device_serial == codebuddy.device_serial
+        assert trae.device_seed == codebuddy.device_seed
+        assert trae.device_hostname == codebuddy.device_hostname
+        assert other_env.device_uuid != trae.device_uuid
+        assert other_env.device_hostname != trae.device_hostname
+
+    def test_device_seed_and_hostname_are_clone_specific(self, sample_task):
+        seed = sample_task.device_seed
+        assert len(seed) == 16
+        assert seed == sample_task.device_seed
+        hostname = sample_task.device_hostname
+        assert hostname.endswith(".local")
+        assert " " not in hostname
+        assert hostname == hostname.lower()
+        assert len(hostname) <= 40
+
+        other = CloneTask(
+            source=sample_task.source,
+            dest_path=Path("/Applications/TestApp3.app"),
+            data_dir=Path("/Users/test/data3"),
+            recipe=sample_task.recipe,
+            clone_name="TestApp 3",
+            new_bundle_id="com.example.testapp.clone3",
+        )
+        assert other.device_seed != seed
+        assert other.device_hostname != hostname
 
     def test_legacy_atb_templates_and_env_keys_are_supported(self, sample_task):
         sample_task.recipe.environment_injection = {
@@ -997,12 +1086,19 @@ class TestHookDylibCompilation:
         assert "TWINSPACE_COCOA_HOME_HOOK" in objc_src
         assert "SecKeychainFindGenericPassword" in objc_src
         assert "SecKeychainAddGenericPassword" in objc_src
+        assert "IORegistryEntryCreateCFProperty" in objc_src
+        assert "TWINSPACE_DEVICE_UUID" in objc_src
+        assert "DADiskCopyDescription" in objc_src
+        assert "getifaddrs" in objc_src
+        assert "gethostname" in objc_src
+        assert "TWINSPACE_DEVICE_SEED" in objc_src
 
         clang_cmd = HardCloneEngine._resolve_clang_command()
         dst_dylib = tmp_path / "libtwinspace_isolation_test.dylib"
         cmd = (
             f"{clang_cmd} -dynamiclib -fobjc-arc -O2 "
             f"-framework Foundation -framework AppKit -framework Security -framework CoreServices "
+            f"-framework IOKit -framework DiskArbitration "
             f"-o '{dst_dylib}' -x objective-c -"
         )
         proc = subprocess.run(
@@ -1014,6 +1110,177 @@ class TestHookDylibCompilation:
         )
         assert proc.returncode == 0, f"Isolation hook dylib compilation failed:\n{proc.stderr}"
         assert dst_dylib.is_file()
+
+    def test_isolation_dylib_overrides_hardware_identity(self, sample_task, tmp_path):
+        """The isolation dylib must replace IOKit, hostname, MAC and disk values."""
+        sample_task.recipe.environment_injection = {
+            "TWINSPACE_DEVICE_UUID": "{{TWINSPACE_DEVICE_UUID}}",
+            "TWINSPACE_DEVICE_SERIAL": "{{TWINSPACE_DEVICE_SERIAL}}",
+            "TWINSPACE_DEVICE_SEED": "{{TWINSPACE_DEVICE_SEED}}",
+            "TWINSPACE_DEVICE_HOSTNAME": "{{TWINSPACE_DEVICE_HOSTNAME}}",
+        }
+        snippet = HardCloneEngine._build_isolation_hook_cmd(sample_task)
+        objc_src = snippet.split("<< 'TWINSPACE_ISOLATION_EOF'\n")[1].split("TWINSPACE_ISOLATION_EOF")[0]
+
+        clang_cmd = HardCloneEngine._resolve_clang_command()
+        dst_dylib = tmp_path / "libtwinspace_identity_test.dylib"
+        proc = subprocess.run(
+            f"{clang_cmd} -dynamiclib -fobjc-arc -O2 "
+            f"-framework Foundation -framework AppKit -framework Security -framework CoreServices "
+            f"-framework IOKit -framework DiskArbitration -o '{dst_dylib}' -x objective-c -",
+            shell=True,
+            input=objc_src,
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 0, f"Isolation hook dylib compilation failed:\n{proc.stderr}"
+
+        probe_src = r'''
+#include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/IOKitLib.h>
+#include <DiskArbitration/DiskArbitration.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <net/if_dl.h>
+#include <sys/socket.h>
+#include <stdio.h>
+#include <unistd.h>
+
+static void print_media_uuid(void) {
+    DASessionRef session = DASessionCreate(kCFAllocatorDefault);
+    if (!session) return;
+    CFURLRef url = CFURLCreateWithFileSystemPath(
+        kCFAllocatorDefault, CFSTR("/"), kCFURLPOSIXPathStyle, true);
+    if (!url) { CFRelease(session); return; }
+    DADiskRef disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, url);
+    if (disk) {
+        CFDictionaryRef desc = DADiskCopyDescription(disk);
+        if (desc) {
+            CFTypeRef value = CFDictionaryGetValue(desc, kDADiskDescriptionMediaUUIDKey);
+            if (value) {
+                CFStringRef text = CFUUIDCreateString(kCFAllocatorDefault, (CFUUIDRef)value);
+                if (text) {
+                    char buffer[128] = {0};
+                    if (CFStringGetCString(text, buffer, sizeof(buffer), kCFStringEncodingUTF8)) {
+                        printf("MEDIA_UUID=%s\n", buffer);
+                    }
+                    CFRelease(text);
+                }
+            }
+            CFRelease(desc);
+        }
+        CFRelease(disk);
+    }
+    CFRelease(url);
+    CFRelease(session);
+}
+
+int main(void) {
+    char host[256] = {0};
+    gethostname(host, sizeof(host));
+    printf("HOST=%s\n", host);
+
+    io_service_t service = IOServiceGetMatchingService(
+        kIOMasterPortDefault, IOServiceMatching("IOPlatformExpertDevice"));
+    if (service) {
+        CFTypeRef uuid = IORegistryEntryCreateCFProperty(
+            service, CFSTR("IOPlatformUUID"), kCFAllocatorDefault, 0);
+        CFTypeRef serial = IORegistryEntryCreateCFProperty(
+            service, CFSTR("IOPlatformSerialNumber"), kCFAllocatorDefault, 0);
+        char buffer[256] = {0};
+        if (uuid && CFStringGetCString(uuid, buffer, sizeof(buffer), kCFStringEncodingUTF8)) {
+            printf("UUID=%s\n", buffer);
+        }
+        if (serial && CFStringGetCString(serial, buffer, sizeof(buffer), kCFStringEncodingUTF8)) {
+            printf("SERIAL=%s\n", buffer);
+        }
+        if (uuid) CFRelease(uuid);
+        if (serial) CFRelease(serial);
+        IOObjectRelease(service);
+    }
+
+    struct ifaddrs *list = NULL;
+    if (getifaddrs(&list) == 0) {
+        for (struct ifaddrs *ifa = list; ifa; ifa = ifa->ifa_next) {
+            if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_LINK) continue;
+            struct sockaddr_dl *link = (struct sockaddr_dl *)ifa->ifa_addr;
+            if (link->sdl_alen != 6) continue;
+            unsigned char *m = (unsigned char *)LLADDR(link);
+            printf("MAC=%s %02x:%02x:%02x:%02x:%02x:%02x\n",
+                   ifa->ifa_name, m[0], m[1], m[2], m[3], m[4], m[5]);
+        }
+        freeifaddrs(list);
+    }
+    print_media_uuid();
+    return 0;
+}
+'''
+        probe = tmp_path / "identity_probe"
+        proc = subprocess.run(
+            f"{clang_cmd} -O0 -framework IOKit -framework DiskArbitration "
+            f"-framework CoreFoundation -o '{probe}' -x c -",
+            shell=True,
+            input=probe_src,
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 0, f"Probe compilation failed:\n{proc.stderr}"
+
+        def parse(output: str) -> dict:
+            parsed: dict = {"macs": {}}
+            for line in output.splitlines():
+                if line.startswith("MAC="):
+                    name, mac = line[4:].split(" ", 1)
+                    parsed["macs"][name] = mac
+                    continue
+                for key in ("HOST", "UUID", "SERIAL", "MEDIA_UUID"):
+                    if line.startswith(f"{key}="):
+                        parsed[key] = line[len(key) + 1 :]
+            return parsed
+
+        baseline_env = dict(os.environ)
+        for key in (
+            "DYLD_INSERT_LIBRARIES",
+            "TWINSPACE_DEVICE_UUID",
+            "TWINSPACE_DEVICE_SERIAL",
+            "TWINSPACE_DEVICE_SEED",
+            "TWINSPACE_DEVICE_HOSTNAME",
+        ):
+            baseline_env.pop(key, None)
+        baseline = subprocess.run([str(probe)], env=baseline_env, capture_output=True, text=True)
+        assert baseline.returncode == 0, f"Baseline probe failed:\n{baseline.stderr}"
+        real = parse(baseline.stdout)
+        assert real["macs"], "Baseline probe reported no interfaces"
+
+        env = dict(baseline_env)
+        env["DYLD_INSERT_LIBRARIES"] = str(dst_dylib)
+        env["TWINSPACE_DEVICE_UUID"] = sample_task.device_uuid
+        env["TWINSPACE_DEVICE_SERIAL"] = sample_task.device_serial
+        env["TWINSPACE_DEVICE_SEED"] = sample_task.device_seed
+        env["TWINSPACE_DEVICE_HOSTNAME"] = sample_task.device_hostname
+        proc = subprocess.run([str(probe)], env=env, capture_output=True, text=True)
+        assert proc.returncode == 0, f"Probe failed:\n{proc.stderr}"
+        fake = parse(proc.stdout)
+
+        assert fake["UUID"] == sample_task.device_uuid
+        assert fake["SERIAL"] == sample_task.device_serial
+        assert fake["HOST"] == sample_task.device_hostname
+
+        for interface, original_mac in real["macs"].items():
+            digest = hashlib.md5(
+                f"{sample_task.device_seed}|{interface}|{original_mac}".encode()
+            ).digest()
+            first = (digest[0] & 0xFC) | 0x02
+            expected = ":".join(f"{byte:02x}" for byte in (first, *digest[1:6]))
+            assert fake["macs"].get(interface) == expected
+
+        if "MEDIA_UUID" in real:
+            expected_uuid = str(
+                uuid.UUID(bytes=hashlib.md5(
+                    f"{sample_task.device_seed}|{real['MEDIA_UUID']}".encode()
+                ).digest())
+            ).upper()
+            assert fake["MEDIA_UUID"] == expected_uuid
 
     def test_env_injection_dylib_source_compilation_with_clang(self, sample_task, tmp_path):
         """Verify environment injection C dylib (twinspace_env_init) compiles cleanly."""

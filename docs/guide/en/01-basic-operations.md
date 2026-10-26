@@ -312,7 +312,9 @@ twinspace env remove phone1                 # remove env (asks about data)
 ```
 
 In the GUI the same actions live on each environment card
-(**Open All / Add Apps / Update All / Backup / Remove**).
+(**Open All / Add Apps / Update All / Backup / Remove**). Each app row also has
+its own **Open / Close** button so you can launch or quit a single app without
+touching the rest of the environment.
 
 ---
 

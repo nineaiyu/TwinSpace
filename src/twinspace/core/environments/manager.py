@@ -13,7 +13,13 @@ from twinspace.core.clone_task import CloneTask
 from twinspace.core.cloning.manager import CloneManager, normalize_legacy_env_key
 from twinspace.core.config import DEFAULT_APPS_DIR, DEFAULT_DATA_DIR, DEFAULT_STATE_FILE
 from twinspace.core.logger import get_logger
-from twinspace.core.state import CloneRecord, StateManager, is_clone_running
+from twinspace.core.state import (
+    CloneRecord,
+    StateManager,
+    is_clone_running,
+    quit_clone,
+    running_clone_names,
+)
 from twinspace.recipes.loader import RecipeLoader
 from twinspace.validation import validate_clone_name
 
@@ -421,6 +427,30 @@ class EnvironmentManager:
         safety_backup = create_backup(name, records)
         restored, errors = restore_backup(archive_path, records, on_progress=on_progress)
         return restored, errors, safety_backup
+
+    def running_clones(self, name: str | None = None) -> set[str]:
+        """Return the clone names of running apps, optionally for one environment."""
+        records = self.records_for(name) if name else self.state_manager.load()
+        return running_clone_names(records)
+
+    def quit_environment(
+        self,
+        name: str,
+        app_keys: Iterable[str] | None = None,
+    ) -> list[str]:
+        """Stop selected apps (all when app_keys is None) in an environment."""
+        records = self.records_for(name)
+        if not records:
+            raise ValueError(f"Environment {name!r} not found.")
+        selected = set(app_keys) if app_keys is not None else None
+        errors: list[str] = []
+        for record in records:
+            key = app_key_for_bundle_id(record.bundle_id)
+            if selected is not None and key not in selected:
+                continue
+            if not quit_clone(record.dest_path):
+                errors.append(f"{record.clone_name}: still running")
+        return errors
 
     def open_environment(self, name: str, app_keys: Iterable[str] | None = None) -> list[str]:
         selected = set(app_keys) if app_keys is not None else None

@@ -430,3 +430,64 @@ def test_environment_list_export_restore_import(toga_app, tmp_path):
     asyncio.run(view.on_import_template())
     assert imported["spec"].name == "phone2"
     mock_app.main_window.info_dialog.assert_awaited()
+
+
+def test_environment_card_has_per_app_open_close_buttons(toga_app, tmp_path):
+    state = StateManager(state_file=tmp_path / "clones.yaml")
+    for name, source, bundle in (
+        ("Chrome-work", "Google Chrome", "com.google.Chrome"),
+        ("ZCode-work", "ZCode", "dev.zcode.app"),
+    ):
+        state.add(
+            CloneRecord(
+                clone_name=name,
+                source_app=source,
+                source_path=f"/Applications/{source}.app",
+                bundle_id=bundle,
+                strategy="hard_clone",
+                dest_path=str(tmp_path / f"{name}.app"),
+                data_dir=str(tmp_path / "env" / name),
+                created_at="2026-10-26T00:00:00Z",
+                env_group="phone1",
+                env_dir=str(tmp_path / "env"),
+            )
+        )
+
+    service = EnvironmentService(state_manager=state)
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._running_clones = {"Chrome-work"}
+    view._render()
+
+    button_texts = []
+
+    def collect(widget):
+        if isinstance(widget, toga.Button):
+            button_texts.append(widget.text)
+        for child in getattr(widget, "children", []):
+            collect(child)
+
+    collect(view.list_box)
+    assert "Close" in button_texts
+    assert button_texts.count("Open") == 1
+
+
+def test_environment_toggle_app_opens_and_quits_selected_app(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=StateManager(state_file=tmp_path / "clones.yaml"))
+    view = EnvironmentListView(environment_service=service)
+    calls = []
+    service.open_environment = lambda name, keys=None: calls.append(("open", name, keys)) or []
+    service.quit_environment = lambda name, keys=None: calls.append(("quit", name, keys)) or []
+
+    async def noop_refresh():
+        return None
+
+    view.refresh_environments = noop_refresh
+
+    asyncio.run(view._toggle_app("phone1", "chrome", True))
+    asyncio.run(view._toggle_app("phone1", "zcode", False))
+
+    assert calls == [
+        ("quit", "phone1", ["chrome"]),
+        ("open", "phone1", ["zcode"]),
+    ]

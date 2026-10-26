@@ -82,6 +82,90 @@ def is_clone_running(dest_path: str | Path) -> bool:
     return is_any_clone_running([dest_path])
 
 
+def clone_pids(dest_path: str | Path) -> list[str]:
+    """Return the PIDs whose command line references the clone bundle path."""
+    import subprocess
+
+    needle = str(dest_path)
+    if not needle.endswith(".app"):
+        return []
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,command="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0:
+        return []
+    pids: list[str] = []
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2:
+            continue
+        pid, command = parts
+        if needle in command:
+            pids.append(pid)
+    return pids
+
+
+def running_clone_names(records: Iterable[CloneRecord]) -> set[str]:
+    """Return the clone names that currently have a process running."""
+    import subprocess
+
+    mapping = {
+        str(record.dest_path): record.clone_name
+        for record in records
+        if str(record.dest_path).endswith(".app")
+    }
+    if not mapping:
+        return set()
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "command="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if result.returncode != 0:
+        return set()
+    lines = result.stdout.splitlines()
+    return {
+        name
+        for path, name in mapping.items()
+        if any(path in line for line in lines)
+    }
+
+
+def quit_clone(dest_path: str | Path, timeout: float = 4.0) -> bool:
+    """Stop every process of a clone, starting with a graceful SIGTERM."""
+    import subprocess
+    import time
+
+    needle = str(dest_path)
+    if not needle.endswith(".app"):
+        return True
+    if not is_clone_running(needle):
+        return True
+    pids = clone_pids(needle)
+    if not pids:
+        return not is_clone_running(needle)
+    try:
+        subprocess.run(["kill", "-TERM", *pids], capture_output=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not is_clone_running(needle):
+            return True
+        time.sleep(0.2)
+    return not is_clone_running(needle)
+
+
 class StateManager:
     def __init__(self, state_file: Path | None = None):
         if state_file is not None:

@@ -110,6 +110,10 @@ Notes:
 | `TWINSPACE_BROWSER_EXTRA_ARGS` | Extra Chromium-style launch arguments for the hijacked browser |
 | `TWINSPACE_KEYCHAIN_PREFIX` | Keychain service namespace prefix isolating this clone's passwords |
 | `TWINSPACE_KEYCHAIN_EXCLUDE_SERVICES` | Keychain services excluded from the namespace |
+| `TWINSPACE_DEVICE_UUID` | Per-environment value returned for IOKit `IOPlatformUUID` |
+| `TWINSPACE_DEVICE_SERIAL` | Per-environment value returned for IOKit `IOPlatformSerialNumber` |
+| `TWINSPACE_DEVICE_SEED` | Per-environment seed used to derive disk UUIDs and interface MAC addresses |
+| `TWINSPACE_DEVICE_HOSTNAME` | Per-environment hostname returned by `gethostname` |
 | `TWINSPACE_OAUTH_SCHEMES` | OAuth/URL schemes pinned to the bound browser |
 | `TWINSPACE_SCHEME_ALLOW_REGISTRATION` | Allow the clone to register URL scheme handlers |
 | `TWINSPACE_COCOA_HOME_HOOK` | Enable the Cocoa HOME redirection hook |
@@ -134,7 +138,8 @@ standalone signed app — the host can use it directly:
 
 Built-in templates: `all`, `phone` (Chrome + ZCode + WorkBuddy + CodeBuddy) and
 `dev` (Chrome + CodeBuddy + Qoder + Trae). The GUI exposes the same workflows in
-**My Environments** (`+ New Environment`, `Update All`, `Backup`).
+**My Environments** (`+ New Environment`, `Update All`, `Backup`), and every app
+row has its own **Open / Close** button next to `Open All`.
 
 Users upgrading from ATBClone can keep their existing data root with:
 

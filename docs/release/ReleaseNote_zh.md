@@ -2,6 +2,15 @@
 
 # TwinSpace 更新日志 (Release Notes)
 
+## [v1.2.1] - 2026-10-26
+
+### 🧬 环境级设备身份与环境内单应用控制
+- **环境级硬件身份**：每个环境独立生成 `IOPlatformUUID`、平台序列号、磁盘 media/volume UUID 与 device GUID、每张网卡的 MAC 和主机名；同一环境内的 App 共享同一套身份，不同环境彼此隔离。
+- **覆盖四个读取入口**：IOKit、DiskArbitration、`getifaddrs`、`gethostname`，避免应用把同一台机器上的多个环境识别为同一设备。
+- **内置规则默认启用**：ZCode、WorkBuddy、CodeBuddy CN、Qoder CN、Trae CN；自定义规则可通过 `TWINSPACE_DEVICE_*` 变量开启。
+- **环境卡片单应用控制**：每个 App 一行，可直接打开或关闭单个 App，不影响环境内其他应用；“全部打开”保留。
+- **文档更新**：补充硬件标识隔离说明与仍无法隔离的系统级信息清单。
+
 ## [v1.2.0] - 2026-10-25
 
 ### 🌐 外部浏览器、GUI/CLI 功能对齐与新图标

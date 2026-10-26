@@ -35,6 +35,7 @@ class EnvironmentListView(toga.Box):
         self.environment_service = environment_service or EnvironmentService()
         self.app_instance = app
         self._environments: list[EnvironmentInfo] = []
+        self._running_clones: set[str] = set()
 
         self._importing = False
         self.top_bar = TopHeaderBar(
@@ -67,6 +68,13 @@ class EnvironmentListView(toga.Box):
         except Exception as exc:
             logger.error("Failed to list environments: %s", exc)
             self._environments = []
+        try:
+            self._running_clones = await loop.run_in_executor(
+                None, self.environment_service.running_clones
+            )
+        except Exception as exc:
+            logger.error("Failed to detect running environments: %s", exc)
+            self._running_clones = set()
         self._render()
 
     def _clear(self, box: toga.Box) -> None:
@@ -108,6 +116,7 @@ class EnvironmentListView(toga.Box):
         self.list_box.add(empty)
 
     def _build_environment_card(self, env: EnvironmentInfo) -> toga.Box:
+        env_running = any(record.clone_name in self._running_clones for record in env.records)
         card = toga.Box(
             style=Pack(direction=COLUMN, margin=(0, 0, 12, 0), background_color=Theme.BG_CARD)
         )
@@ -123,10 +132,10 @@ class EnvironmentListView(toga.Box):
         header.add(toga.Box(style=Pack(flex=1)))
         header.add(
             toga.Label(
-                t("environment_running") if env.running else t("environment_not_running"),
+                t("environment_running") if env_running else t("environment_not_running"),
                 style=Pack(
                     font_size=11.5,
-                    color=Theme.TEXT_SECONDARY if env.running else Theme.TEXT_TERTIARY,
+                    color=Theme.TEXT_SECONDARY if env_running else Theme.TEXT_TERTIARY,
                 ),
             )
         )
@@ -139,18 +148,32 @@ class EnvironmentListView(toga.Box):
             )
         )
 
-        apps = []
+        app_rows = toga.Box(style=Pack(direction=COLUMN, margin_top=6))
         for record in env.records:
             key = self.environment_service.app_key_for_bundle_id(record.bundle_id)
             app = self.environment_service.app_for_key(key)
             label = app.label if app else record.source_app
-            apps.append(f"{label} · {record.clone_name}")
-        inner.add(
-            WrappingLabel(
-                "   ".join(apps),
-                style=Pack(font_size=12.5, color=Theme.TEXT_SECONDARY, margin_top=6),
+            running = record.clone_name in self._running_clones
+            row = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_bottom=4))
+            row.add(
+                WrappingLabel(
+                    f"{label} · {record.clone_name}",
+                    style=Pack(flex=1, font_size=12.5, color=Theme.TEXT_SECONDARY),
+                )
             )
-        )
+            row.add(
+                toga.Button(
+                    t("environment_app_close") if running else t("environment_app_open"),
+                    on_press=lambda widget, env_name=env.name, app_key=key, is_running=running: (
+                        asyncio.create_task(
+                            self._toggle_app(env_name, app_key, is_running)
+                        )
+                    ),
+                    style=Pack(height=24, font_size=11.5, width=64),
+                )
+            )
+            app_rows.add(row)
+        inner.add(app_rows)
 
         actions = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_top=10))
         btn_open = toga.Button(
@@ -166,19 +189,19 @@ class EnvironmentListView(toga.Box):
         btn_update = toga.Button(
             t("environment_btn_update_all"),
             on_press=lambda widget, name=env.name: asyncio.create_task(self._update_all(name)),
-            enabled=not env.running,
+            enabled=not env_running,
             style=Pack(height=28, font_size=12.5, margin_right=8),
         )
         btn_backup = toga.Button(
             t("environment_btn_backup"),
             on_press=lambda widget, name=env.name: asyncio.create_task(self._backup(name)),
-            enabled=not env.running,
+            enabled=not env_running,
             style=Pack(height=28, font_size=12.5, margin_right=8),
         )
         btn_remove = toga.Button(
             t("environment_btn_remove"),
             on_press=lambda widget, name=env.name: asyncio.create_task(self._remove(name)),
-            enabled=not env.running,
+            enabled=not env_running,
             style=Pack(height=28, font_size=12.5),
         )
         actions.add(btn_open)
@@ -248,6 +271,25 @@ class EnvironmentListView(toga.Box):
             await self.app_instance.main_window.error_dialog(
                 t("environment_error_title"), "\n".join(errors)
             )
+
+    async def _toggle_app(self, name: str, app_key: str, running: bool) -> None:
+        loop = asyncio.get_running_loop()
+        try:
+            if running:
+                errors = await loop.run_in_executor(
+                    None, self.environment_service.quit_environment, name, [app_key]
+                )
+            else:
+                errors = await loop.run_in_executor(
+                    None, self.environment_service.open_environment, name, [app_key]
+                )
+        except Exception as exc:
+            errors = [str(exc)]
+        if errors and self.app_instance:
+            await self.app_instance.main_window.error_dialog(
+                t("environment_error_title"), "\n".join(errors)
+            )
+        await self.refresh_environments()
 
     async def _update_all(self, name: str) -> None:
         if not self.app_instance:

@@ -198,3 +198,63 @@ def test_browser_binding_modes(tmp_path, monkeypatch):
     )
     zc = state.get("App-zcode-override")
     assert zc.env_overrides["TWINSPACE_BROWSER_DATA_DIR"] == "/custom/profile"
+
+
+def _environment_with_two_apps(tmp_path):
+    state = StateManager(state_file=tmp_path / "clones.yaml")
+    for name, source, bundle, dest in (
+        ("Chrome-work", "Google Chrome", "com.google.Chrome", "Chrome-work.app"),
+        ("ZCode-work", "ZCode", "dev.zcode.app", "ZCode-work.app"),
+    ):
+        state.add(
+            CloneRecord(
+                clone_name=name,
+                source_app=source,
+                source_path=f"/Applications/{source}.app",
+                bundle_id=bundle,
+                strategy="hard_clone",
+                dest_path=str(tmp_path / dest),
+                data_dir=str(tmp_path / "env" / name),
+                created_at="2026-10-26T00:00:00Z",
+                env_group="phone1",
+                env_dir=str(tmp_path / "env"),
+            )
+        )
+    return EnvironmentManager(state_manager=state)
+
+
+def test_quit_environment_stops_only_selected_apps(tmp_path):
+    manager = _environment_with_two_apps(tmp_path)
+    stopped = []
+
+    with patch.object(
+        manager_module, "quit_clone", lambda path: stopped.append(str(path)) or True
+    ):
+        errors = manager.quit_environment("phone1", ["zcode"])
+
+    assert errors == []
+    assert len(stopped) == 1
+    assert stopped[0].endswith("ZCode-work.app")
+
+
+def test_quit_environment_reports_still_running_apps(tmp_path):
+    manager = _environment_with_two_apps(tmp_path)
+
+    with patch.object(manager_module, "quit_clone", lambda path: False):
+        errors = manager.quit_environment("phone1", ["chrome"])
+
+    assert errors == ["Chrome-work: still running"]
+
+
+def test_running_clones_forwards_environment_records(tmp_path):
+    manager = _environment_with_two_apps(tmp_path)
+    seen = []
+
+    def fake_running(records):
+        seen.extend(record.clone_name for record in records)
+        return {"ZCode-work"}
+
+    with patch.object(manager_module, "running_clone_names", fake_running):
+        assert manager.running_clones("phone1") == {"ZCode-work"}
+
+    assert sorted(seen) == ["Chrome-work", "ZCode-work"]
