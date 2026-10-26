@@ -15,6 +15,7 @@ This chapter dives deep into the technical architecture of TwinSpace. It explore
   - [Axis 2: Binary Wrapper Hijack & Environment Deception](#axis-2-binary-wrapper-hijack--environment-deception)
   - [Axis 3: Sandbox Stripping & Local Ad-Hoc Re-Signing](#axis-3-sandbox-stripping--local-ad-hoc-re-signing)
 - [Data-Logic Decoupling Architecture](#data-logic-decoupling-architecture)
+- [Simulated Device Identity (Per-Environment Hardware Isolation)](#simulated-device-identity-per-environment-hardware-isolation)
 - [Advanced Recipe Parameters Reference](#advanced-recipe-parameters-reference)
   - [1. `app_type` (Engine & Framework Type)](#1-app_type-engine--framework-type)
   - [2. `environment_injection` (Environment Hijacking)](#2-environment_injection-environment-hijacking)
@@ -159,6 +160,23 @@ TwinSpace solves this through **Data-Logic Decoupling**:
 * **The Data Tier** (`~/TwinSpace/Data/<CloneName>`) stores all persistent databases, cookies, and local chat archives.
 
 When you click **"Update"**, TwinSpace can safely discard and recreate the `.app` bundle from the upgraded primary app. The newly generated clone immediately remounts the existing data directory, achieving **100% seamless, non-destructive upgrades**.
+
+---
+
+## 🧬 Simulated Device Identity (Per-Environment Hardware Isolation)
+
+Every app in one environment reports the same simulated hardware identity, and different environments stay isolated. Values are derived deterministically from the environment name instead of being stored, so editing the state file or reinstalling TwinSpace does not change them.
+
+| Value | Derivation | Injected variable |
+| --- | --- | --- |
+| Platform UUID | `sha256("env\|<name>\|platform-uuid")` | `TWINSPACE_DEVICE_UUID` |
+| Serial number | Same scope (`platform-serial`) | `TWINSPACE_DEVICE_SERIAL` |
+| Hostname | Same scope (`hostname`) | `TWINSPACE_DEVICE_HOSTNAME` |
+| Device seed | Same scope (`device-seed`) | `TWINSPACE_DEVICE_SEED` |
+
+`libtwinspace_env.dylib` covers four read paths: IOKit, DiskArbitration, `getifaddrs` and `gethostname`. Disk UUIDs and interface MAC addresses are derived from the seed at runtime. Standalone clones use their own `clone|<clone name>|<bundle id>` scope.
+
+The GUI exposes the full values in three places: the device line under the environment name, the `⋯ → Device Identity…` sheet, and the Device Identity section of the clone details window. Renaming an environment or clone produces a new identity. CPU model, memory size and other host-only values still come from the real machine.
 
 ---
 

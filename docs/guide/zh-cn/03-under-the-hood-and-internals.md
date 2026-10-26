@@ -15,6 +15,7 @@
   - [第二板斧：二进制壳劫持与环境欺骗 (Wrapper Hijack)](#第二板斧二进制壳劫持与环境欺骗-wrapper-hijack)
   - [第三板斧：沙盒剥离与本地 Ad-Hoc 重新签名](#第三板斧沙盒剥离与本地-ad-hoc-重新签名)
 - [“数据-逻辑分离”架构：为什么升级母体永不丢记录](#数据-逻辑分离架构为什么升级母体永不丢记录)
+- [模拟设备身份（环境级硬件隔离）](#模拟设备身份环境级硬件隔离)
 - [规则高级参数深度解析](#规则高级参数深度解析)
   - [1. `app_type`（底层框架引擎类型）](#1-app_type底层框架引擎类型)
   - [2. `environment_injection`（环境变量劫持）](#2-environment_injection环境变量劫持)
@@ -157,6 +158,23 @@ TwinSpace 彻底解决了这一痛点，核心在于**数据与逻辑的物理�
 * **数据持久层**（`~/TwinSpace/Data/<分身名称>`）：保存着您所有的本地聊天数据库、登录凭据、Cookie 和图片缓存。
 
 当母体升级后，您在 TwinSpace 中点击 **"更新"**，引擎会先杀死分身进程，删除旧的 `.app` 包，按照最新母体重新制作一份 `.app`。新分身启动后，由于其代理壳依然挂载原有的 `~/TwinSpace/Data/WeChat2` 目录，因此**100% 毫发无损地继承所有历史聊天记录与登录态**！
+
+---
+
+## 🧬 模拟设备身份（环境级硬件隔离）
+
+同一环境内的所有 App 共享一套模拟硬件身份，不同环境之间完全隔离。身份不落库，而是由环境名确定性派生，因此编辑状态文件、重装 TwinSpace 都不会改变它。
+
+| 值 | 派生方式 | 注入变量 |
+| --- | --- | --- |
+| 平台 UUID | `sha256("env\|<环境名>\|platform-uuid")` | `TWINSPACE_DEVICE_UUID` |
+| 序列号 | 同上（`platform-serial`） | `TWINSPACE_DEVICE_SERIAL` |
+| 主机名 | 同上（`hostname`） | `TWINSPACE_DEVICE_HOSTNAME` |
+| 设备种子 | 同上（`device-seed`） | `TWINSPACE_DEVICE_SEED` |
+
+注入由 `libtwinspace_env.dylib` 覆盖 IOKit、DiskArbitration、`getifaddrs` 与 `gethostname` 四个读取入口；磁盘 UUID 与网卡 MAC 由种子在运行期派生。独立分身（不在环境中）使用自己的 `clone|<分身名>|<Bundle ID>` 作用域。
+
+GUI 中可以在三处查看完整值：环境卡片标题下的设备行、卡片右上角 `⋯ → 设备身份…` 弹窗、以及分身详情页的「设备身份」区块。修改环境名或分身名会得到一套新的身份；无法隔离的 CPU 型号、内存大小等信息仍来自真实主机。
 
 ---
 

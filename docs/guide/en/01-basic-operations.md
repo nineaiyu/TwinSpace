@@ -180,6 +180,12 @@ Need to rename your clone, change its UI language, or adjust its proxy server?
    * **Proxy Settings**: Enable, disable, or modify proxy host/port.
 3. Click **"Save Changes"**. Changes take effect on the next application launch.
 
+> **Full parameter view**: click **Details** on a card or in the toolbar to see
+> the environment, the complete device identity (platform UUID, serial number,
+> hostname, device seed, Keychain prefix), injected parameters and launch
+> command. The **All Clones** table now has an **Environment** column, and the
+> filter dropdown lists every environment.
+
 ---
 
 ### Updating Clones After Primary App Upgrades
@@ -312,9 +318,14 @@ twinspace env remove phone1                 # remove env (asks about data)
 ```
 
 In the GUI the same actions live on each environment card
-(**Open All / Add Apps / Update All / Backup / Remove**). Each app row also has
-its own **Open / Close** button so you can launch or quit a single app without
-touching the rest of the environment.
+(**Open All / Update All / Backup / Add Apps**); the remaining actions (export
+template, restore backup, remove environment, reveal the environment folder)
+are grouped in the **⋯** menu in the card header. Apps are shown as icon tiles:
+**double-click** to open, **right-click** for the context menu (Open/Close,
+Edit Configuration, Rebuild from Source, Reveal in Finder). Running apps show a
+green status line under the icon. The environment header also shows the device
+UUID prefix and hostname; use `⋯ → Device Identity…` to copy the full values,
+and the clone details window lists the same environment and device identity.
 
 ---
 
