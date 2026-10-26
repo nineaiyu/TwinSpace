@@ -20,6 +20,7 @@ from twinspace.gui.components.sidebar import SidebarNav
 from twinspace.gui.patch_cocoa import (
     apply_cocoa_appearance,
     configure_cocoa_window_movable,
+    drain_pending_cocoa_work,
     is_dark_mode,
     patch_cocoa_widgets,
     refresh_dark_mode_cache,
@@ -207,6 +208,20 @@ class TwinSpaceApp(toga.App):
                 await self._maybe_first_run_redirect()
 
         self.safe_create_task(_startup_checks())
+
+        # Replay Cocoa teardown deferred by worker threads onto the main thread.
+        self.safe_create_task(self._drain_deferred_cocoa_work())
+
+    async def _drain_deferred_cocoa_work(self) -> None:
+        """Flush queued AppKit cleanup from the main thread.
+
+        Toga finalizers can run during a garbage collection on a background
+        thread; removing Auto Layout constraints off the main thread aborts the
+        process, so the work is queued and replayed here.
+        """
+        while True:
+            await asyncio.sleep(0.2)
+            drain_pending_cocoa_work()
 
     async def _startup_environment_check(self) -> bool:
         """Defensively verify xcode-select toolchain on startup and auto-navigate to Doctor if missing."""

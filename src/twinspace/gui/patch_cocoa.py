@@ -1,10 +1,119 @@
 """macOS Cocoa native widget patches and tweaks for BeeWare Toga."""
 
 import sys
+import threading
+from collections import deque
 from typing import Any
 
 _is_patched = False
 _dark_mode_cache: bool | None = None
+
+_MAIN_THREAD = threading.main_thread()
+
+# Toga removes Auto Layout constraints (and purges window toolbars) from Python
+# finalizers. When such an object is collected by the cyclic garbage collector
+# on a worker thread, AppKit is touched off the main thread, which raises an
+# ObjC exception and aborts the process. Queue that work instead and replay it
+# from the main thread via drain_pending_cocoa_work().
+_pending_cocoa_work: deque[tuple[str, Any]] = deque()
+_pending_cocoa_lock = threading.Lock()
+
+_CONSTRAINT_CLEANUP = "constraints"
+_TOOLBAR_CLEANUP = "toolbar"
+
+_original_remove_constraints: Any = None
+_original_main_window_del: Any = None
+
+
+def _queue_cocoa_work(kind: str, target: Any) -> None:
+    """Record Cocoa teardown that must be replayed on the main thread."""
+    with _pending_cocoa_lock:
+        _pending_cocoa_work.append((kind, target))
+
+
+def pending_cocoa_work_count() -> int:
+    """Number of Cocoa cleanup callbacks waiting for the main thread."""
+    with _pending_cocoa_lock:
+        return len(_pending_cocoa_work)
+
+
+def drain_pending_cocoa_work() -> int:
+    """Replay queued Cocoa cleanup on the main thread.
+
+    Returns the number of callbacks processed. Calls from a background thread
+    are ignored so that AppKit is never touched off the main thread.
+    """
+    if threading.current_thread() is not _MAIN_THREAD:
+        return 0
+    if _original_remove_constraints is None and _original_main_window_del is None:
+        return 0
+
+    processed = 0
+    while True:
+        with _pending_cocoa_lock:
+            if not _pending_cocoa_work:
+                break
+            kind, target = _pending_cocoa_work.popleft()
+        try:
+            if kind == _CONSTRAINT_CLEANUP and _original_remove_constraints is not None:
+                _original_remove_constraints(target)
+            elif kind == _TOOLBAR_CLEANUP and _original_main_window_del is not None:
+                _original_main_window_del(target)
+        except Exception:
+            # Teardown during garbage collection must never raise.
+            pass
+        processed += 1
+    return processed
+
+
+def _install_main_thread_finalizer_patch() -> None:
+    """Keep Toga's Cocoa finalizers on the main thread.
+
+    ``toga_cocoa.constraints.Constraints.__del__`` calls ``removeConstraint`` and
+    ``toga_cocoa.window.MainWindow.__del__`` purges native toolbar items. Both
+    crash with ``_AssertAutoLayoutOnAllowedThreadsOnly`` when triggered by a GC
+    pass on a worker thread, so the AppKit part is deferred to the main thread.
+    """
+    global _original_remove_constraints, _original_main_window_del
+
+    try:
+        from toga_cocoa.constraints import Constraints
+    except Exception:
+        return
+
+    if not getattr(Constraints._remove_constraints, "_twinspace_main_thread_safe", False):
+        original_remove = Constraints._remove_constraints
+
+        def _patched_remove_constraints(self: Any) -> Any:
+            if threading.current_thread() is _MAIN_THREAD:
+                return original_remove(self)
+            _queue_cocoa_work(_CONSTRAINT_CLEANUP, self)
+            return None
+
+        _patched_remove_constraints._twinspace_main_thread_safe = True  # type: ignore[attr-defined]
+        _original_remove_constraints = original_remove
+        Constraints._remove_constraints = _patched_remove_constraints
+
+    try:
+        from toga_cocoa.window import MainWindow
+    except Exception:
+        return
+
+    try:
+        original_del = MainWindow.__del__
+    except AttributeError:
+        return
+
+    if not getattr(original_del, "_twinspace_main_thread_safe", False):
+        def _patched_main_window_del(self: Any) -> Any:
+            if threading.current_thread() is _MAIN_THREAD:
+                return original_del(self)
+            _queue_cocoa_work(_TOOLBAR_CLEANUP, self)
+            return None
+
+        _patched_main_window_del._twinspace_main_thread_safe = True  # type: ignore[attr-defined]
+        _original_main_window_del = original_del
+        MainWindow.__del__ = _patched_main_window_del
 
 
 def _detect_dark_mode() -> bool:
@@ -466,9 +575,15 @@ def patch_cocoa_widgets() -> None:
     - All Switch (checkbox) widgets have comfortable 13.5px label fonts.
     - All Selection (dropdown) widgets have comfortable 12.0px option fonts and support set_font.
     - All Table widgets have comfortable row height (34px), crisp 12.5px headers, readable 13.0px cell fonts, and native header sorting.
+    - Cocoa finalizers (Auto Layout constraint removal, toolbar purge) are replayed on the main thread.
     """
     global _is_patched
-    if _is_patched or sys.platform != "darwin":
+    if sys.platform != "darwin":
+        return
+
+    _install_main_thread_finalizer_patch()
+
+    if _is_patched:
         return
 
     try:
