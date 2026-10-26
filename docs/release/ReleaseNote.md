@@ -2,6 +2,12 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.2.2] - 2026-10-26
+
+### 🛠️ Stability Fix
+- **Fixed the sporadic crash when launching a clone from an environment**: Toga tears down Auto Layout constraints from Python finalizers, so a garbage collection running on a worker thread (the subprocess call that opens a clone is a typical trigger) touched AppKit off the main thread, tripped an Auto Layout assertion and aborted TwinSpace with `SIGABRT` while the launched app kept running. Constraint removal and window toolbar cleanup are now queued and replayed on the main thread.
+- Added regression tests covering immediate main-thread teardown and deferred background-thread teardown.
+
 ## [v1.2.1] - 2026-10-26
 
 ### 🧬 Per-Environment Device Identity & Per-App Control
