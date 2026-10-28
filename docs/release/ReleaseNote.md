@@ -2,6 +2,11 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.5.1] - 2026-10-28
+
+### 🩹 Fixes
+- **Update / rebuild confirmation flashed and vanished**: the second confirmation used an application-modal session, which ended immediately and closed the alert before the Update / Cancel buttons could be used. It is now presented as a sheet on the main window and waits for the user's choice.
+
 ## [v1.5.0] - 2026-10-28
 
 ### 🖱 Batch Actions, Rubber-Band Selection & Update Badges
