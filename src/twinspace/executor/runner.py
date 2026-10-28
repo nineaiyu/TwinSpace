@@ -1,6 +1,22 @@
 """Shell script executor with standard and admin elevation support."""
 
+import os
 import subprocess
+
+# Core utilities must resolve to the system binaries. Launchers that inject a
+# wrapper directory at the front of PATH (sandbox "safe delete" shims and the
+# like) otherwise make `rm -rf` of an app bundle fail halfway through a clone.
+_SYSTEM_PATH = ("/usr/bin", "/bin", "/usr/sbin", "/sbin")
+
+
+def sanitized_env() -> dict[str, str]:
+    """Environment with the system directories first on PATH."""
+    env = dict(os.environ)
+    parts = [item for item in env.get("PATH", "").split(os.pathsep) if item]
+    ordered = list(_SYSTEM_PATH)
+    ordered.extend(item for item in parts if item not in ordered)
+    env["PATH"] = os.pathsep.join(ordered)
+    return env
 
 
 class CloneError(Exception):
@@ -36,7 +52,12 @@ class Runner:
         """Run script directly via subprocess in a shell."""
         try:
             return subprocess.check_output(
-                script, shell=True, stderr=subprocess.STDOUT, text=True, timeout=timeout
+                script,
+                shell=True,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=timeout,
+                env=sanitized_env(),
             )
         except subprocess.CalledProcessError as e:
             raise CloneError(f"Command failed (exit {e.returncode}):\n{e.output}") from e
