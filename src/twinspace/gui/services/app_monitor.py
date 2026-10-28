@@ -18,6 +18,24 @@ from twinspace.core.logger import get_logger
 
 logger = get_logger("gui.app_monitor")
 
+def enclosing_bundle(path: str) -> str:
+    """Fold a path back to the outermost ``.app`` bundle that contains it.
+
+    NSWorkspace reports the *executable* URL for apps started through a launcher
+    (``…/ZCode-b1.app/Contents/MacOS/ZCode-b1``) and nested helper bundles for
+    Electron apps (``…/Contents/Frameworks/ZCode Helper.app``). Clones are
+    indexed by their bundle path, so both have to be mapped onto ``…/ZCode-b1.app``.
+    """
+    text = str(path or "")
+    if not text:
+        return ""
+    marker = ".app/"
+    index = text.find(marker)
+    if index == -1:
+        return text
+    return text[: index + len(".app")]
+
+
 LAUNCH_NOTIFICATION = "NSWorkspaceDidLaunchApplicationNotification"
 TERMINATE_NOTIFICATION = "NSWorkspaceDidTerminateApplicationNotification"
 APPLICATION_KEY = "NSWorkspaceApplicationKey"
@@ -129,7 +147,7 @@ class AppLifecycleMonitor:
                     continue
                 if url is None:
                     continue
-                path = str(url.path)
+                path = enclosing_bundle(str(url.path))
                 if path:
                     paths.add(path)
             return paths
@@ -172,7 +190,7 @@ class AppLifecycleMonitor:
                 application = info.objectForKey_(_appkit_constant(APPLICATION_KEY))
                 url = application.bundleURL if application is not None else None
                 if url is not None:
-                    path = str(url.path)
+                    path = enclosing_bundle(str(url.path))
         except Exception:
             logger.debug("Could not read workspace notification payload", exc_info=True)
         if path:

@@ -20,13 +20,13 @@ from twinspace.core.device_identity import identity_for_environment
 from twinspace.core.environments import EnvironmentSpec
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
-from twinspace.core.state import CloneRecord
+from twinspace.core.state import CloneRecord, running_clone_names
 from twinspace.gui import cocoa_events
 from twinspace.gui.components.app_tile import AppTile, compute_tile_columns
 from twinspace.gui.components.top_bar import TopHeaderBar
 from twinspace.gui.components.wrapping_label import WrappingLabel
 from twinspace.gui.patch_cocoa import configure_cocoa_card
-from twinspace.gui.services.app_monitor import AppLifecycleMonitor
+from twinspace.gui.services.app_monitor import AppLifecycleMonitor, enclosing_bundle
 from twinspace.gui.services.environment_service import EnvironmentInfo, EnvironmentService
 from twinspace.gui.services.launch_history import launch_history_for
 from twinspace.gui.theme import Theme
@@ -327,8 +327,39 @@ class EnvironmentListView(toga.Box):
             if clone_name is None:
                 # Only pay for a syscall when the raw comparison missed.
                 clone_name = index.get(_normalise_bundle_path(path))
+            if clone_name is None:
+                # Launchers show up as executables / helper bundles.
+                clone_name = index.get(enclosing_bundle(path))
             if clone_name is not None:
                 running.add(clone_name)
+        return self._confirm_believed_running(running)
+
+    def _confirm_believed_running(self, running: set[str]) -> set[str]:
+        """Add back clones the app is sure are running but NSWorkspace missed.
+
+        Some Electron clones started through a launcher only surface as a helper
+        bundle, and a stale snapshot would make their green dot blink away while
+        the app is still on screen. One ``ps`` call settles those cases.
+        """
+        expected = set(self._running_clones)
+        expected.update(
+            name for name, (value, _) in self._optimistic.items() if value
+        )
+        missing = expected - running
+        if not missing:
+            return running
+        records = [
+            record
+            for env in self._environments
+            for record in env.records
+            if record.clone_name in missing
+        ]
+        if not records:
+            return running
+        try:
+            running |= running_clone_names(records)
+        except Exception:
+            logger.debug("Running-state confirmation failed", exc_info=True)
         return running
 
     def handle_app_state_change(self, bundle_path: str, running: bool) -> None:
