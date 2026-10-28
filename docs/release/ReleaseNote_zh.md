@@ -2,6 +2,15 @@
 
 # TwinSpace 更新日志 (Release Notes)
 
+## [v1.6.0] - 2026-10-29
+
+### 🌍 国际版 WorkBuddy AI / CodeBuddy AI 支持
+- **新增两个国际版应用**：新建环境时可勾选 **WorkBuddy AI**（`com.workbuddy.workbuddy-ai`）与 **CodeBuddy AI**（`com.tencent.codebuddy`），与 CN 版（`com.tencent.workbuddy.mac` / `com.tencent.codebuddycn`）并存、互不干扰。
+- **默认不勾选**：国际版只在手动勾选时参与创建，既有环境的创建流程与 CLI 默认应用列表保持不变。
+- **克隆名自带 AI 后缀**：勾选后自动生成 `WorkBuddyAI-<环境名>` / `CodeBuddyAI-<环境名>`，可以和 CN 的 `WorkBuddy-<环境名>` / `CodeBuddy-<环境名>` 同环境共存而不重名。
+- **隔离配方补齐**：新增 `com.workbuddy.workbuddy-ai.yaml`（`workbuddy-ai` 深链）与 `com.tencent.codebuddy.yaml`（`codebuddy` 深链），登录回调只唤醒对应分身，不会拉起宿主机原版应用。
+- 勾选国际版后克隆名输入框自动解禁，可随时改名；未勾选时保持只读并实时跟随环境名。
+
 ## [v1.5.3] - 2026-10-29
 
 ### 🩹 修复

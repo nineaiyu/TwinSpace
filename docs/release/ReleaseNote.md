@@ -2,6 +2,15 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.6.0] - 2026-10-29
+
+### 🌍 International WorkBuddy AI / CodeBuddy AI
+- **Two new international builds**: the environment wizard now offers **WorkBuddy AI** (`com.workbuddy.workbuddy-ai`) and **CodeBuddy AI** (`com.tencent.codebuddy`) alongside the CN builds (`com.tencent.workbuddy.mac` / `com.tencent.codebuddycn`), fully independent of each other.
+- **Opt-in by default**: the international builds are only included when ticked manually, so existing environments and the CLI default app list are unchanged.
+- **AI-suffixed clone names**: ticking them generates `WorkBuddyAI-<env>` / `CodeBuddyAI-<env>`, which can coexist with the CN `WorkBuddy-<env>` / `CodeBuddy-<env>` in the same environment.
+- **Isolation recipes included**: `com.workbuddy.workbuddy-ai.yaml` (the `workbuddy-ai` deep link) and `com.tencent.codebuddy.yaml` (the `codebuddy` deep link) keep login callbacks inside their own clone instead of waking the host app.
+- The clone-name field unlocks as soon as an international build is ticked, and keeps following the environment name while it stays off.
+
 ## [v1.5.3] - 2026-10-29
 
 ### 🩹 Fixes
