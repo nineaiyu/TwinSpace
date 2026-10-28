@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -21,6 +24,7 @@ from twinspace.gui.components.app_tile import AppTile, compute_tile_columns
 from twinspace.gui.components.top_bar import TopHeaderBar
 from twinspace.gui.components.wrapping_label import WrappingLabel
 from twinspace.gui.patch_cocoa import configure_cocoa_card
+from twinspace.gui.services.app_monitor import AppLifecycleMonitor
 from twinspace.gui.services.environment_service import EnvironmentInfo, EnvironmentService
 from twinspace.gui.theme import Theme
 from twinspace.gui.windows.clone_edit import CloneEditWindow
@@ -28,6 +32,64 @@ from twinspace.gui.windows.device_identity import DeviceIdentityWindow
 from twinspace.gui.windows.environment_create import EnvironmentCreateWindow
 
 logger = get_logger("gui.environment_list")
+
+# An open/quit action updates the tile first; the process table is only used to
+# confirm it. This keeps the optimistic state trusted while `ps` catches up.
+_OPTIMISTIC_TTL = 4.0
+# Grace period before the launch/quit is verified against the process table.
+_VERIFY_DELAY = 0.6
+
+
+def _normalise_bundle_path(raw: Any) -> str:
+    """Resolve a bundle path so NSWorkspace and the state file can be compared."""
+    text = str(raw or "")
+    if not text:
+        return ""
+    try:
+        return os.path.realpath(text)
+    except OSError:  # pragma: no cover - realpath is tolerant in practice
+        return text
+
+
+class _EnvironmentCard:
+    """Native widgets of one environment card, kept for in-place updates."""
+
+    __slots__ = (
+        "card",
+        "grid",
+        "tiles",
+        "status_dot",
+        "status_text",
+        "update_button",
+        "backup_button",
+        "signature",
+        "columns",
+        "running",
+    )
+
+    def __init__(
+        self,
+        *,
+        card: toga.Box,
+        grid: toga.Box,
+        tiles: dict[str, AppTile],
+        status_dot: toga.Label,
+        status_text: toga.Label,
+        update_button: toga.Button,
+        backup_button: toga.Button,
+        columns: int,
+        running: bool,
+    ):
+        self.card = card
+        self.grid = grid
+        self.tiles = tiles
+        self.status_dot = status_dot
+        self.status_text = status_text
+        self.update_button = update_button
+        self.backup_button = backup_button
+        self.signature: tuple[Any, ...] = ()
+        self.columns = columns
+        self.running = running
 
 
 class EnvironmentListView(toga.Box):
@@ -49,7 +111,20 @@ class EnvironmentListView(toga.Box):
         # Usable width inside the scroll area, used to lay the app icon grid out.
         self._content_width: float = 1012.0
         self._loading = False
+        self._pending_refresh = False
         self._loading_indicator: toga.ActivityIndicator | None = None
+        # Cards already mounted, keyed by environment name, so a refresh can
+        # patch them instead of tearing the whole page down.
+        self._cards: dict[str, _EnvironmentCard] = {}
+        self._rendered = False
+        # Optimistic running state for apps the user just opened/quit.
+        self._optimistic: dict[str, tuple[bool, float]] = {}
+        # NSWorkspace pushes launch/terminate events, so the dots stay live
+        # without re-scanning the process table on every refresh.
+        self._monitor = AppLifecycleMonitor.shared()
+        self._clone_by_path: dict[str, str] = {}
+        self._env_by_clone: dict[str, str] = {}
+        self._monitor.subscribe(self)
 
         self._importing = False
         self.top_bar = TopHeaderBar(
@@ -82,12 +157,25 @@ class EnvironmentListView(toga.Box):
         self.scroll.content = self.list_box
         self.add(self.scroll)
 
-    async def refresh_environments(self) -> None:
+    async def refresh_environments(self, *, show_loading: bool | None = None) -> None:
+        """Reload environment data and repaint the page in place.
+
+        A refresh triggered by an action (open / quit / update) must not blank
+        the page: mounted cards stay on screen and only the parts whose state
+        actually changed are repainted. The spinner is reserved for the first
+        paint, when there is nothing worth keeping on screen.
+        """
         if self._loading:
+            # Coalesce overlapping requests into one trailing refresh.
+            self._pending_refresh = True
             return
         self._loading = True
-        self._show_loading()
-        # Let the spinner paint before doing executor + native card work.
+        if show_loading is None:
+            show_loading = not self._rendered
+        if show_loading:
+            self._show_loading()
+        self._set_refresh_busy(True)
+        # Let the spinner / toolbar state paint before doing executor work.
         await asyncio.sleep(0)
         loop = asyncio.get_running_loop()
         try:
@@ -98,25 +186,111 @@ class EnvironmentListView(toga.Box):
             except Exception as exc:
                 logger.error("Failed to list environments: %s", exc)
                 self._environments = []
-            try:
-                self._running_clones = await loop.run_in_executor(
-                    None, self.environment_service.running_clones
-                )
-            except Exception as exc:
-                logger.error("Failed to detect running environments: %s", exc)
-                self._running_clones = set()
-            await self._render_progressive()
+            self._rebuild_path_index()
+            running = self._snapshot_running_clones()
+            if running is None:
+                # Not on macOS, or AppKit could not answer: fall back to `ps`.
+                try:
+                    running = await loop.run_in_executor(
+                        None, self.environment_service.running_clones
+                    )
+                except Exception as exc:
+                    logger.error("Failed to detect running environments: %s", exc)
+                    running = set()
+            self._running_clones = running
+            self._prune_optimistic()
+            await self._sync_cards(animate=show_loading)
         finally:
             if self._loading_indicator is not None:
                 try:
                     self._loading_indicator.stop()
                 except Exception:
                     pass
-            self._loading = False
             self._loading_indicator = None
+            self._loading = False
+            self._set_refresh_busy(False)
+        if self._pending_refresh:
+            self._pending_refresh = False
+            await self.refresh_environments(show_loading=False)
+
+    def _rebuild_path_index(self) -> None:
+        """Index clone records by bundle path for O(1) event lookups."""
+        self._clone_by_path = {}
+        self._env_by_clone = {}
+        for env in self._environments:
+            for record in env.records:
+                path = _normalise_bundle_path(record.dest_path)
+                if path:
+                    self._clone_by_path[path] = record.clone_name
+                self._env_by_clone[record.clone_name] = env.name
+
+    def _snapshot_running_clones(self) -> set[str] | None:
+        """Running clones from NSWorkspace; None means "fall back to `ps`"."""
+        monitor = self._monitor
+        if monitor is None or not monitor.available:
+            return None
+        paths = monitor.running_paths()
+        if paths is None:
+            return None
+        index = self._clone_by_path
+        running: set[str] = set()
+        for path in paths:
+            clone_name = index.get(path)
+            if clone_name is None:
+                # Only pay for a syscall when the raw comparison missed.
+                clone_name = index.get(_normalise_bundle_path(path))
+            if clone_name is not None:
+                running.add(clone_name)
+        return running
+
+    def handle_app_state_change(self, bundle_path: str, running: bool) -> None:
+        """NSWorkspace reported a clone bundle launching or terminating."""
+        clone_name = self._clone_by_path.get(bundle_path)
+        if clone_name is None:
+            clone_name = self._clone_by_path.get(_normalise_bundle_path(bundle_path))
+        if clone_name is None:
+            return
+        if threading.current_thread() is not threading.main_thread():
+            loop = getattr(self.app_instance, "loop", None) if self.app_instance else None
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(self._apply_app_state, clone_name, running)
+            return
+        self._apply_app_state(clone_name, running)
+
+    def _apply_app_state(self, clone_name: str, running: bool) -> None:
+        """Repaint a single tile after a real launch/terminate event."""
+        if running:
+            self._running_clones.add(clone_name)
+        else:
+            self._running_clones.discard(clone_name)
+        # A real event is authoritative; the local guess is no longer needed.
+        self._optimistic.pop(clone_name, None)
+
+        env_name = self._env_by_clone.get(clone_name)
+        if env_name is None:
+            return
+        state = self._cards.get(env_name)
+        if state is None:
+            return
+        env = next((item for item in self._environments if item.name == env_name), None)
+        if env is not None:
+            self._update_card(state, env)
+
+    def _set_refresh_busy(self, busy: bool) -> None:
+        """Disable the toolbar refresh button while a reload is in flight."""
+        button = getattr(self.top_bar, "btn_refresh", None)
+        if button is None:
+            return
+        try:
+            button.enabled = not busy
+        except Exception:
+            pass
 
     def _show_loading(self) -> None:
         """Replace the card list with a centered spinner while data loads."""
+        # The mounted cards are about to be dropped; forget them so the next
+        # reconcile rebuilds them instead of assuming they are still on screen.
+        self._cards.clear()
         self._clear(self.list_box)
         wrapper = toga.Box(
             style=Pack(
@@ -144,20 +318,167 @@ class EnvironmentListView(toga.Box):
         except Exception:
             pass
 
-    async def _render_progressive(self) -> None:
-        """Render cards incrementally so the spinner keeps animating."""
-        self._clear(self.list_box)
-        # Tiles are rebuilt from scratch; the selection is re-applied by name.
-        self._selected_tile = None
-        self.top_bar.update_title(t("environment_title", count=len(self._environments)))
+    async def _sync_cards(self, animate: bool = False) -> None:
+        """Reconcile the mounted cards with ``self._environments``.
+
+        Unchanged environments keep their existing native widgets; only cards
+        that were added, removed or changed structurally are rebuilt, and their
+        volatile parts (running status) are patched in place.
+        """
+        self._sync_title()
+        desired = [env.name for env in self._environments]
+
+        for name in [name for name in self._cards if name not in desired]:
+            self._unmount_card(self._cards.pop(name))
+
+        # Drop placeholders (spinner / empty state) so card positions line up.
+        mounted = {state.card for state in self._cards.values()}
+        for child in list(self.list_box.children):
+            if child not in mounted:
+                self.list_box.remove(child)
+
         if not self._environments:
+            self._selected_tile = None
+            self._selected_clone = None
             self._render_empty_state()
+            self._rendered = True
             return
-        for env in self._environments:
-            card = self._build_environment_card(env)
-            self.list_box.add(card)
-            cocoa_events.fade_in(card)
-            await asyncio.sleep(0.01)
+
+        for index, env in enumerate(self._environments):
+            signature = self._card_signature(env)
+            state = self._cards.get(env.name)
+            if state is not None and state.signature == signature:
+                self._update_card(state, env)
+                self._place_card(index, state.card)
+                continue
+            if state is not None:
+                self._unmount_card(state)
+            state = self._build_environment_card(env)
+            state.signature = signature
+            self._cards[env.name] = state
+            self._place_card(index, state.card)
+            if animate:
+                cocoa_events.fade_in(state.card)
+                await asyncio.sleep(0.01)
+        self._rendered = True
+
+    def _sync_title(self) -> None:
+        title = t("environment_title", count=len(self._environments))
+        label = getattr(self.top_bar, "label_title", None)
+        if label is not None and label.text == title:
+            return
+        self.top_bar.update_title(title)
+
+    def _card_signature(self, env: EnvironmentInfo) -> tuple[Any, ...]:
+        """Identity of a card's static content; a change forces a rebuild."""
+        return (str(env.env_dir), tuple(record.clone_name for record in env.records))
+
+    def _place_card(self, index: int, card: toga.Box) -> None:
+        """Move ``card`` to ``index`` without rebuilding it when it is already there."""
+        children = list(self.list_box.children)
+        try:
+            current: int = children.index(card)
+        except ValueError:
+            current = -1
+        if current == index:
+            return
+        if current >= 0:
+            self.list_box.remove(card)
+        self.list_box.insert(index, card)
+
+    def _unmount_card(self, state: _EnvironmentCard) -> None:
+        try:
+            if state.card.parent is self.list_box:
+                self.list_box.remove(state.card)
+        except Exception:
+            logger.debug("Could not unmount environment card", exc_info=True)
+        if self._selected_tile is not None and self._selected_tile in state.tiles.values():
+            self._selected_tile = None
+
+    def _update_card(self, state: _EnvironmentCard, env: EnvironmentInfo) -> None:
+        """Patch the volatile parts of a mounted card (running status).
+
+        Every write here reaches AppKit, so unchanged values are skipped: a
+        refresh where nothing moved costs no native layout work at all.
+        """
+        env_running = any(self._is_running(record.clone_name) for record in env.records)
+        self._apply_status_pill(state, env_running)
+        for clone_name, tile in state.tiles.items():
+            tile.set_running(self._is_running(clone_name))
+        for button in (state.update_button, state.backup_button):
+            if button.enabled != (not env_running):
+                button.enabled = not env_running
+
+    @staticmethod
+    def _apply_status_pill(state: _EnvironmentCard, running: bool) -> None:
+        if state.running == running:
+            return
+        state.running = running
+        state.status_text.text = (
+            t("environment_running") if running else t("environment_not_running")
+        )
+        state.status_text.style.color = (
+            Theme.TEXT_SECONDARY if running else Theme.TEXT_TERTIARY
+        )
+        state.status_dot.style.color = (
+            Theme.BTN_SUCCESS if running else Theme.TEXT_TERTIARY
+        )
+
+    def _is_running(self, clone_name: str) -> bool:
+        """Running state, honouring the optimistic flag set by open/quit actions."""
+        pending = self._optimistic.get(clone_name)
+        if pending is not None:
+            value, expires_at = pending
+            if time.monotonic() < expires_at:
+                return value
+            self._optimistic.pop(clone_name, None)
+        return clone_name in self._running_clones
+
+    def _prune_optimistic(self) -> None:
+        """Forget optimistic states that the process table now agrees with."""
+        now = time.monotonic()
+        for clone_name, (value, expires_at) in list(self._optimistic.items()):
+            if now >= expires_at or (clone_name in self._running_clones) == value:
+                self._optimistic.pop(clone_name, None)
+
+    def _mark_running(self, env_name: str, app_key: str, running: bool) -> None:
+        """Flip one app's tile immediately; the process table confirms it later."""
+        state = self._cards.get(env_name)
+        env = next((item for item in self._environments if item.name == env_name), None)
+        if state is None or env is None:
+            return
+        expires_at = time.monotonic() + _OPTIMISTIC_TTL
+        for record in env.records:
+            if self.environment_service.app_key_for_bundle_id(record.bundle_id) == app_key:
+                self._optimistic[record.clone_name] = (running, expires_at)
+        self._update_card(state, env)
+
+    def _mark_environment_running(self, env_name: str, running: bool) -> None:
+        """Flip every tile of an environment (Open All)."""
+        state = self._cards.get(env_name)
+        env = next((item for item in self._environments if item.name == env_name), None)
+        if state is None or env is None:
+            return
+        expires_at = time.monotonic() + _OPTIMISTIC_TTL
+        for record in env.records:
+            self._optimistic[record.clone_name] = (running, expires_at)
+        self._update_card(state, env)
+
+    async def _verify_running_later(self) -> None:
+        """Confirm an optimistic open/quit against the process table.
+
+        The first pass usually already agrees with `ps`; a second one runs after
+        the optimistic window expires so a crashed launch cannot leave a stale
+        green dot behind.
+        """
+        await asyncio.sleep(_VERIFY_DELAY)
+        if not self._optimistic:
+            return
+        await self.refresh_environments(show_loading=False)
+        if not self._optimistic:
+            return
+        await asyncio.sleep(_OPTIMISTIC_TTL)
+        await self.refresh_environments(show_loading=False)
 
     def on_window_resize(self, width: int) -> None:
         """Reflow the app icon grid when the window width changes."""
@@ -165,24 +486,34 @@ class EnvironmentListView(toga.Box):
         if abs(available - self._content_width) < 8.0:
             return
         self._content_width = available
-        if self._environments:
-            self._render()
+        columns = compute_tile_columns(available)
+        for state in self._cards.values():
+            if state.columns != columns:
+                state.columns = columns
+                self._layout_grid(state.grid, state.tiles, columns)
 
     def _clear(self, box: toga.Box) -> None:
         while len(box.children) > 0:
             box.remove(box.children[0])
 
     def _render(self) -> None:
+        """Rebuild every card from scratch (full repaint, no incremental reuse)."""
+        self._cards.clear()
         self._clear(self.list_box)
         self._selected_tile = None
-        self.top_bar.update_title(t("environment_title", count=len(self._environments)))
+        self._sync_title()
 
         if not self._environments:
             self._render_empty_state()
+            self._rendered = True
             return
 
         for env in self._environments:
-            self.list_box.add(self._build_environment_card(env))
+            state = self._build_environment_card(env)
+            state.signature = self._card_signature(env)
+            self._cards[env.name] = state
+            self.list_box.add(state.card)
+        self._rendered = True
 
     def _render_empty_state(self) -> None:
         empty = toga.Box(style=Pack(direction=COLUMN, align_items=CENTER, margin=(60, 0, 0, 0)))
@@ -216,8 +547,8 @@ class EnvironmentListView(toga.Box):
         empty.add(create_button)
         self.list_box.add(empty)
 
-    def _build_environment_card(self, env: EnvironmentInfo) -> toga.Box:
-        env_running = any(record.clone_name in self._running_clones for record in env.records)
+    def _build_environment_card(self, env: EnvironmentInfo) -> _EnvironmentCard:
+        env_running = any(self._is_running(record.clone_name) for record in env.records)
         card = toga.Box(
             style=Pack(direction=COLUMN, margin=(0, 0, 14, 0), background_color=Theme.BG_CARD)
         )
@@ -232,7 +563,8 @@ class EnvironmentListView(toga.Box):
             )
         )
         header.add(toga.Box(style=Pack(width=10)))
-        header.add(self._build_status_pill(env_running))
+        status_pill, status_dot, status_text = self._build_status_pill(env_running)
+        header.add(status_pill)
         header.add(toga.Box(style=Pack(flex=1)))
         header.add(
             toga.Button(
@@ -270,7 +602,8 @@ class EnvironmentListView(toga.Box):
             )
         )
 
-        inner.add(self._build_app_grid(env))
+        grid, tiles = self._build_app_grid(env)
+        inner.add(grid)
 
         # Footer: daily actions stay visible; everything else lives in the menu.
         inner.add(
@@ -326,48 +659,68 @@ class EnvironmentListView(toga.Box):
             configure_cocoa_card(native_card, corner_radius=16.0, border_width=0.5)
         except Exception:
             pass
-        return card
-
-    def _build_status_pill(self, running: bool) -> toga.Box:
-        pill = toga.Box(style=Pack(direction=ROW, align_items=CENTER))
-        pill.add(
-            toga.Label(
-                "●",
-                style=Pack(
-                    font_size=9,
-                    color=Theme.BTN_SUCCESS if running else Theme.TEXT_TERTIARY,
-                    margin_right=4,
-                ),
-            )
-        )
-        pill.add(
-            toga.Label(
-                t("environment_running") if running else t("environment_not_running"),
-                style=Pack(
-                    font_size=11.5,
-                    color=Theme.TEXT_SECONDARY if running else Theme.TEXT_TERTIARY,
-                ),
-            )
-        )
-        return pill
-
-    def _build_app_grid(self, env: EnvironmentInfo) -> toga.Box:
-        grid = toga.Box(style=Pack(direction=COLUMN, margin_top=10))
-        tiles = [self._build_app_tile(env, record) for record in env.records]
         columns = compute_tile_columns(self._content_width)
-        for start in range(0, len(tiles), columns):
+        return _EnvironmentCard(
+            card=card,
+            grid=grid,
+            tiles=tiles,
+            status_dot=status_dot,
+            status_text=status_text,
+            update_button=btn_update,
+            backup_button=btn_backup,
+            columns=columns,
+            running=env_running,
+        )
+
+    def _build_status_pill(
+        self, running: bool
+    ) -> tuple[toga.Box, toga.Label, toga.Label]:
+        pill = toga.Box(style=Pack(direction=ROW, align_items=CENTER))
+        dot = toga.Label(
+            "●",
+            style=Pack(
+                font_size=9,
+                color=Theme.BTN_SUCCESS if running else Theme.TEXT_TERTIARY,
+                margin_right=4,
+            ),
+        )
+        pill.add(dot)
+        text = toga.Label(
+            t("environment_running") if running else t("environment_not_running"),
+            style=Pack(
+                font_size=11.5,
+                color=Theme.TEXT_SECONDARY if running else Theme.TEXT_TERTIARY,
+            ),
+        )
+        pill.add(text)
+        return pill, dot, text
+
+    def _build_app_grid(self, env: EnvironmentInfo) -> tuple[toga.Box, dict[str, AppTile]]:
+        grid = toga.Box(style=Pack(direction=COLUMN, margin_top=10))
+        tiles = {
+            record.clone_name: self._build_app_tile(env, record) for record in env.records
+        }
+        self._layout_grid(grid, tiles, compute_tile_columns(self._content_width))
+        return grid, tiles
+
+    def _layout_grid(
+        self, grid: toga.Box, tiles: dict[str, AppTile], columns: int
+    ) -> None:
+        """Flow the tile widgets into rows, reusing the existing native widgets."""
+        self._clear(grid)
+        ordered = list(tiles.values())
+        for start in range(0, len(ordered), columns):
             row = toga.Box(style=Pack(direction=ROW, align_items=START))
-            for tile in tiles[start : start + columns]:
+            for tile in ordered[start : start + columns]:
                 row.add(tile)
             row.add(toga.Box(style=Pack(flex=1)))
             grid.add(row)
-        return grid
 
     def _build_app_tile(self, env: EnvironmentInfo, record: CloneRecord) -> AppTile:
         key = self.environment_service.app_key_for_bundle_id(record.bundle_id)
         app = self.environment_service.app_for_key(key)
         label = app.label if app else record.source_app
-        running = record.clone_name in self._running_clones
+        running = self._is_running(record.clone_name)
         tile = AppTile(
             label=label,
             clone_name=record.clone_name,
@@ -502,6 +855,10 @@ class EnvironmentListView(toga.Box):
             await self.app_instance.main_window.error_dialog(
                 t("environment_error_title"), "\n".join(errors)
             )
+            return
+        # Repaint the dots straight away; no full page rebuild is involved.
+        self._mark_environment_running(name, True)
+        self._schedule(self._verify_running_later())
 
     async def _toggle_app(self, name: str, app_key: str, running: bool) -> None:
         loop = asyncio.get_running_loop()
@@ -520,7 +877,12 @@ class EnvironmentListView(toga.Box):
             await self.app_instance.main_window.error_dialog(
                 t("environment_error_title"), "\n".join(errors)
             )
-        await self.refresh_environments()
+            await self.refresh_environments(show_loading=False)
+            return
+        # Flip the tile immediately instead of tearing the page down and
+        # waiting for the process table to catch up.
+        self._mark_running(name, app_key, not running)
+        self._schedule(self._verify_running_later())
 
     def _edit_app(self, record: CloneRecord) -> None:
         """Open the clone editor for one app inside an environment."""
@@ -557,7 +919,7 @@ class EnvironmentListView(toga.Box):
 
     async def _update_app(self, env_name: str, app_key: str, clone_name: str) -> None:
         """Rebuild a single app of an environment from its current source app."""
-        if clone_name in self._running_clones:
+        if self._is_running(clone_name):
             return
         if self.app_instance:
             confirmed = await self.app_instance.main_window.confirm_dialog(

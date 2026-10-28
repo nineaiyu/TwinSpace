@@ -212,6 +212,21 @@ class AppTile(toga.Box):
             radius=PILL_CORNER_RADIUS,
         )
 
+    def set_running(self, running: bool) -> None:
+        """Repaint the running indicator in place (no widget rebuild)."""
+        running = bool(running)
+        if running == self.running:
+            return
+        self.running = running
+        self.status_label.text = ("● " + t("environment_running")) if running else ""
+        self.status_label.style.color = (
+            Theme.BTN_SUCCESS if running else Theme.TEXT_TERTIARY
+        )
+        # The context menu holds open/close enablement captured at build time.
+        cocoa_events.update_tile_menu(
+            self, self._menu_entries(), self._handle_menu
+        )
+
     def _handle_double_click(self) -> None:
         logger.info(
             "Tile double-click: clone=%s running=%s", self.clone_name, self.running

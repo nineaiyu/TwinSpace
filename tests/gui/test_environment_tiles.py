@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import toga
 
+from twinspace.core.i18n import t
 from twinspace.core.state import CloneRecord, StateManager
 from twinspace.gui.components.app_tile import (
     TILE_COLUMNS_MAX,
@@ -218,6 +219,127 @@ def _has_activity_indicator(widget) -> bool:
         _has_activity_indicator(child)
         for child in getattr(widget, "children", [])
     )
+
+
+def test_refresh_reuses_cards_when_nothing_changed(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.running_clones = lambda name=None: set()
+    view = EnvironmentListView(environment_service=service)
+
+    asyncio.run(view.refresh_environments())
+    cards = dict(view._cards)
+
+    asyncio.run(view.refresh_environments())
+
+    assert view._cards["phone1"] is cards["phone1"]
+    assert view._cards["phone1"].card.parent is view.list_box
+    assert len(view.list_box.children) == 1
+
+
+def test_refresh_never_blanks_the_page_after_first_paint(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.running_clones = lambda name=None: set()
+    view = EnvironmentListView(environment_service=service)
+
+    asyncio.run(view.refresh_environments())
+    tiles = dict(view._cards["phone1"].tiles)
+
+    asyncio.run(view.refresh_environments())
+
+    assert not _has_activity_indicator(view.list_box)
+    assert view._cards["phone1"].tiles == tiles
+
+
+def test_opening_an_app_updates_the_tile_in_place(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.running_clones = lambda name=None: set()
+    view = EnvironmentListView(environment_service=service)
+    asyncio.run(view.refresh_environments())
+
+    card = view._cards["phone1"]
+    tile = card.tiles["ZCode-phone1"]
+    assert tile.running is False
+
+    view._mark_running("phone1", "zcode", True)
+
+    assert card.tiles["ZCode-phone1"] is tile
+    assert tile.running is True
+    assert tile.status_label.text != ""
+    assert card.status_text.text == t("environment_running")
+    assert card.update_button.enabled is False
+
+
+def test_running_state_uses_the_workspace_snapshot(toga_app, tmp_path):
+    state = _environment_state(tmp_path)
+    service = EnvironmentService(state_manager=state)
+    view = EnvironmentListView(environment_service=service)
+    record = state.load()[0]
+    ps_calls = []
+
+    class _SnapshotMonitor:
+        available = True
+
+        def running_paths(self):
+            return {str(record.dest_path)}
+
+    view._monitor = _SnapshotMonitor()
+    service.running_clones = lambda name=None: ps_calls.append(name) or set()
+
+    asyncio.run(view.refresh_environments())
+
+    assert ps_calls == []
+    assert record.clone_name in view._running_clones
+    assert view._cards["phone1"].tiles[record.clone_name].running is True
+
+
+class _IdleMonitor:
+    """Monitor double that reports no running bundles."""
+
+    available = True
+
+    def running_paths(self):
+        return set()
+
+
+def test_launch_event_repaints_only_the_affected_tile(toga_app, tmp_path):
+    state = _environment_state(tmp_path)
+    service = EnvironmentService(state_manager=state)
+    view = EnvironmentListView(environment_service=service)
+    view._monitor = _IdleMonitor()
+    service.running_clones = lambda name=None: set()
+    asyncio.run(view.refresh_environments())
+
+    records = {record.clone_name: record for record in state.load()}
+    card = view._cards["phone1"]
+    target = card.tiles["ZCode-phone1"]
+    untouched = card.tiles["Chrome-phone1"]
+    assert target.running is False
+
+    view.handle_app_state_change(str(records["ZCode-phone1"].dest_path), True)
+
+    assert target.running is True
+    assert untouched.running is False
+    assert card.running is True
+    assert "ZCode-phone1" in view._running_clones
+
+    view.handle_app_state_change(str(records["ZCode-phone1"].dest_path), False)
+
+    assert target.running is False
+    assert card.running is False
+    assert "ZCode-phone1" not in view._running_clones
+
+
+def test_unknown_bundle_events_are_ignored(toga_app, tmp_path):
+    state = _environment_state(tmp_path)
+    service = EnvironmentService(state_manager=state)
+    view = EnvironmentListView(environment_service=service)
+    view._monitor = _IdleMonitor()
+    service.running_clones = lambda name=None: set()
+    asyncio.run(view.refresh_environments())
+
+    view.handle_app_state_change("/Applications/Some Other.app", True)
+
+    assert view._running_clones == set()
 
 
 def test_tile_selection_is_exclusive(toga_app, tmp_path):

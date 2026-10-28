@@ -411,6 +411,38 @@ def popup_menu(
         logger.debug("Could not show native menu: %s", exc)
 
 
+def update_tile_menu(
+    widget: Any,
+    entries: Sequence[MenuEntry],
+    handler: Callable[[str], None],
+) -> None:
+    """Rebuild the context menu of a widget after its state changed.
+
+    ``attach_tile_interactions`` bakes the enabled state of every item into the
+    native ``NSMenu``; tiles that switch between running/idle therefore need a
+    fresh menu instead of a rebuilt tile widget.
+    """
+    if not entries or not _ensure_appkit():
+        return
+    menu = build_menu(entries, handler)
+    if menu is None:
+        return
+    references: list[Any] = [menu]
+    menu_target = getattr(menu, "_target", None)
+    if menu_target is not None:
+        references.append(menu_target)
+    for view in _native_views(widget):
+        try:
+            view.setMenu_(menu)
+        except Exception:
+            continue
+    # Replacing the list releases the previous menu (and its dispatcher).
+    try:
+        widget._twinspace_menu_refs = references
+    except Exception:
+        logger.debug("Could not retain Cocoa menu references", exc_info=True)
+
+
 def attach_tile_interactions(
     widget: Any,
     *,
