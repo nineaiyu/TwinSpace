@@ -147,7 +147,7 @@ class EnvironmentCreateWindow(toga.Window):
         installed_path = app.installed_path
         existing = app.key in self._existing_keys
         enabled = bool(installed_path) and not existing
-        default_value = existing or bool(installed_path)
+        default_value = existing or (bool(installed_path) and app.default_selected)
         existing_record = self._existing_records.get(app.key)
 
         switch = toga.Switch(
@@ -167,7 +167,7 @@ class EnvironmentCreateWindow(toga.Window):
                 else self._default_clone_name(app)
             ),
             placeholder=self._default_clone_name(app),
-            readonly=not enabled,
+            readonly=not (enabled and default_value),
             on_change=lambda widget, key=app.key: self._on_clone_name_change(key, widget),
             style=Pack(width=190, margin_left=6, margin_right=10, font_size=12.5),
         )
@@ -332,7 +332,10 @@ class EnvironmentCreateWindow(toga.Window):
         self._syncing_names = True
         try:
             for key, name_input in self._name_inputs.items():
-                if key in self._name_edited or name_input.readonly:
+                # Only keep names of apps that cannot join this environment
+                # (already present or not installed); opt-in apps stay in sync
+                # even while their switch is off.
+                if key in self._name_edited or not self._app_enabled.get(key, False):
                     continue
                 app = self.environment_service.app_for_key(key)
                 if app is not None:

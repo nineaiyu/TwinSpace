@@ -361,6 +361,48 @@ def test_load_builtin_codebuddy_isolation_recipe():
     assert "Library/Keychains" in recipe.symlink_whitelist
 
 
+def test_load_builtin_workbuddy_ai_isolation_recipe(monkeypatch, tmp_path):
+    monkeypatch.setattr(RecipeLoader, "LOCAL_DIR", tmp_path)
+    recipe = RecipeLoader.match("com.workbuddy.workbuddy-ai")
+    assert recipe is not None
+    assert recipe.bundle_id == "com.workbuddy.workbuddy-ai"
+    assert recipe.app_name == "WorkBuddy AI"
+    assert recipe.strategy == "hard_clone"
+    assert recipe.app_type == "electron"
+    assert recipe.injection_strategy == "launcher"
+    assert recipe.seed_preferences is False
+    env = recipe.environment_injection
+    assert env["WORKBUDDY_CONFIG_DIR"] == "{{TWINSPACE_DATA_DIR}}/Config"
+    assert env["WORKBUDDY_USER_DATA_DIR"] == "{{TWINSPACE_DATA_DIR}}/Config/app"
+    assert env["TWINSPACE_OAUTH_SCHEMES"] == "workbuddy-ai"
+    assert (
+        env["TWINSPACE_SCHEME_ALLOW_REGISTRATION"]
+        == "workbuddy-ai-{{TWINSPACE_INSTANCE_NUMBER}}"
+    )
+    assert env["WORKBUDDY_DEEPLINK_SCHEMES"].startswith("workbuddy-ai")
+    assert "workbuddy" not in env["TWINSPACE_OAUTH_SCHEMES"].split(",")
+    assert "Library/Keychains" in recipe.symlink_whitelist
+
+
+def test_load_builtin_codebuddy_intl_isolation_recipe(monkeypatch, tmp_path):
+    monkeypatch.setattr(RecipeLoader, "LOCAL_DIR", tmp_path)
+    recipe = RecipeLoader.match("com.tencent.codebuddy")
+    assert recipe is not None
+    assert recipe.bundle_id == "com.tencent.codebuddy"
+    assert recipe.app_name == "CodeBuddy"
+    assert recipe.strategy == "hard_clone"
+    assert recipe.app_type == "electron"
+    assert recipe.injection_strategy == "launcher"
+    assert recipe.seed_preferences is False
+    assert "--user-data-dir={{TWINSPACE_DATA_DIR}}/UserData" in recipe.launch_args
+    assert "--extensions-dir={{TWINSPACE_DATA_DIR}}/Extensions" in recipe.launch_args
+    assert "--disable-updates" in recipe.launch_args
+    assert recipe.environment_injection["CODEBUDDY_CONFIG_DIR"] == "{{TWINSPACE_DATA_DIR}}/Config"
+    assert recipe.environment_injection["TWINSPACE_COCOA_HOME_HOOK"] == "1"
+    assert recipe.environment_injection["TWINSPACE_OAUTH_SCHEMES"] == "codebuddy"
+    assert "Library/Keychains" in recipe.symlink_whitelist
+
+
 def test_load_builtin_qoder_isolation_recipe():
     recipe = RecipeLoader.match("com.qodercn.app")
     assert recipe is not None
@@ -587,6 +629,8 @@ def test_chatgpt_recipes_have_isolation_flags():
         "com.qodercn.app",
         "com.tencent.workbuddy.mac",
         "cn.trae.app",
+        "com.workbuddy.workbuddy-ai",
+        "com.tencent.codebuddy",
     ],
 )
 def test_environment_recipes_isolate_device_identity(bundle_id):

@@ -1,0 +1,34 @@
+bundle_id: com.workbuddy.workbuddy-ai
+app_name: WorkBuddy AI
+strategy: hard_clone
+app_type: electron
+injection_strategy: launcher
+seed_preferences: false
+launch_args: []
+environment_injection:
+  HOME: '{{TWINSPACE_DATA_DIR}}/Home'
+  TMPDIR: '{{TWINSPACE_DATA_DIR}}/Tmp/'
+  WORKBUDDY_CONFIG_DIR: '{{TWINSPACE_DATA_DIR}}/Config'
+  CODEBUDDY_CONFIG_DIR: '{{TWINSPACE_DATA_DIR}}/Config'
+  WORKBUDDY_USER_DATA_DIR: '{{TWINSPACE_DATA_DIR}}/Config/app'
+  WORKBUDDY_DATA_DIR: '{{TWINSPACE_DATA_DIR}}/Config'
+  WORKBUDDY_APP_NAME: '{{TWINSPACE_CLONE_NAME}}'
+  WORKBUDDY_INSTANCE_NUMBER: '{{TWINSPACE_INSTANCE_NUMBER}}'
+  WORKBUDDY_DEEPLINK_SCHEMES: 'workbuddy-ai,workbuddy-ai-{{TWINSPACE_INSTANCE_NUMBER}},buddy-app'
+  WORKBUDDY_UPDATE_URL: 'http://127.0.0.1:47999/twinspace-disabled'
+  TWINSPACE_KEYCHAIN_PREFIX: '{{TWINSPACE_KEYCHAIN_PREFIX}}'
+  TWINSPACE_DEVICE_UUID: '{{TWINSPACE_DEVICE_UUID}}'
+  TWINSPACE_DEVICE_SERIAL: '{{TWINSPACE_DEVICE_SERIAL}}'
+  TWINSPACE_DEVICE_SEED: '{{TWINSPACE_DEVICE_SEED}}'
+  TWINSPACE_DEVICE_HOSTNAME: '{{TWINSPACE_DEVICE_HOSTNAME}}'
+  TWINSPACE_COCOA_HOME_HOOK: '1'
+  TWINSPACE_SCHEME_ALLOW_REGISTRATION: 'workbuddy-ai-{{TWINSPACE_INSTANCE_NUMBER}}'
+  # The intl build registers workbuddy-ai (see CFBundleURLSchemes); pin that
+  # scheme to this clone before opening the login page, otherwise LaunchServices
+  # wakes the host app. Do not add "workbuddy" here: that belongs to the CN build.
+  TWINSPACE_OAUTH_SCHEMES: 'workbuddy-ai'
+  TWINSPACE_OAUTH_URL_MARKERS: 'login,oauth,authorize,auth,sso,callback'
+  TWINSPACE_BROWSER_APP_PATH: '/Applications/Google Chrome.app'
+  TWINSPACE_BROWSER_DATA_DIR: '{{TWINSPACE_ENV_DIR}}/Browser'
+symlink_whitelist:
+- Library/Keychains

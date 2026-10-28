@@ -15,6 +15,9 @@ class EnvironmentApp:
     bundle_ids: tuple[str, ...]
     default_path: Path
     clone_prefix: str
+    # International builds ship alongside the CN ones; they stay available in the
+    # create dialog but are not ticked by default so existing setups are unchanged.
+    default_selected: bool = True
 
     @property
     def installed_path(self) -> Path | None:
@@ -71,11 +74,27 @@ KNOWN_APPS: tuple[EnvironmentApp, ...] = (
         "WorkBuddy",
     ),
     EnvironmentApp(
+        "workbuddy_ai",
+        "WorkBuddy AI",
+        ("com.workbuddy.workbuddy-ai",),
+        Path("/Applications/WorkBuddy AI.app"),
+        "WorkBuddyAI",
+        default_selected=False,
+    ),
+    EnvironmentApp(
         "codebuddy",
         "CodeBuddy CN",
         ("com.tencent.codebuddycn",),
         Path("/Applications/CodeBuddy CN.app"),
         "CodeBuddy",
+    ),
+    EnvironmentApp(
+        "codebuddy_ai",
+        "CodeBuddy AI",
+        ("com.tencent.codebuddy",),
+        Path("/Applications/CodeBuddy.app"),
+        "CodeBuddyAI",
+        default_selected=False,
     ),
     EnvironmentApp(
         "qoder",

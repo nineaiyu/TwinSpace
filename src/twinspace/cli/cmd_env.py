@@ -93,7 +93,11 @@ def _selected_keys(apps: str | None, template: str | None) -> list[str]:
         return explicit
     if template:
         return list(template_app_keys(template))
-    return [app.key for app in _manager().available_apps() if app.installed]
+    return [
+        app.key
+        for app in _manager().available_apps()
+        if app.installed and app.default_selected
+    ]
 
 
 @click.group(name="env")

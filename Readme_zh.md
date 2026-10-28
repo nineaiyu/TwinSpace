@@ -418,7 +418,9 @@ twinspace migrate
 |  | Antigravity IDE | `com.google.antigravity-ide` | 硬克隆 | `electron` | ✔ |
 | **隔离环境套件** | ZCode | `dev.zcode.app` | 硬克隆 | `electron` | — |
 |  | WorkBuddy | `com.tencent.workbuddy.mac` | 硬克隆 | `electron` | — |
+|  | WorkBuddy AI（国际版，需手动勾选） | `com.workbuddy.workbuddy-ai` | 硬克隆 | `electron` | — |
 |  | CodeBuddy CN | `com.tencent.codebuddycn` | 硬克隆 | `electron` | — |
+|  | CodeBuddy AI（国际版，需手动勾选） | `com.tencent.codebuddy` | 硬克隆 | `electron` | — |
 |  | Qoder CN | `com.qodercn.app` | 硬克隆 | `electron` | — |
 |  | Trae CN | `cn.trae.app` | 硬克隆 | `electron` | — |
 | **浏览器** | Chrome | `com.google.Chrome` | 软克隆 | `chromium` | — |

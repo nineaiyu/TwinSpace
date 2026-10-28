@@ -1,0 +1,27 @@
+bundle_id: com.tencent.codebuddy
+app_name: CodeBuddy
+strategy: hard_clone
+app_type: electron
+injection_strategy: launcher
+seed_preferences: false
+launch_args:
+- --user-data-dir={{TWINSPACE_DATA_DIR}}/UserData
+- --extensions-dir={{TWINSPACE_DATA_DIR}}/Extensions
+- --disable-updates
+- --skip-release-notes
+environment_injection:
+  HOME: '{{TWINSPACE_DATA_DIR}}/Home'
+  TMPDIR: '{{TWINSPACE_DATA_DIR}}/Tmp/'
+  CODEBUDDY_CONFIG_DIR: '{{TWINSPACE_DATA_DIR}}/Config'
+  TWINSPACE_KEYCHAIN_PREFIX: '{{TWINSPACE_KEYCHAIN_PREFIX}}'
+  TWINSPACE_DEVICE_UUID: '{{TWINSPACE_DEVICE_UUID}}'
+  TWINSPACE_DEVICE_SERIAL: '{{TWINSPACE_DEVICE_SERIAL}}'
+  TWINSPACE_DEVICE_SEED: '{{TWINSPACE_DEVICE_SEED}}'
+  TWINSPACE_DEVICE_HOSTNAME: '{{TWINSPACE_DEVICE_HOSTNAME}}'
+  TWINSPACE_COCOA_HOME_HOOK: '1'
+  TWINSPACE_BROWSER_APP_PATH: '/Applications/Google Chrome.app'
+  TWINSPACE_BROWSER_DATA_DIR: '{{TWINSPACE_ENV_DIR}}/Browser'
+  TWINSPACE_OAUTH_SCHEMES: 'codebuddy'
+  TWINSPACE_OAUTH_URL_MARKERS: 'login,oauth,authorize,auth,sso,callback'
+symlink_whitelist:
+- Library/Keychains

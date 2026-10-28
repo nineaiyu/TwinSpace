@@ -424,7 +424,9 @@ twinspace migrate
 |  | Antigravity IDE | `com.google.antigravity-ide` | Hard Clone | `electron` | ✔ |
 | **Isolated Environment Suite** | ZCode | `dev.zcode.app` | Hard Clone | `electron` | — |
 |  | WorkBuddy | `com.tencent.workbuddy.mac` | Hard Clone | `electron` | — |
+|  | WorkBuddy AI (intl, opt-in) | `com.workbuddy.workbuddy-ai` | Hard Clone | `electron` | — |
 |  | CodeBuddy CN | `com.tencent.codebuddycn` | Hard Clone | `electron` | — |
+|  | CodeBuddy AI (intl, opt-in) | `com.tencent.codebuddy` | Hard Clone | `electron` | — |
 |  | Qoder CN | `com.qodercn.app` | Hard Clone | `electron` | — |
 |  | Trae CN | `cn.trae.app` | Hard Clone | `electron` | — |
 | **Browsers** | Google Chrome | `com.google.Chrome` | Soft Clone | `chromium` | — |

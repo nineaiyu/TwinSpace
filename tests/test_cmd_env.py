@@ -114,6 +114,28 @@ def test_env_create_dry_run(tmp_path):
     assert fake.created is None
 
 
+def test_env_create_defaults_skip_opt_in_apps(tmp_path):
+    chrome = _app(tmp_path, "chrome", "Chrome")
+    intl_dir = tmp_path / "CodeBuddyAI.app"
+    intl_dir.mkdir()
+    intl = EnvironmentApp(
+        "codebuddy_ai",
+        "CodeBuddy AI",
+        ("com.tencent.codebuddy",),
+        intl_dir,
+        "CodeBuddyAI",
+        default_selected=False,
+    )
+    fake = FakeManager(apps=[chrome, intl])
+    with patch("twinspace.cli.cmd_env._manager", return_value=fake), patch.object(
+        apps_module, "KNOWN_APPS", (chrome, intl)
+    ):
+        result = CliRunner().invoke(cli, ["env", "create", "phone1", "--dry-run"])
+    assert result.exit_code == 0
+    assert "Chrome (chrome)" in result.output
+    assert "CodeBuddy AI" not in result.output
+
+
 def test_env_import_dry_run(tmp_path):
     spec_file = tmp_path / "phone.yaml"
     spec_file.write_text(

@@ -224,6 +224,38 @@ def test_environment_create_window_syncs_clone_names(toga_app, tmp_path, monkeyp
     assert window._name_inputs["chrome"].value == "Chrome-phone2"
 
 
+def test_environment_create_window_leaves_opt_in_apps_unchecked(toga_app, tmp_path, monkeypatch):
+    chrome_dir = tmp_path / "Applications" / "Chrome.app"
+    intl_dir = tmp_path / "Applications" / "CodeBuddy.app"
+    chrome_dir.mkdir(parents=True)
+    intl_dir.mkdir(parents=True)
+    chrome_app = EnvironmentApp(
+        "chrome", "Google Chrome", ("com.google.Chrome",), chrome_dir, "Chrome"
+    )
+    intl_app = EnvironmentApp(
+        "codebuddy_ai",
+        "CodeBuddy AI",
+        ("com.tencent.codebuddy",),
+        intl_dir,
+        "CodeBuddyAI",
+        default_selected=False,
+    )
+    monkeypatch.setattr(environment_apps, "KNOWN_APPS", (chrome_app, intl_app))
+    monkeypatch.setattr(environment_manager_module, "KNOWN_APPS", (chrome_app, intl_app))
+    service = EnvironmentService(state_manager=StateManager(state_file=tmp_path / "c.yaml"))
+
+    window = EnvironmentCreateWindow(environment_service=service)
+    window.input_name.value = "phone1"
+
+    assert window._app_switches["chrome"].value is True
+    assert window._app_switches["codebuddy_ai"].value is False
+    assert window._name_inputs["codebuddy_ai"].readonly is True
+    assert window._name_inputs["codebuddy_ai"].value == "CodeBuddyAI-phone1"
+
+    window._app_switches["codebuddy_ai"].value = True
+    assert window._name_inputs["codebuddy_ai"].readonly is False
+
+
 def test_environment_create_window_passes_custom_names(toga_app, tmp_path, monkeypatch):
     service, _ = _environment_service_with_fakes(tmp_path, monkeypatch)
     window = EnvironmentCreateWindow(environment_service=service)

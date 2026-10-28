@@ -484,7 +484,9 @@ twinspace remove Trae-phone1 --with-data
 - `src/twinspace/recipes/builtin/`
   - `dev.zcode.app.yaml`
   - `com.tencent.workbuddy.mac.yaml`
+  - `com.workbuddy.workbuddy-ai.yaml`（国际版，`workbuddy-ai` scheme，新建环境时默认不勾选）
   - `com.tencent.codebuddycn.yaml`
+  - `com.tencent.codebuddy.yaml`（国际版，`codebuddy` scheme，新建环境时默认不勾选）
   - `com.qodercn.app.yaml`
   - `cn.trae.app.yaml`
 - `src/twinspace/cli/cmd_clone.py`
