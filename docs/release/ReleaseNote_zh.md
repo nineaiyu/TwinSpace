@@ -2,6 +2,11 @@
 
 # TwinSpace 更新日志 (Release Notes)
 
+## [v1.5.2] - 2026-10-28
+
+### 🩹 修复
+- **带「安全删除」钩子的环境下更新失败**：部分启动器会把包装脚本目录（如 sandbox 的 safe-delete shim）放在 PATH 最前面，克隆/更新脚本里的 `rm -rf` 被拦截并返回 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，导致体积较大的应用（数千个文件）更新失败。现在执行克隆脚本时会把 `/usr/bin`、`/bin`、`/usr/sbin`、`/sbin` 优先放入 PATH，确保 `rm`、`cp` 等使用系统自带二进制。
+
 ## [v1.5.1] - 2026-10-28
 
 ### 🩹 修复

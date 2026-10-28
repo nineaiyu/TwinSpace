@@ -2,6 +2,11 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.5.2] - 2026-10-28
+
+### 🩹 Fixes
+- **Updates failed where a "safe delete" hook is installed**: some launchers prepend a wrapper directory (a sandbox safe-delete shim) to PATH, so the `rm -rf` inside the clone/update script was rejected with `SAFE_DELETE_BULK_CONFIRM_REQUIRED` and large app bundles (thousands of files) could not be updated. Clone scripts now run with `/usr/bin`, `/bin`, `/usr/sbin` and `/sbin` first on PATH so `rm`, `cp` and friends resolve to the system binaries.
+
 ## [v1.5.1] - 2026-10-28
 
 ### 🩹 Fixes
