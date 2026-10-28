@@ -330,10 +330,15 @@ def test_load_builtin_workbuddy_isolation_recipe():
     assert env["WORKBUDDY_CONFIG_DIR"] == "{{TWINSPACE_DATA_DIR}}/Config"
     assert env["WORKBUDDY_USER_DATA_DIR"] == "{{TWINSPACE_DATA_DIR}}/Config/app"
     assert env["WORKBUDDY_INSTANCE_NUMBER"] == "{{TWINSPACE_INSTANCE_NUMBER}}"
-    assert env["WORKBUDDY_DEEPLINK_SCHEMES"] == "workbuddy-{{TWINSPACE_INSTANCE_NUMBER}},buddy-app"
+    assert (
+        env["WORKBUDDY_DEEPLINK_SCHEMES"]
+        == "workbuddy,workbuddy-{{TWINSPACE_INSTANCE_NUMBER}},buddy-app"
+    )
     assert env["TWINSPACE_KEYCHAIN_PREFIX"] == "{{TWINSPACE_KEYCHAIN_PREFIX}}"
     assert "TWINSPACE_KEYCHAIN_EXCLUDE_SERVICES" not in env
     assert env["TWINSPACE_COCOA_HOME_HOOK"] == "1"
+    assert env["TWINSPACE_OAUTH_SCHEMES"] == "workbuddy"
+    assert "login" in env["TWINSPACE_OAUTH_URL_MARKERS"]
     assert env["TWINSPACE_BROWSER_DATA_DIR"] == "{{TWINSPACE_ENV_DIR}}/Browser"
     assert "Library/Keychains" in recipe.symlink_whitelist
     assert "WORKBUDDY_UPDATE_URL" in env

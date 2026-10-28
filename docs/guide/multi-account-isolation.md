@@ -75,7 +75,7 @@ WORKBUDDY_USER_DATA_DIR: '{{TWINSPACE_DATA_DIR}}/Config/app'
 WORKBUDDY_DATA_DIR: '{{TWINSPACE_DATA_DIR}}/Config'
 WORKBUDDY_APP_NAME: '{{TWINSPACE_CLONE_NAME}}'
 WORKBUDDY_INSTANCE_NUMBER: '{{TWINSPACE_INSTANCE_NUMBER}}'
-WORKBUDDY_DEEPLINK_SCHEMES: 'workbuddy-{{TWINSPACE_INSTANCE_NUMBER}},buddy-app'
+WORKBUDDY_DEEPLINK_SCHEMES: 'workbuddy,workbuddy-{{TWINSPACE_INSTANCE_NUMBER}},buddy-app'
 ```
 
 CodeBuddy / Trae 使用 VS Code 参数：
@@ -145,8 +145,20 @@ WorkBuddy 的共享 auth 文件、各应用的 `~/.trae-cn` / `~/.codebuddycn` /
 3. Cocoa HOME hook 把 `NSHomeDirectory` / `NSSearchPathForDirectoriesInDomains`
    重定向到克隆 Home，用于 Qoder 这类不读取 `--user-data-dir` 的 Electron 应用。
 
-WorkBuddy 的账号登录是“打开浏览器登录页 + 应用轮询 auth state”，不依赖自定义 scheme 回调；
-Trae 的登录使用本地 Supabase OAuth 回环服务；CodeBuddy/Qoder 的登录也走各自的本地回调/轮询。
+各应用桌面端接收登录结果的通道不同，规则按通道分别处理：
+
+- **ZCode**：浏览器最终回跳 `zcode://oauth/callback`，规则把 `zcode` 固定到当前分身；
+  客户端同时保留轮询兜底，即使回调丢失也能完成登录。
+- **CodeBuddy / Qoder**：打开登录页后由客户端用 `state` / PKCE `nonce` 轮询服务端换取 token，
+  不依赖 URL scheme，因此不存在“回调跳到宿主机”的问题。
+- **Trae**：在 `127.0.0.1` 的随机端口起本地 OAuth 服务，`auth_callback_url` 指向该端口，
+  回调天然落到发起登录的那个分身。
+- **WorkBuddy**：登录 token 同样由客户端轮询完成；但登录页随后会通过
+  `/work/launch` 打开 `workbuddy://...` 目标深链（如登录后的目标页）。必须把
+  `workbuddy` 固定到当前分身，否则这个跳转会唤醒宿主机原版；同时
+  `WORKBUDDY_DEEPLINK_SCHEMES` 必须保留 `workbuddy`，分身才会在 `open-url`
+  中接受该深链。
+
 它们的外部浏览器页面都会进入本环境的 Chrome profile。
 
 ### 2.4 自动更新
