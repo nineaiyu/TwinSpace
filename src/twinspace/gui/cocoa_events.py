@@ -54,8 +54,7 @@ COMMAND_MODIFIER = _MODIFIER_COMMAND
 # NSEventMask for key presses
 _KEY_EVENT_MASK = 1 << 10
 
-# NSModalResponse / NSAlert return codes used by ``confirm_with_labels``
-_NS_MODAL_CONTINUE = 0
+# NSAlertFirstButtonReturn, returned by ``confirm_with_labels``
 _NS_ALERT_FIRST_BUTTON = 1000
 
 # NSEventMask for right clicks
@@ -110,7 +109,7 @@ if sys.platform == "darwin":
     # annotations are strings (PEP 563), so it must live in module globals for
     # rubicon's ``typing.get_type_hints`` lookup to succeed.
     from rubicon.objc import NSObject, objc_id, objc_method
-    from rubicon.objc.types import NSPoint
+    from rubicon.objc.types import NSInteger, NSPoint  # noqa: F401  (block type hints)
 
     class _MenuTarget(NSObject):
         @objc_method
@@ -174,6 +173,7 @@ else:  # pragma: no cover - TwinSpace GUI is macOS only
     objc_id = None
     objc_method = None
     NSPoint = None
+    NSInteger = None
     _MenuTarget = None
     _SingleClickTarget = None
     _DoubleClickTarget = None
@@ -489,39 +489,40 @@ async def confirm_with_labels(
     ok_label: str,
     cancel_label: str,
 ) -> bool:
-    """NSAlert confirm dialog with task specific button labels.
+    """Confirm dialog with task specific button labels.
 
-    Toga only exposes fixed "OK"/"Cancel" buttons, so the alert is driven here
-    with the same modal-session loop ``toga_cocoa`` uses. Any failure falls back
-    to the standard dialog.
+    Toga only exposes fixed "OK"/"Cancel" buttons. The alert is presented as a
+    sheet on the host window (the same primitive ``toga_cocoa`` uses) and the
+    result arrives through the completion block, so nothing blocks the loop.
     """
     if not _ensure_appkit():
         return bool(await window.confirm_dialog(title, message))
     try:
         import asyncio
-        import time
 
         from rubicon.objc import ObjCClass
 
+        host = getattr(getattr(window, "_impl", None), "native", None)
+        if host is None:
+            return bool(await window.confirm_dialog(title, message))
+
+        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         alert = ObjCClass("NSAlert").alloc().init()
         alert.setMessageText_(title)
         alert.setInformativeText_(message)
         alert.addButtonWithTitle_(ok_label)
         alert.addButtonWithTitle_(cancel_label)
-        alert.layout()
-        nsapp = ObjCClass("NSApplication").sharedApplication
-        session = nsapp.beginModalSessionForWindow_(alert.window)
-        result = nsapp.runModalSession(session)
-        while result == _NS_MODAL_CONTINUE:
-            await asyncio.sleep(0)
-            time.sleep(0.005)
-            result = nsapp.runModalSession(session)
-        nsapp.endModalSession_(session)
-        alert.window.orderOut_(None)
-        return int(result) == _NS_ALERT_FIRST_BUTTON
+
+        def _completion(response: NSInteger) -> None:
+            if not future.done():
+                future.set_result(int(response) == _NS_ALERT_FIRST_BUTTON)
+
+        # AppKit copies the block and keeps it until the sheet is dismissed.
+        alert.beginSheetModalForWindow_completionHandler_(host, _completion)
     except Exception:
         logger.debug("Labelled confirm failed; using the default dialog", exc_info=True)
         return bool(await window.confirm_dialog(title, message))
+    return bool(await future)
 
 
 def attach_right_click_menu(
