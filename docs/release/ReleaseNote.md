@@ -2,6 +2,15 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.4.0] - 2026-10-28
+
+### 🕘 Last Opened Timestamps
+- **Clones and environment apps now show when they were last opened**: a caption under the app icon reads "Opened today at 5:30 / Opened yesterday at 6:20 / Opened 2 days ago / Opened 5 days ago", and the same information appears on clone cards and in the table view.
+- **Timestamps are persisted**: stored as `last_opened_at` in `clones.yaml`, so they survive restarts; a click and the matching system launch notification are deduplicated within 5 seconds.
+- **Every launch path is covered**: besides the in-app launch buttons, TwinSpace listens to NSWorkspace launch notifications, so clones started from Finder or the Dock update as well.
+- **New "Last Opened" column in All Clones**: appended to the table with header sorting; rows refresh in place after a launch without reloading the page.
+- **WorkBuddy login deep-link fix**: the login page opens `workbuddy://` targets and could wake the host app; the scheme is now kept and pinned to the current clone.
+
 ## [v1.3.0] - 2026-10-26
 
 ### 🖥️ UI Rebuild & Native Interaction Fixes
