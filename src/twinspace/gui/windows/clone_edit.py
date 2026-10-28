@@ -336,6 +336,7 @@ class CloneEditWindow(toga.Window):
             dest_path=self.record.dest_path,
             data_dir=self.record.data_dir,
             created_at=self.record.created_at,
+            last_opened_at=getattr(self.record, "last_opened_at", ""),
             proxy_enabled=proxy_enabled,
             proxy_summary=proxy_summary,
             new_bundle_id=self.record.new_bundle_id,

@@ -13,11 +13,13 @@ from toga.style.pack import CENTER, COLUMN, ROW
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
 from twinspace.core.state import CloneRecord
+from twinspace.core.timestamps import format_last_opened
 from twinspace.gui import cocoa_events
 from twinspace.gui.components.clone_card import CloneCard
 from twinspace.gui.components.top_bar import TopHeaderBar
 from twinspace.gui.patch_cocoa import TABLE_ICON_SIZE, configure_cocoa_danger_button
 from twinspace.gui.services.clone_service import CloneService
+from twinspace.gui.services.launch_history import launch_history_for
 from twinspace.gui.theme import Theme
 from twinspace.gui.windows.clone_detail import CloneDetailWindow
 from twinspace.gui.windows.clone_edit import CloneEditWindow
@@ -47,6 +49,8 @@ class CloneListView(toga.Box):
         super().__init__(style=Pack(direction=COLUMN, flex=1, background_color=Theme.BG_WINDOW))
         self.clone_service = clone_service or CloneService()
         self.app_instance = app
+        self.launch_history = launch_history_for(self.clone_service.state_manager)
+        self.launch_history.subscribe(self)
         self._raw_clones: list[CloneRecord] = []
         self._filtered_clones: list[CloneRecord] = []
         self._busy_clones: set[str] = set()
@@ -112,6 +116,7 @@ class CloneListView(toga.Box):
                 t("list_col_proxy"),
                 t("list_col_notes"),
                 t("list_col_created_at"),
+                t("list_col_last_opened"),
             ],
             multiple_select=True,
             on_select=self.on_table_select,
@@ -252,6 +257,11 @@ class CloneListView(toga.Box):
             self.selected_sort = target_sort
             if hasattr(self.top_bar, "select_sort") and self.top_bar.select_sort:
                 self.top_bar.select_sort.value = target_sort
+        elif col_index == 7:  # Last Opened (empty timestamps sort first)
+            self._filtered_clones.sort(
+                key=lambda r: getattr(r, "last_opened_at", "") or "",
+                reverse=not ascending,
+            )
 
         self._render_current_view()
 
@@ -340,20 +350,7 @@ class CloneListView(toga.Box):
             prev_sel_records = self.get_selected_records()
             prev_sel_names = {r.clone_name for r in prev_sel_records}
 
-            table_data = []
-            for r in self._filtered_clones:
-                proxy_str = redact_url_credentials(r.proxy_summary) if r.proxy_enabled else t("list_proxy_disabled")
-                notes_raw = (getattr(r, "notes", "") or "").replace("\n", " ").replace("\r", "")
-                notes_display = (notes_raw[:40] + "…") if len(notes_raw) > 40 else notes_raw
-                table_data.append((
-                    r.clone_name,
-                    r.source_app,
-                    getattr(r, "env_group", "") or "—",
-                    r.strategy,
-                    proxy_str,
-                    notes_display,
-                    r.created_at[:19] if len(r.created_at) >= 19 else r.created_at,
-                ))
+            table_data = [self._table_row(r) for r in self._filtered_clones]
             self.table.data = table_data
             self.content_container.add(self.table_box)
 
@@ -372,6 +369,61 @@ class CloneListView(toga.Box):
                     pass
 
             self.on_table_select(self.table)
+
+    def _table_row(self, record: CloneRecord) -> tuple[Any, ...]:
+        """Build one table row; keep the column order in sync with the headers."""
+        proxy_str = (
+            redact_url_credentials(record.proxy_summary)
+            if record.proxy_enabled
+            else t("list_proxy_disabled")
+        )
+        notes_raw = (getattr(record, "notes", "") or "").replace("\n", " ").replace("\r", "")
+        notes_display = (notes_raw[:40] + "…") if len(notes_raw) > 40 else notes_raw
+        return (
+            record.clone_name,
+            record.source_app,
+            getattr(record, "env_group", "") or "—",
+            record.strategy,
+            proxy_str,
+            notes_display,
+            record.created_at[:19] if len(record.created_at) >= 19 else record.created_at,
+            format_last_opened(getattr(record, "last_opened_at", ""), compact=True),
+        )
+
+    def _apply_last_opened(self, clone_name: str, timestamp: str) -> None:
+        """Refresh the last-opened caption of one clone without a full rebuild."""
+        for record in self._raw_clones:
+            if record.clone_name == clone_name:
+                record.last_opened_at = timestamp
+
+        if self.view_mode == "grid":
+            for row in self.grid_box.children:
+                for child in getattr(row, "children", []):
+                    if isinstance(child, CloneCard) and child.record.clone_name == clone_name:
+                        child.set_last_opened(timestamp)
+            return
+
+        index = next(
+            (i for i, record in enumerate(self._filtered_clones) if record.clone_name == clone_name),
+            None,
+        )
+        if index is None:
+            return
+        try:
+            self.table.data[index] = self._table_row(self._filtered_clones[index])
+        except Exception:
+            logger.debug("Could not refresh the last-opened cell", exc_info=True)
+
+    def handle_clone_opened(self, clone_name: str, timestamp: str) -> None:
+        """LaunchHistory reported that a clone bundle just started."""
+        self._apply_last_opened(clone_name, timestamp)
+
+    async def _record_opened(self, clone_name: str) -> None:
+        """Persist the launch, then paint the returned timestamp immediately."""
+        loop = asyncio.get_running_loop()
+        timestamp = await loop.run_in_executor(None, self.launch_history.mark_opened, clone_name)
+        if timestamp:
+            self._apply_last_opened(clone_name, timestamp)
 
     def on_table_select(self, widget: toga.Table):
         records = self.get_selected_records()
@@ -528,6 +580,7 @@ class CloneListView(toga.Box):
         try:
             await loop.run_in_executor(None, lambda: subprocess.Popen(["open", str(dest_path)]))
             logger.info(f"Successfully triggered open for clone '{record.clone_name}'")
+            await self._record_opened(record.clone_name)
         except Exception as e:
             logger.error(f"Failed to launch clone '{record.clone_name}': {e}")
             if self.app_instance and hasattr(self.app_instance, "main_window"):

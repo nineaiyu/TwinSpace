@@ -10,6 +10,7 @@ from toga.style.pack import CENTER, COLUMN
 
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
+from twinspace.core.timestamps import format_last_opened
 from twinspace.gui import cocoa_events
 from twinspace.gui.patch_cocoa import configure_cocoa_card
 from twinspace.gui.theme import Theme
@@ -17,9 +18,11 @@ from twinspace.gui.theme import Theme
 logger = get_logger("gui.app_tile")
 
 TILE_WIDTH = 108
-TILE_HEIGHT = 118
+TILE_HEIGHT = 134
 ICON_SIZE = 56
 TILE_GAP = 12
+# "Today 5:30" caption sits between the name and the running-status row.
+LAST_OPENED_HEIGHT = 13
 
 # Hover/selection pill: hugs the icon and caption instead of filling the tile.
 # The height is derived from its content so the vertical padding stays symmetric:
@@ -53,6 +56,7 @@ class AppTile(toga.Box):
         clone_name: str,
         icon: Any | None = None,
         running: bool = False,
+        last_opened: str = "",
         tooltip: str = "",
         on_open: Optional[Callable[[], None]] = None,
         on_close: Optional[Callable[[], None]] = None,
@@ -115,6 +119,22 @@ class AppTile(toga.Box):
         )
         self.pill.add(self.name_label)
         self.add(self.pill)
+
+        # Caption directly under the app name: "今天 5:30 打开" / "2 days ago".
+        # The height is fixed so tiles without a timestamp stay aligned.
+        self.last_opened_label = toga.Label(
+            format_last_opened(last_opened, compact=True),
+            style=Pack(
+                font_size=9.5,
+                color=Theme.TEXT_TERTIARY,
+                text_align=CENTER,
+                width=PILL_WIDTH,
+                margin_top=2,
+                margin_left=(TILE_WIDTH - PILL_WIDTH) // 2,
+                height=LAST_OPENED_HEIGHT,
+            ),
+        )
+        self.add(self.last_opened_label)
 
         # The status row spans the pill width and centres its text so the dot +
         # label stays on the same axis as the icon and caption.
@@ -211,6 +231,12 @@ class AppTile(toga.Box):
             Theme.BG_SELECTION,
             radius=PILL_CORNER_RADIUS,
         )
+
+    def set_last_opened(self, value: str) -> None:
+        """Repaint the last-opened caption in place (no widget rebuild)."""
+        text = format_last_opened(value, compact=True)
+        if text != self.last_opened_label.text:
+            self.last_opened_label.text = text
 
     def set_running(self, running: bool) -> None:
         """Repaint the running indicator in place (no widget rebuild)."""

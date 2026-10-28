@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest.mock import MagicMock
 
 from twinspace.core.state import CloneRecord
@@ -35,4 +36,25 @@ def test_clone_card_render_and_actions():
 
     assert "WeChat2" in card.label_name.text
     assert "Soft" in card.label_strategy.text or "软包装" in card.label_strategy.text or "克隆" in card.label_strategy.text
+
+
+def test_clone_card_shows_and_updates_last_opened():
+    record = CloneRecord(
+        clone_name="WeChat2",
+        source_app="WeChat",
+        source_path="/Applications/WeChat.app",
+        bundle_id="com.tencent.xinWeChat",
+        strategy="soft_clone",
+        dest_path="/Users/test/TwinSpace/Apps/WeChat2.app",
+        data_dir="/Users/test/TwinSpace/data/WeChat2",
+        created_at="2026-08-20T10:00:00Z",
+    )
+    card = CloneCard(record=record)
+    assert card.last_opened_label.text == ""
+
+    stamp = datetime.now().astimezone().replace(hour=5, minute=30).isoformat()
+    card.set_last_opened(stamp)
+
+    assert card.record.last_opened_at == stamp
+    assert "5:30" in card.last_opened_label.text
 

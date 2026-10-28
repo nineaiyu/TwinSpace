@@ -405,6 +405,52 @@ def test_clone_list_view_batch_delete_flow(tmp_path):
 
 
 
+def test_clone_list_view_shows_and_updates_last_opened(tmp_path):
+    async def _test():
+        from datetime import datetime
+
+        from twinspace.core.i18n import t
+        from twinspace.gui.components.clone_card import CloneCard
+
+        service = CloneService(state_file=tmp_path / "clones.yaml")
+        stamp = datetime.now().astimezone().replace(hour=5, minute=30).isoformat()
+        record = CloneRecord(
+            clone_name="TG2",
+            source_app="Telegram",
+            source_path="/Applications/Telegram.app",
+            bundle_id="ru.keepcoder.Telegram",
+            strategy="hard_clone",
+            dest_path=str(tmp_path / "TG2.app"),
+            data_dir=str(tmp_path / "data"),
+            created_at="2026-08-19T00:00:00Z",
+            last_opened_at=stamp,
+        )
+        service.state_manager.add(record)
+
+        view = CloneListView(clone_service=service)
+        await view.refresh_clones()
+
+        assert view.table.columns[7].heading == t("list_col_last_opened")
+        assert "5:30" in view.table.data[0].last_opened
+
+        later = datetime.now().astimezone().replace(hour=9, minute=15).isoformat()
+        view._apply_last_opened("TG2", later)
+
+        assert view._filtered_clones[0].last_opened_at == later
+        assert "9:15" in view.table.data[0].last_opened
+
+        view.on_view_mode_changed("grid")
+        cards = [
+            child
+            for row in view.grid_box.children
+            for child in row.children
+            if isinstance(child, CloneCard)
+        ]
+        assert cards and "9:15" in cards[0].last_opened_label.text
+
+    asyncio.run(_test())
+
+
 def test_clone_list_exposes_environment_column_and_filter():
     from twinspace.core.i18n import t
 

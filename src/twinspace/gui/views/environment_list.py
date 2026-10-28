@@ -26,6 +26,7 @@ from twinspace.gui.components.wrapping_label import WrappingLabel
 from twinspace.gui.patch_cocoa import configure_cocoa_card
 from twinspace.gui.services.app_monitor import AppLifecycleMonitor
 from twinspace.gui.services.environment_service import EnvironmentInfo, EnvironmentService
+from twinspace.gui.services.launch_history import launch_history_for
 from twinspace.gui.theme import Theme
 from twinspace.gui.windows.clone_edit import CloneEditWindow
 from twinspace.gui.windows.device_identity import DeviceIdentityWindow
@@ -125,6 +126,9 @@ class EnvironmentListView(toga.Box):
         self._clone_by_path: dict[str, str] = {}
         self._env_by_clone: dict[str, str] = {}
         self._monitor.subscribe(self)
+        # Shared with the All Clones page: persists "last opened" timestamps.
+        self.launch_history = launch_history_for(self.environment_service.state_manager)
+        self.launch_history.subscribe(self)
 
         self._importing = False
         self.top_bar = TopHeaderBar(
@@ -276,6 +280,43 @@ class EnvironmentListView(toga.Box):
         if env is not None:
             self._update_card(state, env)
 
+    def handle_clone_opened(self, clone_name: str, timestamp: str) -> None:
+        """LaunchHistory reported that a clone bundle just started."""
+        self._apply_last_opened(clone_name, timestamp)
+
+    def _apply_last_opened(self, clone_name: str, timestamp: str) -> None:
+        """Repaint one tile's last-opened caption without rebuilding the card."""
+        for env in self._environments:
+            for record in env.records:
+                if record.clone_name == clone_name:
+                    record.last_opened_at = timestamp
+        for state in self._cards.values():
+            tile = state.tiles.get(clone_name)
+            if tile is not None:
+                tile.set_last_opened(timestamp)
+
+    async def _record_opened(self, clone_names: list[str]) -> None:
+        """Persist opening timestamps, then paint them on the tiles."""
+        if not clone_names:
+            return
+        loop = asyncio.get_running_loop()
+        for clone_name in clone_names:
+            timestamp = await loop.run_in_executor(
+                None, self.launch_history.mark_opened, clone_name
+            )
+            if timestamp:
+                self._apply_last_opened(clone_name, timestamp)
+
+    def _clone_names_for_app(self, env_name: str, app_key: str) -> list[str]:
+        env = next((item for item in self._environments if item.name == env_name), None)
+        if env is None:
+            return []
+        return [
+            record.clone_name
+            for record in env.records
+            if self.environment_service.app_key_for_bundle_id(record.bundle_id) == app_key
+        ]
+
     def _set_refresh_busy(self, busy: bool) -> None:
         """Disable the toolbar refresh button while a reload is in flight."""
         button = getattr(self.top_bar, "btn_refresh", None)
@@ -405,6 +446,11 @@ class EnvironmentListView(toga.Box):
         self._apply_status_pill(state, env_running)
         for clone_name, tile in state.tiles.items():
             tile.set_running(self._is_running(clone_name))
+        # Also pick up timestamps written while this card was mounted.
+        for record in env.records:
+            tile = state.tiles.get(record.clone_name)
+            if tile is not None:
+                tile.set_last_opened(getattr(record, "last_opened_at", ""))
         for button in (state.update_button, state.backup_button):
             if button.enabled != (not env_running):
                 button.enabled = not env_running
@@ -726,6 +772,7 @@ class EnvironmentListView(toga.Box):
             clone_name=record.clone_name,
             icon=cocoa_events.load_app_icon(record.dest_path),
             running=running,
+            last_opened=getattr(record, "last_opened_at", ""),
             tooltip=t("env_app_tile_hint", app=label, clone=record.clone_name),
             on_open=lambda: self._schedule(self._toggle_app(env.name, key, False)),
             on_close=lambda: self._schedule(self._toggle_app(env.name, key, True)),
@@ -858,6 +905,8 @@ class EnvironmentListView(toga.Box):
             return
         # Repaint the dots straight away; no full page rebuild is involved.
         self._mark_environment_running(name, True)
+        env = next((item for item in self._environments if item.name == name), None)
+        await self._record_opened([record.clone_name for record in env.records] if env else [])
         self._schedule(self._verify_running_later())
 
     async def _toggle_app(self, name: str, app_key: str, running: bool) -> None:
@@ -882,6 +931,8 @@ class EnvironmentListView(toga.Box):
         # Flip the tile immediately instead of tearing the page down and
         # waiting for the process table to catch up.
         self._mark_running(name, app_key, not running)
+        if not running:
+            await self._record_opened(self._clone_names_for_app(name, app_key))
         self._schedule(self._verify_running_later())
 
     def _edit_app(self, record: CloneRecord) -> None:

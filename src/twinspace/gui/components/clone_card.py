@@ -9,6 +9,7 @@ from toga.style.pack import CENTER, COLUMN, ROW
 
 from twinspace.core.i18n import t
 from twinspace.core.state import CloneRecord
+from twinspace.core.timestamps import format_last_opened
 from twinspace.gui import cocoa_events
 from twinspace.gui.patch_cocoa import configure_cocoa_danger_button
 from twinspace.gui.theme import Theme
@@ -71,6 +72,11 @@ class CloneCard(toga.Box):
         body.add(toga.Label(t("card_label_path", path=Path(record.dest_path).name), style=Pack(font_size=12, color=Theme.TEXT_TERTIARY, margin_bottom=3)))
         proxy_info = redact_url_credentials(record.proxy_summary) if record.proxy_enabled else t("card_proxy_disabled")
         body.add(toga.Label(t("card_label_proxy", proxy_info=proxy_info), style=Pack(font_size=12, color=Theme.TEXT_TERTIARY)))
+        self.last_opened_label = toga.Label(
+            format_last_opened(getattr(record, "last_opened_at", "")),
+            style=Pack(font_size=11.5, color=Theme.TEXT_TERTIARY, margin_top=3),
+        )
+        body.add(self.last_opened_label)
         notes_raw = (getattr(record, "notes", "") or "").replace("\n", " ").replace("\r", "")
         if notes_raw:
             notes_display = (notes_raw[:40] + "…") if len(notes_raw) > 40 else notes_raw
@@ -104,6 +110,11 @@ class CloneCard(toga.Box):
         actions.add(toga.Box(style=Pack(flex=1)))
         actions.add(btn_delete)
         self.add(actions)
+
+    def set_last_opened(self, value: str) -> None:
+        """Repaint the last-opened line in place (no widget rebuild)."""
+        self.record.last_opened_at = value
+        self.last_opened_label.text = format_last_opened(value)
 
 
 

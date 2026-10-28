@@ -235,6 +235,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Created At",
         "zh": "创建时间",
     },
+    "list_col_last_opened": {
+        "en": "Last Opened",
+        "zh": "上次打开",
+    },
     "list_col_proxy": {
         "en": "Proxy",
         "zh": "代理",
@@ -422,6 +426,38 @@ MESSAGES: dict[str, dict[str, str]] = {
     "env_app_tile_hint": {
         "en": "{app} · {clone}\nDouble-click to open · Right-click for options",
         "zh": "{app} · {clone}\n双击打开 · 右键查看更多",
+    },
+    "last_opened_today": {
+        "en": "Last opened today at {time}",
+        "zh": "今天 {time} 打开",
+    },
+    "last_opened_yesterday": {
+        "en": "Last opened yesterday at {time}",
+        "zh": "昨天 {time} 打开",
+    },
+    "last_opened_day_before": {
+        "en": "Last opened the day before yesterday at {time}",
+        "zh": "前天 {time} 打开",
+    },
+    "last_opened_days_ago": {
+        "en": "Last opened {days} days ago",
+        "zh": "{days} 天前打开",
+    },
+    "last_opened_short_today": {
+        "en": "Today {time}",
+        "zh": "今天 {time} 打开",
+    },
+    "last_opened_short_yesterday": {
+        "en": "Yesterday {time}",
+        "zh": "昨天 {time} 打开",
+    },
+    "last_opened_short_day_before": {
+        "en": "2 days ago",
+        "zh": "前天 {time} 打开",
+    },
+    "last_opened_short_days_ago": {
+        "en": "{days} days ago",
+        "zh": "{days} 天前打开",
     },
     "env_menu_more": {
         "en": "More actions",

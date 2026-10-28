@@ -1,6 +1,7 @@
 """Tests for the environment app tiles and their action plumbing."""
 
 import asyncio
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import toga
@@ -389,3 +390,51 @@ def test_environment_refresh_shows_and_clears_loading_state(toga_app, tmp_path):
 
     assert view._loading is False
     assert not _has_activity_indicator(view.list_box)
+
+
+def test_tile_renders_last_opened_under_the_app_name(toga_app):
+    from twinspace.gui.components import app_tile as module
+
+    tile = _make_tile()
+    assert tile.last_opened_label.text == ""
+    assert tile.last_opened_label.style.margin_left == (
+        module.TILE_WIDTH - module.PILL_WIDTH
+    ) // 2
+
+    stamp = datetime.now().astimezone().replace(hour=5, minute=30).isoformat()
+    tile.set_last_opened(stamp)
+
+    assert "5:30" in tile.last_opened_label.text
+    # The caption sits between the name pill and the running status row.
+    assert tile.children.index(tile.pill) < tile.children.index(tile.last_opened_label)
+    assert tile.children.index(tile.last_opened_label) < tile.children.index(tile.status_label)
+
+
+def test_opening_an_app_records_and_paints_last_opened(toga_app, tmp_path):
+    state = _environment_state(tmp_path)
+    service = EnvironmentService(state_manager=state)
+    service.running_clones = lambda name=None: set()
+    view = EnvironmentListView(environment_service=service)
+    asyncio.run(view.refresh_environments())
+
+    asyncio.run(view._record_opened(["ZCode-phone1"]))
+
+    stored = {record.clone_name: record for record in state.load()}
+    assert stored["ZCode-phone1"].last_opened_at
+    tile = view._cards["phone1"].tiles["ZCode-phone1"]
+    assert tile.last_opened_label.text
+
+
+def test_launch_event_repaints_last_opened_on_the_tile(toga_app, tmp_path):
+    state = _environment_state(tmp_path)
+    service = EnvironmentService(state_manager=state)
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+
+    stamp = datetime.now().astimezone().replace(hour=8, minute=30).isoformat()
+    view.handle_clone_opened("Chrome-phone1", stamp)
+
+    assert view._cards["phone1"].tiles["Chrome-phone1"].last_opened_label.text
+    records = {record.clone_name: record for record in view._environments[0].records}
+    assert records["Chrome-phone1"].last_opened_at == stamp

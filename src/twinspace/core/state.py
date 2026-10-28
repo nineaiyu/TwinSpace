@@ -1,12 +1,14 @@
 import os
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, fields
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
 from twinspace.core.config import DEFAULT_STATE_FILE
 from twinspace.core.logger import get_logger
+from twinspace.core.timestamps import parse_iso_timestamp
 
 STATE_FILE = DEFAULT_STATE_FILE
 
@@ -23,6 +25,7 @@ class CloneRecord:
     dest_path: str
     data_dir: str
     created_at: str
+    last_opened_at: str = ""
     proxy_enabled: bool = False
     proxy_summary: str = ""
     new_bundle_id: str = ""
@@ -53,6 +56,17 @@ def _file_lock(lock_path: Path):
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
             except OSError:
                 pass
+
+
+def _normalise_bundle_path(value: str | Path | None) -> str:
+    """Resolve a bundle path so notifications and the state file compare equal."""
+    text = str(value or "")
+    if not text:
+        return ""
+    try:
+        return os.path.realpath(text)
+    except OSError:  # pragma: no cover - realpath is tolerant in practice
+        return text
 
 
 def is_any_clone_running(dest_paths: Iterable[str | Path]) -> bool:
@@ -317,3 +331,53 @@ class StateManager:
             if r.clone_name == clone_name:
                 return r
         return None
+
+    def mark_opened(
+        self,
+        clone_name: str | None = None,
+        *,
+        dest_path: str | Path | None = None,
+        timestamp: str | None = None,
+        min_interval: float = 5.0,
+    ) -> tuple[str, str] | None:
+        """Record when a clone bundle was last opened.
+
+        The record is matched by ``clone_name`` or, for system launch
+        notifications, by ``dest_path``. Returns ``(clone_name, timestamp)`` for
+        the matched record, or ``None`` when nothing matches.
+
+        A click and the matching NSWorkspace notification describe the same
+        launch, so a timestamp that arrives ``min_interval`` seconds after the
+        stored one reuses it instead of rewriting the state file twice.
+        """
+        if clone_name is None and dest_path is None:
+            return None
+
+        stamp = timestamp or datetime.now(timezone.utc).isoformat(timespec="seconds")
+        wanted_path = _normalise_bundle_path(dest_path)
+        with _file_lock(self.lock_file):
+            records = self.load()
+            target: CloneRecord | None = None
+            for record in records:
+                if clone_name is not None:
+                    if record.clone_name == clone_name:
+                        target = record
+                        break
+                elif wanted_path and _normalise_bundle_path(record.dest_path) == wanted_path:
+                    target = record
+                    break
+            if target is None:
+                return None
+
+            previous = parse_iso_timestamp(target.last_opened_at)
+            current = parse_iso_timestamp(stamp)
+            if (
+                previous is not None
+                and current is not None
+                and abs((current - previous).total_seconds()) < min_interval
+            ):
+                return target.clone_name, target.last_opened_at
+
+            target.last_opened_at = stamp
+            self.save(records)
+            return target.clone_name, stamp
