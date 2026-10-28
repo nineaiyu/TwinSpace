@@ -2,6 +2,16 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.5.0] - 2026-10-28
+
+### 🖱 Batch Actions, Rubber-Band Selection & Update Badges
+- **Rubber-band selection (My Environments / clone cards)**: press and drag a translucent box over icons or blank space and everything it touches is selected; auto-scrolls at the page edges, `Cmd + A` selects all, `Esc` clears (pressing `Esc` mid-drag cancels that sweep and restores the previous selection), a plain click on blank space clears the selection, and `Shift`-dragging appends.
+- **Right-click batch menu**: with several items selected, right-clicking any selected one offers Open / Quit / Update / Rebuild from Source for the whole selection — no need to switch to the table; right-clicking blank space offers Select All / Clear Selection. The batch bars above the environment page and the clone card grid are gone.
+- **Clone table batch actions**: the toolbar becomes "Open (N) / Close (N) / Update (N) / Delete (N)" as soon as several rows are selected.
+- **⬆ update badges**: the source app's `Info.plist` version is compared against each clone — the table gains a Version column showing `old → new`, clone cards show "update available", environment tiles show `⬆ <new version>` and the environment header shows "N to update". Badges are recomputed when the app becomes active again (e.g. after updating the source app in Finder).
+- **Clearer update semantics**: "Update All" now only processes apps that are behind their source app, and a new "Rebuild All" keeps the old full-rebuild behaviour. Both skip running apps and list the app names (plus a "skipped (still running)" line) in a confirmation whose button reads Update / Rebuild / Cancel.
+- **Progress feedback**: updates and rebuilds are mutually exclusive, and the environment card status line shows `Updating 2/3 · ZCode` while it works (and the failing app afterwards).
+
 ## [v1.4.0] - 2026-10-28
 
 ### 🕘 Last Opened Timestamps
