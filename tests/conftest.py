@@ -2,8 +2,37 @@
 
 import asyncio
 import os
+import tempfile
+from pathlib import Path
 
 import pytest
+
+
+def _keep_temp_out_of_twinspace() -> None:
+    """Never let pytest write its temp trees into the TwinSpace data dir.
+
+    Sessions that run inside a clone inherit ``TMPDIR=<...>/Environments/<env>/
+    <app>/Tmp``, and pytest would then drop hundreds of megabytes of
+    ``pytest-of-*`` directories inside the user's real clone data.
+    """
+    raw = os.environ.get("TMPDIR", "")
+    if not raw:
+        return
+    try:
+        candidate = Path(raw).expanduser().resolve()
+    except OSError:  # pragma: no cover - malformed TMPDIR
+        return
+    if "TwinSpace" not in candidate.parts or "Data" not in candidate.parts:
+        return
+    fallback = Path("/tmp")
+    if not fallback.is_dir():
+        return
+    os.environ["TMPDIR"] = str(fallback)
+    # ``tempfile`` caches the first lookup; reset it so pytest picks the new root.
+    tempfile.tempdir = None
+
+
+_keep_temp_out_of_twinspace()
 
 from twinspace.core.i18n import set_language
 
