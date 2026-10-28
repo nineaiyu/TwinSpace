@@ -2,6 +2,11 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.5.3] - 2026-10-29
+
+### 🩹 Fixes
+- **The "running" badge disappeared a second after launching an app**: for clones started through a launcher (or Electron apps with nested helper bundles), NSWorkspace reports the executable path (`…/ZCode-b1.app/Contents/MacOS/ZCode-b1`) or an inner helper bundle, while clones are indexed by their `.app` path — the lookup failed and the green dot was cleared. Running paths are now folded back to the outermost `.app`, and clones that are believed to be running but missing from the snapshot are re-checked once against the process table.
+
 ## [v1.5.2] - 2026-10-28
 
 ### 🩹 Fixes

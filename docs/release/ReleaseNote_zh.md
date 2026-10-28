@@ -2,6 +2,11 @@
 
 # TwinSpace 更新日志 (Release Notes)
 
+## [v1.5.3] - 2026-10-29
+
+### 🩹 修复
+- **环境里应用显示「运行中」后一秒又消失**：ZCode 这类通过启动器拉起、或带嵌套 Helper 的 Electron 分身，NSWorkspace 上报的是可执行文件路径（`…/ZCode-b1.app/Contents/MacOS/ZCode-b1`）或内部 Helper bundle，而克隆是按 `.app` 包路径索引的，匹配失败就把绿灯撤掉了。现在统一把运行路径折回到最外层 `.app`；并对「本地认为在运行、但快照里没有」的分身做一次 `ps` 复核，避免误判为已退出。
+
 ## [v1.5.2] - 2026-10-28
 
 ### 🩹 修复
