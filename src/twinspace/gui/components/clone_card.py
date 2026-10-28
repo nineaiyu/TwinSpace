@@ -28,9 +28,16 @@ class CloneCard(toga.Box):
         on_edit: Optional[Callable[[CloneRecord], None]] = None,
         on_detail: Optional[Callable[[CloneRecord], None]] = None,
         on_delete: Optional[Callable[[CloneRecord], None]] = None,
+        current_version: str = "",
+        latest_version: str = "",
+        update_available: bool = False,
     ):
         super().__init__(style=Pack(direction=COLUMN, margin=(6, 8, 8, 8), flex=1, background_color=Theme.BG_CARD))
         self.record = record
+        self.selected = False
+        self.update_available = bool(update_available)
+        self.current_version = current_version
+        self.latest_version = latest_version
 
         # Card Header: Icon + Name + Strategy Tag
         header = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin=(12, 14, 6, 14)))
@@ -64,6 +71,18 @@ class CloneCard(toga.Box):
             )
             header.add(self.label_env)
         header.add(self.label_strategy)
+        self.label_update = toga.Label(
+            t("card_update_badge") if update_available else "",
+            style=Pack(
+                font_size=11.5,
+                font_weight="bold",
+                color=Theme.BTN_WARNING,
+                margin_left=8,
+            ),
+        )
+        header.add(self.label_update)
+        # Exposed so the list view can turn the header into a selection surface.
+        self.header = header
         self.add(header)
 
         # Card Body: Metadata info
@@ -77,6 +96,17 @@ class CloneCard(toga.Box):
             style=Pack(font_size=11.5, color=Theme.TEXT_TERTIARY, margin_top=3),
         )
         body.add(self.last_opened_label)
+        if update_available:
+            body.add(
+                toga.Label(
+                    t(
+                        "card_version_line",
+                        current=current_version or "-",
+                        latest=latest_version or "-",
+                    ),
+                    style=Pack(font_size=11.5, color=Theme.BTN_WARNING, margin_top=3),
+                )
+            )
         notes_raw = (getattr(record, "notes", "") or "").replace("\n", " ").replace("\r", "")
         if notes_raw:
             notes_display = (notes_raw[:40] + "…") if len(notes_raw) > 40 else notes_raw
@@ -115,6 +145,19 @@ class CloneCard(toga.Box):
         """Repaint the last-opened line in place (no widget rebuild)."""
         self.record.last_opened_at = value
         self.last_opened_label.text = format_last_opened(value)
+
+    def set_selected(self, selected: bool) -> None:
+        """Tint the card surface while it takes part in a multi-selection."""
+        selected = bool(selected)
+        if selected == self.selected:
+            return
+        self.selected = selected
+        cocoa_events.set_hover_background(
+            self,
+            True,
+            Theme.BG_SELECTION if selected else Theme.BG_CARD,
+            radius=14.0,
+        )
 
 
 

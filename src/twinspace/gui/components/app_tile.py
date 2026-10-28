@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any, Callable, Optional
 
 import toga
@@ -18,11 +19,13 @@ from twinspace.gui.theme import Theme
 logger = get_logger("gui.app_tile")
 
 TILE_WIDTH = 108
-TILE_HEIGHT = 134
+TILE_HEIGHT = 149
 ICON_SIZE = 56
 TILE_GAP = 12
 # "Today 5:30" caption sits between the name and the running-status row.
 LAST_OPENED_HEIGHT = 13
+# "⬆ 1.2.3" badge row: appears when the source app moved past the clone version.
+UPDATE_BADGE_HEIGHT = 14
 
 # Hover/selection pill: hugs the icon and caption instead of filling the tile.
 # The height is derived from its content so the vertical padding stays symmetric:
@@ -46,6 +49,25 @@ def compute_tile_columns(available_width: float) -> int:
     return max(TILE_COLUMNS_MIN, min(TILE_COLUMNS_MAX, columns))
 
 
+def _accepts_selection_intent(callback: Any) -> bool:
+    """True when a select callback takes ``(tile, intent)`` rather than ``(tile)``."""
+    if callback is None:
+        return False
+    try:
+        parameters = list(inspect.signature(callback).parameters.values())
+    except (TypeError, ValueError):  # pragma: no cover - builtins / C callables
+        return False
+    positional = [
+        parameter
+        for parameter in parameters
+        if parameter.kind
+        in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    return len(positional) >= 2 or any(
+        parameter.kind is parameter.VAR_POSITIONAL for parameter in parameters
+    )
+
+
 class AppTile(toga.Box):
     """A Finder-style app tile: icon on top, name below, native interactions."""
 
@@ -58,12 +80,16 @@ class AppTile(toga.Box):
         running: bool = False,
         last_opened: str = "",
         tooltip: str = "",
+        update_available: bool = False,
+        current_version: str = "",
+        latest_version: str = "",
         on_open: Optional[Callable[[], None]] = None,
         on_close: Optional[Callable[[], None]] = None,
         on_edit: Optional[Callable[[], None]] = None,
         on_reveal: Optional[Callable[[], None]] = None,
         on_update: Optional[Callable[[], None]] = None,
-        on_select: Optional[Callable[["AppTile"], None]] = None,
+        on_select: Optional[Callable[["AppTile", str], None]] = None,
+        on_batch_action: Optional[Callable[[str], None]] = None,
     ):
         super().__init__(
             style=Pack(
@@ -79,7 +105,14 @@ class AppTile(toga.Box):
         self.running = running
         self.tooltip = tooltip or clone_name
         self.selected = False
+        self.update_available = bool(update_available)
+        self.current_version = current_version
+        self.latest_version = latest_version
+        self._base_tooltip = self.tooltip
         self._on_select = on_select
+        self._select_with_intent = _accepts_selection_intent(on_select)
+        self._on_batch_action = on_batch_action
+        self._batch_entries: tuple[cocoa_events.MenuEntry, ...] | None = None
         self._callbacks = {
             "open": on_open,
             "close": on_close,
@@ -135,6 +168,26 @@ class AppTile(toga.Box):
             ),
         )
         self.add(self.last_opened_label)
+
+        # "New version" badge: hidden (empty, fixed height) unless the source app
+        # moved past the version baked into this clone.
+        self.update_label = toga.Label(
+            "",
+            style=Pack(
+                font_size=9.5,
+                font_weight="bold",
+                color=Theme.BTN_WARNING,
+                text_align=CENTER,
+                width=PILL_WIDTH,
+                margin_top=1,
+                margin_left=(TILE_WIDTH - PILL_WIDTH) // 2,
+                height=UPDATE_BADGE_HEIGHT,
+            ),
+        )
+        self.add(self.update_label)
+        self.set_update_info(
+            update_available, current_version, latest_version
+        )
 
         # The status row spans the pill width and centres its text so the dot +
         # label stays on the same axis as the icon and caption.
@@ -203,24 +256,51 @@ class AppTile(toga.Box):
             pass
         return fallback
 
-    def _menu_entries(self) -> tuple[cocoa_events.MenuEntry, ...]:
-        return (
-            cocoa_events.MenuEntry("open", t("environment_app_open"), enabled=not self.running),
-            cocoa_events.MenuEntry("close", t("environment_app_close"), enabled=self.running),
-            cocoa_events.MenuEntry(
-                "update",
-                t("env_app_menu_update"),
-                enabled=not self.running,
-                separator=True,
-            ),
-            cocoa_events.MenuEntry("edit", t("env_app_menu_edit")),
-            cocoa_events.MenuEntry("reveal", t("env_app_menu_reveal")),
-        )
-
     def _handle_click(self) -> None:
         logger.info("Tile click: clone=%s", self.clone_name)
-        if self._on_select is not None:
+        if self._on_select is None:
+            return
+        if self._select_with_intent:
+            self._on_select(self, cocoa_events.selection_intent())
+        else:
             self._on_select(self)
+
+    def set_update_info(
+        self,
+        update_available: bool,
+        current_version: str = "",
+        latest_version: str = "",
+    ) -> None:
+        """Show or hide the "new version available" badge without a rebuild."""
+        available = bool(update_available)
+        changed = available != self.update_available
+        self.update_available = available
+        self.current_version = current_version or self.current_version
+        self.latest_version = latest_version or self.latest_version
+        label = getattr(self, "update_label", None)
+        text = (
+            t("env_app_update_badge", version=self.latest_version)
+            if available
+            else ""
+        )
+        if label is not None and label.text != text:
+            label.text = text
+        note = (
+            t(
+                "env_app_update_tooltip",
+                version=self.latest_version,
+                current=self.current_version or "-",
+            )
+            if available
+            else ""
+        )
+        self.tooltip = (
+            f"{self._base_tooltip}\n{note}" if note and self._base_tooltip else (
+                note or self._base_tooltip
+            )
+        )
+        if changed:
+            cocoa_events.set_tooltip(self, self.tooltip)
 
     def set_selected(self, selected: bool) -> None:
         """Draw (or clear) the Finder-style selection pill behind the icon."""
@@ -263,8 +343,41 @@ class AppTile(toga.Box):
         if callback is not None:
             callback()
 
+    def set_batch_menu(
+        self,
+        entries: tuple[cocoa_events.MenuEntry, ...] | None,
+    ) -> None:
+        """Swap the per-app menu for the multi-selection batch menu.
+
+        ``entries`` is ``None`` when the tile is not part of a multi-selection.
+        """
+        if entries == self._batch_entries:
+            return
+        self._batch_entries = entries
+        cocoa_events.update_tile_menu(self, self._menu_entries(), self._handle_menu)
+
+    def _menu_entries(self) -> tuple[cocoa_events.MenuEntry, ...]:
+        if self._batch_entries is not None:
+            return self._batch_entries
+        return (
+            cocoa_events.MenuEntry("open", t("environment_app_open"), enabled=not self.running),
+            cocoa_events.MenuEntry("close", t("environment_app_close"), enabled=self.running),
+            cocoa_events.MenuEntry(
+                "update",
+                t("env_app_menu_update"),
+                enabled=not self.running,
+                separator=True,
+            ),
+            cocoa_events.MenuEntry("edit", t("env_app_menu_edit")),
+            cocoa_events.MenuEntry("reveal", t("env_app_menu_reveal")),
+        )
+
     def _handle_menu(self, key: str) -> None:
         logger.info("Tile menu action: clone=%s key=%s", self.clone_name, key)
+        if self._batch_entries is not None:
+            if self._on_batch_action is not None:
+                self._on_batch_action(key)
+            return
         if key == "open" and self.running:
             return
         if key == "close" and not self.running:

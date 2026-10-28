@@ -39,6 +39,41 @@ _appkit_ready = False
 # Nested views can both report the same click, so ignore repeats within this window.
 _DOUBLE_CLICK_DEBOUNCE = 0.35
 
+# NSGestureRecognizerState
+GESTURE_BEGAN = 1
+GESTURE_CHANGED = 2
+GESTURE_ENDED = 3
+GESTURE_CANCELLED = 4
+
+# NSEventModifierFlags
+_MODIFIER_SHIFT = 1 << 17
+_MODIFIER_COMMAND = 1 << 20
+SHIFT_MODIFIER = _MODIFIER_SHIFT
+COMMAND_MODIFIER = _MODIFIER_COMMAND
+
+# NSEventMask for key presses
+_KEY_EVENT_MASK = 1 << 10
+
+# NSModalResponse / NSAlert return codes used by ``confirm_with_labels``
+_NS_MODAL_CONTINUE = 0
+_NS_ALERT_FIRST_BUTTON = 1000
+
+# NSEventMask for right clicks
+_RIGHT_CLICK_MASK = 1 << 3
+
+# NSEventMask / NSEventType for the left button
+_DRAG_EVENT_MASK = (1 << 1) | (1 << 2) | (1 << 6)  # down | up | dragged
+_DRAG_EVENT_STATES = {
+    1: GESTURE_BEGAN,  # NSEventTypeLeftMouseDown
+    6: GESTURE_CHANGED,  # NSEventTypeLeftMouseDragged
+    2: GESTURE_ENDED,  # NSEventTypeLeftMouseUp
+}
+
+# Selection intents reported to callers that own a multi-selection.
+SELECT_REPLACE = "replace"
+SELECT_TOGGLE = "toggle"
+SELECT_EXTEND = "extend"
+
 
 @dataclass(frozen=True)
 class MenuEntry:
@@ -71,7 +106,11 @@ def _ensure_appkit() -> bool:
 
 
 if sys.platform == "darwin":
-    from rubicon.objc import NSObject, objc_method
+    # ``objc_id`` is used in the block type hints of ``attach_drag_monitor``;
+    # annotations are strings (PEP 563), so it must live in module globals for
+    # rubicon's ``typing.get_type_hints`` lookup to succeed.
+    from rubicon.objc import NSObject, objc_id, objc_method
+    from rubicon.objc.types import NSPoint
 
     class _MenuTarget(NSObject):
         @objc_method
@@ -132,6 +171,9 @@ if sys.platform == "darwin":
                     logger.debug("Hover exit handler failed", exc_info=True)
 
 else:  # pragma: no cover - TwinSpace GUI is macOS only
+    objc_id = None
+    objc_method = None
+    NSPoint = None
     _MenuTarget = None
     _SingleClickTarget = None
     _DoubleClickTarget = None
@@ -411,6 +453,164 @@ def popup_menu(
         logger.debug("Could not show native menu: %s", exc)
 
 
+def attach_activation_observer(owner: Any, on_activate: Callable[[], None]) -> None:
+    """Call ``on_activate`` whenever the app becomes the active app again."""
+    if not _ensure_appkit():
+        return
+    try:
+        from rubicon.objc import ObjCClass
+    except Exception:  # pragma: no cover - rubicon is a hard dependency
+        return
+
+    def _observer(notification: objc_id) -> None:
+        try:
+            on_activate()
+        except Exception:
+            logger.exception("Activation handler failed")
+
+    try:
+        center = ObjCClass("NSNotificationCenter").defaultCenter
+        queue = ObjCClass("NSOperationQueue").mainQueue
+        token = center.addObserverForName_object_queue_usingBlock_(
+            "NSApplicationDidBecomeActiveNotification", None, queue, _observer
+        )
+    except Exception:
+        logger.debug("Could not observe app activation", exc_info=True)
+        return
+    if token is None:
+        return
+    _retain(owner, [token, _observer])
+
+
+async def confirm_with_labels(
+    window: Any,
+    title: str,
+    message: str,
+    ok_label: str,
+    cancel_label: str,
+) -> bool:
+    """NSAlert confirm dialog with task specific button labels.
+
+    Toga only exposes fixed "OK"/"Cancel" buttons, so the alert is driven here
+    with the same modal-session loop ``toga_cocoa`` uses. Any failure falls back
+    to the standard dialog.
+    """
+    if not _ensure_appkit():
+        return bool(await window.confirm_dialog(title, message))
+    try:
+        import asyncio
+        import time
+
+        from rubicon.objc import ObjCClass
+
+        alert = ObjCClass("NSAlert").alloc().init()
+        alert.setMessageText_(title)
+        alert.setInformativeText_(message)
+        alert.addButtonWithTitle_(ok_label)
+        alert.addButtonWithTitle_(cancel_label)
+        alert.layout()
+        nsapp = ObjCClass("NSApplication").sharedApplication
+        session = nsapp.beginModalSessionForWindow_(alert.window)
+        result = nsapp.runModalSession(session)
+        while result == _NS_MODAL_CONTINUE:
+            await asyncio.sleep(0)
+            time.sleep(0.005)
+            result = nsapp.runModalSession(session)
+        nsapp.endModalSession_(session)
+        alert.window.orderOut_(None)
+        return int(result) == _NS_ALERT_FIRST_BUTTON
+    except Exception:
+        logger.debug("Labelled confirm failed; using the default dialog", exc_info=True)
+        return bool(await window.confirm_dialog(title, message))
+
+
+def attach_right_click_menu(
+    owner: Any,
+    entries_at: Callable[[tuple[float, float]], Sequence[MenuEntry]],
+    handler: Callable[[str], None],
+) -> None:
+    """Pop a context menu for right clicks the owner claims.
+
+    Toga flattens its widgets into sibling ``TogaView``s, so an ``NSMenu`` set on
+    a container never reaches the blank areas between the children. ``entries_at``
+    receives the click location (window coordinates) and returns the items for
+    it — an empty result means "not mine", and the event is passed through.
+    """
+    if not _ensure_appkit():
+        return
+    try:
+        from rubicon.objc import ObjCClass
+    except Exception:  # pragma: no cover - rubicon is a hard dependency
+        logger.debug("Could not import rubicon for the right-click menu", exc_info=True)
+        return
+
+    def _handler(event: objc_id) -> objc_id:
+        handled = False
+        try:
+            handled = _popup_menu_for_event(event, owner, entries_at, handler)
+        except Exception:
+            logger.exception("Right-click menu handler failed")
+        if handled:
+            return None
+        return event.value if hasattr(event, "value") else event
+
+    try:
+        token = ObjCClass("NSEvent").addLocalMonitorForEventsMatchingMask_handler_(
+            _RIGHT_CLICK_MASK, _handler
+        )
+    except Exception:
+        logger.debug("Could not install the right-click monitor", exc_info=True)
+        return
+    if token is None:
+        return
+    _retain(owner, [token, _handler])
+
+
+def _popup_menu_for_event(
+    event: Any,
+    owner: Any,
+    entries_at: Callable[[tuple[float, float]], Sequence[MenuEntry]],
+    handler: Callable[[str], None],
+) -> bool:
+    """Show the owner's menu for this right click; True when it was consumed."""
+    if event is None:
+        return False
+    try:
+        from rubicon.objc import ObjCClass, ObjCInstance
+
+        native_event = event if isinstance(event, ObjCInstance) else ObjCInstance(event)
+        native = native_of(owner)
+        window = native.window if native is not None else None
+    except Exception:
+        return False
+    if window is None or native_event.window != window:
+        return False
+    try:
+        point = native_event.locationInWindow
+        location = (float(point.x), float(point.y))
+    except Exception:
+        return False
+    entries = tuple(entries_at(location))
+    if not entries:
+        return False
+    menu = build_menu(entries, handler)
+    if menu is None:
+        return False
+    try:
+        ObjCClass("NSMenu").popUpContextMenu_withEvent_forView_(
+            menu, native_event, native
+        )
+    except Exception:
+        logger.debug("Could not pop up the context menu", exc_info=True)
+        return False
+    references: list[Any] = [menu]
+    menu_target = getattr(menu, "_target", None)
+    if menu_target is not None:
+        references.append(menu_target)
+    _retain(owner, references)
+    return True
+
+
 def update_tile_menu(
     widget: Any,
     entries: Sequence[MenuEntry],
@@ -422,7 +622,16 @@ def update_tile_menu(
     native ``NSMenu``; tiles that switch between running/idle therefore need a
     fresh menu instead of a rebuilt tile widget.
     """
-    if not entries or not _ensure_appkit():
+    if not _ensure_appkit():
+        return
+    if not entries:
+        # Clearing is how a widget drops back to "no context menu".
+        for view in _native_views(widget):
+            try:
+                view.setMenu_(None)
+            except Exception:
+                continue
+        widget._twinspace_menu_refs = []
         return
     menu = build_menu(entries, handler)
     if menu is None:
@@ -595,3 +804,446 @@ def attach_tile_interactions(
         widget._twinspace_cocoa_refs = references
     except Exception:
         logger.debug("Could not retain Cocoa interaction references", exc_info=True)
+
+
+def _retain(widget: Any, references: Sequence[Any]) -> None:
+    """Append native objects to the widget so AppKit does not release them."""
+    try:
+        existing = list(getattr(widget, "_twinspace_cocoa_refs", []) or [])
+        existing.extend(references)
+        widget._twinspace_cocoa_refs = existing
+    except Exception:
+        logger.debug("Could not retain Cocoa references", exc_info=True)
+
+
+def current_modifier_flags() -> int:
+    """Modifier keys held right now (0 when AppKit is unavailable)."""
+    if not _ensure_appkit():
+        return 0
+    try:
+        from rubicon.objc import ObjCClass
+
+        return int(ObjCClass("NSEvent").modifierFlags)
+    except Exception:
+        return 0
+
+
+def selection_intent() -> str:
+    """Translate the current modifiers into a multi-selection intent."""
+    flags = current_modifier_flags()
+    if flags & _MODIFIER_COMMAND:
+        return SELECT_TOGGLE
+    if flags & _MODIFIER_SHIFT:
+        return SELECT_EXTEND
+    return SELECT_REPLACE
+
+
+def window_frame(widget: Any) -> tuple[float, float, float, float] | None:
+    """Return a widget's native frame in window base coordinates.
+
+    Drag hit-testing works on window coordinates because the pointer leaves the
+    widget it started on; ``(x, y, width, height)`` uses AppKit's bottom-left
+    origin, which ``convertRect:toView:nil`` already accounts for.
+    """
+    native = native_of(widget)
+    if native is None:
+        return None
+    try:
+        rect = native.convertRect_toView_(native.bounds, None)
+        origin = rect.origin
+        size = rect.size
+        return (float(origin.x), float(origin.y), float(size.width), float(size.height))
+    except Exception:
+        logger.debug("Could not resolve native frame", exc_info=True)
+        return None
+
+
+def frame_contains(frame: tuple[float, float, float, float], location: tuple[float, float]) -> bool:
+    """True when ``location`` (window coordinates) falls inside ``frame``."""
+    x, y, width, height = frame
+    px, py = location
+    return x <= px <= x + width and y <= py <= y + height
+
+
+def frame_intersects(
+    frame: tuple[float, float, float, float],
+    other: tuple[float, float, float, float],
+) -> bool:
+    """True when two window-space rectangles overlap (rubber-band hit testing)."""
+    x, y, width, height = frame
+    ox, oy, owidth, oheight = other
+    return x < ox + owidth and ox < x + width and y < oy + oheight and oy < y + height
+
+
+def hit_test_view(owner: Any, location: tuple[float, float]) -> Any | None:
+    """Native view under a window-space point (used to skip buttons)."""
+    native = native_of(owner)
+    if native is None:
+        return None
+    try:
+        window = native.window
+        content = window.contentView if window is not None else None
+    except Exception:
+        return None
+    if content is None:
+        return None
+    try:
+        from rubicon.objc.types import NSMakePoint
+
+        point = content.convertPoint_fromView_(
+            NSMakePoint(location[0], location[1]), None
+        )
+        return content.hitTest_(point)
+    except Exception:
+        logger.debug("Could not hit-test the window content", exc_info=True)
+        return None
+
+
+def is_control_view(view: Any) -> bool:
+    """True when a native view is (or lives inside) a button-like ``NSControl``."""
+    try:
+        from rubicon.objc import ObjCClass
+
+        control_class = ObjCClass("NSControl")
+    except Exception:  # pragma: no cover - macOS only in practice
+        return False
+    current = view
+    for _ in range(8):
+        if current is None:
+            return False
+        try:
+            if current.isKindOfClass_(control_class):
+                return True
+            current = current.superview
+        except Exception:
+            return False
+    return False
+
+
+def drag_rect(
+    start: tuple[float, float],
+    end: tuple[float, float],
+) -> tuple[float, float, float, float]:
+    """Normalise the two corners of a drag into an ``(x, y, width, height)`` rect."""
+    x1, y1 = start
+    x2, y2 = end
+    return (min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
+
+
+_MarqueeView = None
+
+
+def _marquee_view_class() -> Any:
+    """Create (once) the transparent overlay used to draw the rubber band."""
+    global _MarqueeView
+    if _MarqueeView is not None:
+        return _MarqueeView
+    try:
+        from rubicon.objc import ObjCClass
+
+        base = ObjCClass("NSView")
+
+        class MarqueeView(base):
+            @objc_method
+            def hitTest_(self, point: NSPoint) -> objc_id:
+                # Returning nil keeps the overlay transparent to the mouse, so
+                # clicks, drags and right-clicks still reach the tiles beneath.
+                return None
+
+        _MarqueeView = MarqueeView
+    except Exception:  # pragma: no cover - macOS only in practice
+        logger.debug("Could not create the marquee overlay view", exc_info=True)
+    return _MarqueeView
+
+
+class Marquee:
+    """Rubber-band rectangle drawn above the window content during a drag."""
+
+    def __init__(self, owner: Any) -> None:
+        self._view = None
+        self._content = None
+        if not _ensure_appkit():
+            return
+        view_class = _marquee_view_class()
+        if view_class is None:
+            return
+        try:
+            native = native_of(owner)
+            window = native.window if native is not None else None
+            content = window.contentView if window is not None else None
+            if content is None:
+                return
+            from rubicon.objc import ObjCClass
+
+            view = view_class.alloc().initWithFrame_(content.bounds)
+            view.setWantsLayer_(True)
+            color_class = ObjCClass("NSColor")
+            fill = color_class.colorWithSRGBRed_green_blue_alpha_(0.0, 0.48, 1.0, 0.14)
+            stroke = color_class.colorWithSRGBRed_green_blue_alpha_(0.0, 0.48, 1.0, 0.70)
+            layer = view.layer
+            layer.setBackgroundColor_(fill.CGColor)
+            layer.setBorderColor_(stroke.CGColor)
+            layer.setBorderWidth_(1.0)
+            layer.setCornerRadius_(2.0)
+            content.addSubview_(view)
+            self._view = view
+            self._content = content
+        except Exception:  # pragma: no cover - macOS only in practice
+            logger.debug("Could not create the marquee overlay", exc_info=True)
+
+    @property
+    def active(self) -> bool:
+        return self._view is not None
+
+    def set_rect(self, rect: tuple[float, float, float, float]) -> None:
+        """Move the rubber band; ``rect`` is in window base coordinates."""
+        if self._view is None or self._content is None:
+            return
+        try:
+            from rubicon.objc.types import NSMakeRect
+
+            converted = self._content.convertRect_fromView_(
+                NSMakeRect(rect[0], rect[1], rect[2], rect[3]), None
+            )
+            self._view.setFrame_(converted)
+        except Exception:
+            logger.debug("Could not move the marquee overlay", exc_info=True)
+
+    def close(self) -> None:
+        view = self._view
+        self._view = None
+        self._content = None
+        if view is None:
+            return
+        try:
+            view.removeFromSuperview()
+        except Exception:
+            logger.debug("Could not remove the marquee overlay", exc_info=True)
+
+
+def set_tooltip(widget: Any, text: str) -> None:
+    """Update the native tooltip of a widget and all of its views."""
+    if not text:
+        return
+    for view in _native_views(widget):
+        try:
+            view.setToolTip_(text)
+        except Exception:
+            continue
+
+
+def attach_drag_monitor(
+    owner: Any,
+    on_drag: Callable[[int, tuple[float, float]], None],
+) -> None:
+    """Report left-button press / drag / release in window coordinates.
+
+    A local event monitor is used instead of a gesture recognizer on purpose:
+    an ``NSPanGestureRecognizer`` competes with the click / double-click
+    recognizers the tiles already install (a small movement would cancel the
+    double-click that opens an app). The monitor only observes events and always
+    hands them back untouched, so existing interactions keep working.
+    """
+    if not _ensure_appkit():
+        return
+    try:
+        from rubicon.objc import ObjCClass
+    except Exception:  # pragma: no cover - rubicon is a hard dependency
+        logger.debug("Could not import rubicon for the drag monitor", exc_info=True)
+        return
+
+    def _handler(event: objc_id) -> objc_id:
+        try:
+            _dispatch_drag_event(event, owner, on_drag)
+        except Exception:
+            logger.exception("Drag selection handler failed")
+        # AppKit expects the very same NSEvent back so the event keeps flowing.
+        # rubicon rejects ObjC wrappers as block return values, but a plain
+        # integer address is converted back to the pointer by ctypes.
+        return event.value if hasattr(event, "value") else event
+
+    try:
+        event_class = ObjCClass("NSEvent")
+        token = event_class.addLocalMonitorForEventsMatchingMask_handler_(
+            _DRAG_EVENT_MASK, _handler
+        )
+    except Exception:
+        logger.debug("Could not install the drag monitor", exc_info=True)
+        return
+    if token is None:
+        return
+    _retain(owner, [token, _handler])
+
+
+def _dispatch_drag_event(
+    event: Any,
+    owner: Any,
+    on_drag: Callable[[int, tuple[float, float]], None],
+) -> None:
+    """Forward one left-button event to ``on_drag`` when it targets our view."""
+    if event is None:
+        return
+    # Block callbacks receive a raw pointer, not an object wrapper.
+    try:
+        from rubicon.objc import ObjCInstance
+
+        native_event = event if isinstance(event, ObjCInstance) else ObjCInstance(event)
+    except Exception:
+        logger.debug("Could not wrap the drag event", exc_info=True)
+        return
+    try:
+        state = _DRAG_EVENT_STATES.get(int(native_event.type))
+    except Exception:
+        return
+    if state is None:
+        return
+    native = native_of(owner)
+    if native is None:
+        return
+    try:
+        window = native.window
+    except Exception:
+        return
+    # ``window is None`` means the view is not mounted (the page was switched).
+    if window is None or native_event.window != window:
+        return
+    try:
+        location = native_event.locationInWindow
+        on_drag(state, (float(location.x), float(location.y)))
+    except Exception:
+        logger.debug("Could not dispatch a drag event", exc_info=True)
+
+
+def attach_key_monitor(owner: Any, on_key: Callable[[str, int], bool]) -> None:
+    """Observe key presses while ``owner``'s window is key.
+
+    ``on_key`` receives the typed character (modifiers stripped) plus the
+    ``NSEventModifierFlags`` and returns ``True`` when it consumed the key, in
+    which case the event is swallowed (otherwise AppKit beeps).
+    """
+    if not _ensure_appkit():
+        return
+    try:
+        from rubicon.objc import ObjCClass
+    except Exception:  # pragma: no cover - rubicon is a hard dependency
+        logger.debug("Could not import rubicon for the key monitor", exc_info=True)
+        return
+
+    def _handler(event: objc_id) -> objc_id:
+        handled = False
+        try:
+            handled = _dispatch_key_event(event, owner, on_key)
+        except Exception:
+            logger.exception("Key handler failed")
+        if handled:
+            return None
+        return event.value if hasattr(event, "value") else event
+
+    try:
+        token = ObjCClass("NSEvent").addLocalMonitorForEventsMatchingMask_handler_(
+            _KEY_EVENT_MASK, _handler
+        )
+    except Exception:
+        logger.debug("Could not install the key monitor", exc_info=True)
+        return
+    if token is None:
+        return
+    _retain(owner, [token, _handler])
+
+
+def _dispatch_key_event(
+    event: Any,
+    owner: Any,
+    on_key: Callable[[str, int], bool],
+) -> bool:
+    """Forward one key press to ``on_key`` when it belongs to our window."""
+    if event is None:
+        return False
+    try:
+        from rubicon.objc import ObjCInstance
+
+        native_event = event if isinstance(event, ObjCInstance) else ObjCInstance(event)
+        native = native_of(owner)
+        window = native.window if native is not None else None
+    except Exception:
+        return False
+    if window is None or native_event.window != window:
+        return False
+    try:
+        # Never steal keystrokes from a focused text field / text view.
+        responder = window.firstResponder
+        if responder is not None and responder.isKindOfClass_(_text_view_class()):
+            return False
+        key = str(native_event.charactersIgnoringModifiers or "")
+        flags = int(native_event.modifierFlags)
+    except Exception:
+        return False
+    if not key:
+        return False
+    return bool(on_key(key, flags))
+
+
+def _text_view_class() -> Any:
+    """``NSTextView``, used to leave typed input alone."""
+    from rubicon.objc import ObjCClass
+
+    return ObjCClass("NSTextView")
+
+
+def scroll_content(widget: Any, amount: float) -> bool:
+    """Scroll the scroll view of ``widget`` by ``amount`` content points.
+
+    Positive values scroll towards the end of the content. Returns True when the
+    offset actually moved (the view may already be at an edge).
+    """
+    native = native_of(widget)
+    if native is None:
+        return False
+    try:
+        from rubicon.objc.types import NSMakePoint
+
+        clip = native.contentView
+        document = clip.documentView
+        if document is None:
+            return False
+        bounds = clip.bounds
+        origin = bounds.origin
+        flipped = bool(document.isFlipped)
+        max_offset = max(0.0, float(document.frame.size.height) - float(bounds.size.height))
+        offset = float(origin.y) if flipped else max_offset - float(origin.y)
+        new_offset = min(max(offset + float(amount), 0.0), max_offset)
+        if abs(new_offset - offset) < 0.5:
+            return False
+        target_y = new_offset if flipped else max_offset - new_offset
+        clip.scrollToPoint_(NSMakePoint(float(origin.x), target_y))
+        native.reflectScrolledClipView_(clip)
+        return True
+    except Exception:
+        logger.debug("Could not scroll the content view", exc_info=True)
+        return False
+
+
+def attach_click_selection(
+    widget: Any,
+    on_click: Callable[[str], None],
+) -> None:
+    """Single-click recognizer that reports the current selection intent."""
+    if not _ensure_appkit():
+        return
+    references: list[Any] = []
+    for view in list(_native_views(widget)):
+        try:
+            from rubicon.objc import SEL, ObjCClass
+
+            gesture_class = ObjCClass("NSClickGestureRecognizer")
+            target = _SingleClickTarget.alloc().init()
+            target._callback = lambda: on_click(selection_intent())
+            recognizer = gesture_class.alloc().initWithTarget_action_(
+                target, SEL("handleSingleClick:")
+            )
+            recognizer.setNumberOfClicksRequired_(1)
+            view.addGestureRecognizer_(recognizer)
+            references.extend([target, recognizer])
+        except Exception:
+            logger.debug("Could not attach click recognizer", exc_info=True)
+    _retain(widget, references)

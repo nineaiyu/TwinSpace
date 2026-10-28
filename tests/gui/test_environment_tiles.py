@@ -2,12 +2,14 @@
 
 import asyncio
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import toga
 
+from twinspace.core.app_version import AppUpdate
 from twinspace.core.i18n import t
 from twinspace.core.state import CloneRecord, StateManager
+from twinspace.gui import cocoa_events
 from twinspace.gui.components.app_tile import (
     TILE_COLUMNS_MAX,
     TILE_COLUMNS_MIN,
@@ -143,7 +145,9 @@ def test_environment_menu_disables_mutating_actions_while_running(toga_app, tmp_
     )
     running_entries = {entry.key: entry for entry in view._env_menu_entries(True)}
     assert running_entries["open_all"].enabled is True
-    assert running_entries["update_all"].enabled is False
+    # Updating/rebuilding skip the running apps one by one, so they stay enabled.
+    assert running_entries["update_all"].enabled is True
+    assert running_entries["rebuild_all"].enabled is True
     assert running_entries["backup"].enabled is False
     assert running_entries["remove"].enabled is False
 
@@ -172,12 +176,15 @@ def test_update_app_rebuilds_only_the_selected_app(toga_app, tmp_path):
     view = EnvironmentListView(environment_service=service)
     view.app_instance = MagicMock()
     view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._confirm = AsyncMock(return_value=True)
     view.app_instance.main_window.info_dialog = AsyncMock()
     view._on_environment_changed = AsyncMock()
 
     asyncio.run(view._update_app("phone1", "zcode", "ZCode-phone1"))
 
-    service.update_environment.assert_awaited_once_with("phone1", app_keys=["zcode"])
+    service.update_environment.assert_awaited_once_with(
+        "phone1", app_keys=["zcode"], on_progress=ANY
+    )
     view._on_environment_changed.assert_awaited_once()
 
 
@@ -425,6 +432,234 @@ def test_opening_an_app_records_and_paints_last_opened(toga_app, tmp_path):
     assert tile.last_opened_label.text
 
 
+def test_tile_click_forwards_the_selection_intent(toga_app):
+    seen: list[tuple[str, str]] = []
+    tile = _make_tile(on_select=lambda t, intent: seen.append((t.clone_name, intent)))
+
+    tile._handle_click()
+
+    assert seen == [("ZCode-phone1", cocoa_events.selection_intent())]
+
+
+def test_command_click_toggles_and_shift_click_extends_the_selection(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    tiles = {tile.clone_name: tile for tile in _collect_tiles(view.list_box)}
+
+    view._select_tile(tiles["Chrome-phone1"])
+    view._select_tile(tiles["ZCode-phone1"], cocoa_events.SELECT_TOGGLE)
+    assert view._selected_clones == {"Chrome-phone1", "ZCode-phone1"}
+    assert tiles["Chrome-phone1"].selected is True
+    assert tiles["ZCode-phone1"].selected is True
+
+    # ⌘-click on a selected tile removes it again.
+    view._select_tile(tiles["ZCode-phone1"], cocoa_events.SELECT_TOGGLE)
+    assert view._selected_clones == {"Chrome-phone1"}
+    assert tiles["ZCode-phone1"].selected is False
+
+    # ⇧-click extends from the last clicked tile to the target.
+    view._select_tile(tiles["WorkBuddy-phone1"], cocoa_events.SELECT_EXTEND)
+    assert view._selected_clones == {"ZCode-phone1", "WorkBuddy-phone1"}
+    assert tiles["Chrome-phone1"].selected is False
+
+
+def test_tiles_are_selected_without_a_batch_bar(toga_app, tmp_path):
+    """The environment page has no top batch bar; actions live in the menu."""
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    tiles = _collect_tiles(view.list_box)
+
+    assert not hasattr(view, "selection_bar")
+
+    view._select_tile(tiles[0])
+    view._select_tile(tiles[1], cocoa_events.SELECT_TOGGLE)
+    assert view._selected_clones == {tiles[0].clone_name, tiles[1].clone_name}
+
+    view.clear_selection()
+    assert view._selected_clones == set()
+    assert all(tile.selected is False for tile in tiles)
+
+
+def test_tile_and_environment_show_pending_updates(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._update_status = {
+        "ZCode-phone1": AppUpdate(current="1.0", latest="2.0", needs_update=True),
+        "Chrome-phone1": AppUpdate(current="9.9", latest="9.9", needs_update=False),
+    }
+    view._environments = service.list_environments()
+    view._render()
+
+    card = view._cards["phone1"]
+    assert card.tiles["ZCode-phone1"].update_available is True
+    assert "2.0" in card.tiles["ZCode-phone1"].update_label.text
+    assert card.tiles["Chrome-phone1"].update_available is False
+    assert card.tiles["Chrome-phone1"].update_label.text == ""
+    assert card.update_badge.text == t("environment_update_badge", count=1)
+
+
+def test_batch_open_and_close_only_touch_selected_apps(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    calls: list[tuple[str, str, list[str]]] = []
+    service.open_environment = (
+        lambda name, keys=None: calls.append(("open", name, list(keys or []))) or []
+    )
+    service.quit_environment = (
+        lambda name, keys=None: calls.append(("quit", name, list(keys or []))) or []
+    )
+    view._environments = service.list_environments()
+    view._running_clones = {"ZCode-phone1"}
+    view._render()
+    view._record_opened = AsyncMock()
+    view._schedule = lambda awaitable: awaitable.close()
+
+    tiles = view._cards["phone1"].tiles
+    view._select_tile(tiles["Chrome-phone1"])
+    view._select_tile(tiles["ZCode-phone1"], cocoa_events.SELECT_TOGGLE)
+
+    asyncio.run(view._batch_open_selected())
+    assert tiles["Chrome-phone1"].running is True
+
+    # Forget the optimistic state so the process table (pre-seeded above) wins.
+    view._optimistic.clear()
+    asyncio.run(view._batch_close_selected())
+
+    # The running app is skipped when opening, the idle one when closing.
+    assert calls == [
+        ("open", "phone1", ["chrome"]),
+        ("quit", "phone1", ["zcode"]),
+    ]
+    assert tiles["ZCode-phone1"].running is False
+
+
+def test_batch_update_rebuilds_selected_apps_only(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._confirm = AsyncMock(return_value=True)
+    view.app_instance.main_window.info_dialog = AsyncMock()
+    view.app_instance.main_window.error_dialog = AsyncMock()
+    view._on_environment_changed = AsyncMock()
+    view._environments = service.list_environments()
+    view._running_clones = {"WorkBuddy-phone1"}
+    view._update_status = {
+        "Chrome-phone1": AppUpdate("1.0", "2.0", True),
+        "ZCode-phone1": AppUpdate("1.0", "2.0", True),
+        "WorkBuddy-phone1": AppUpdate("1.0", "2.0", True),
+    }
+    view._render()
+
+    tiles = view._cards["phone1"].tiles
+    for name in ("Chrome-phone1", "ZCode-phone1", "WorkBuddy-phone1"):
+        view._select_tile(tiles[name], cocoa_events.SELECT_TOGGLE)
+
+    asyncio.run(view._batch_update_selected())
+
+    # The running app is skipped, and only outdated apps are updated.
+    service.update_environment.assert_awaited_once_with(
+        "phone1", app_keys=["chrome", "zcode"], on_progress=ANY
+    )
+    view._on_environment_changed.assert_awaited_once()
+
+
+def test_batch_update_skips_apps_that_are_already_current(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._confirm = AsyncMock(return_value=True)
+    view.app_instance.main_window.info_dialog = AsyncMock()
+    view._environments = service.list_environments()
+    view._update_status = {
+        "Chrome-phone1": AppUpdate("2.0", "2.0", False),
+        "ZCode-phone1": AppUpdate("2.0", "2.0", False),
+    }
+    view._render()
+
+    tiles = view._cards["phone1"].tiles
+    for name in ("Chrome-phone1", "ZCode-phone1"):
+        view._select_tile(tiles[name], cocoa_events.SELECT_TOGGLE)
+
+    asyncio.run(view._batch_update_selected())
+
+    service.update_environment.assert_not_awaited()
+    view.app_instance.main_window.info_dialog.assert_awaited_once_with(
+        t("environment_done_title"), t("environment_update_none_selected")
+    )
+
+
+def test_update_all_only_touches_outdated_apps(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._confirm = AsyncMock(return_value=True)
+    view.app_instance.main_window.info_dialog = AsyncMock()
+    view._on_environment_changed = AsyncMock()
+    view._environments = service.list_environments()
+    view._update_status = {
+        "Chrome-phone1": AppUpdate("1.0", "2.0", True),
+        "ZCode-phone1": AppUpdate("2.0", "2.0", False),
+        "WorkBuddy-phone1": AppUpdate("2.0", "2.0", False),
+    }
+
+    asyncio.run(view._update_all("phone1"))
+
+    service.update_environment.assert_awaited_once_with(
+        "phone1", app_keys=["chrome"], on_progress=ANY
+    )
+
+
+def test_update_all_reports_when_everything_is_current(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.info_dialog = AsyncMock()
+    view._environments = service.list_environments()
+    view._update_status = {
+        "Chrome-phone1": AppUpdate("2.0", "2.0", False),
+        "ZCode-phone1": AppUpdate("2.0", "2.0", False),
+    }
+
+    asyncio.run(view._update_all("phone1"))
+
+    service.update_environment.assert_not_awaited()
+    view.app_instance.main_window.info_dialog.assert_awaited_once_with(
+        t("environment_done_title"), t("environment_update_all_none", name="phone1")
+    )
+
+
+def test_rebuild_all_rebuilds_every_app_regardless_of_version(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._confirm = AsyncMock(return_value=True)
+    view.app_instance.main_window.info_dialog = AsyncMock()
+    view._on_environment_changed = AsyncMock()
+    view._environments = service.list_environments()
+    view._update_status = {
+        "Chrome-phone1": AppUpdate("2.0", "2.0", False),
+        "ZCode-phone1": AppUpdate("2.0", "2.0", False),
+    }
+
+    asyncio.run(view._rebuild_all("phone1"))
+
+    # No app_keys: the whole environment is rebuilt.
+    service.update_environment.assert_awaited_once_with("phone1", on_progress=ANY)
+
+
 def test_launch_event_repaints_last_opened_on_the_tile(toga_app, tmp_path):
     state = _environment_state(tmp_path)
     service = EnvironmentService(state_manager=state)
@@ -438,3 +673,482 @@ def test_launch_event_repaints_last_opened_on_the_tile(toga_app, tmp_path):
     assert view._cards["phone1"].tiles["Chrome-phone1"].last_opened_label.text
     records = {record.clone_name: record for record in view._environments[0].records}
     assert records["Chrome-phone1"].last_opened_at == stamp
+
+
+class _FakeMarquee:
+    """Stands in for the Cocoa overlay; records the rectangles it was given."""
+
+    instances: list["_FakeMarquee"] = []
+
+    def __init__(self, owner):
+        self.rects: list[tuple[float, float, float, float]] = []
+        self.closed = False
+        _FakeMarquee.instances.append(self)
+
+    def set_rect(self, rect) -> None:
+        self.rects.append(rect)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _view_with_tile_frames(tmp_path, monkeypatch, frames):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view._environments = service.list_environments()
+    view._render()
+    tiles = view._ordered_tiles()
+    coordinates = {
+        tile.clone_name: frames[index] for index, tile in enumerate(tiles)
+    }
+    monkeypatch.setattr(
+        cocoa_events,
+        "window_frame",
+        lambda widget: coordinates.get(
+            getattr(widget, "clone_name", ""), (0.0, 0.0, 2000.0, 2000.0)
+        ),
+    )
+    monkeypatch.setattr(cocoa_events, "Marquee", _FakeMarquee)
+    return view, tiles
+
+
+def test_marquee_selects_every_tile_inside_the_box(toga_app, tmp_path, monkeypatch):
+    _FakeMarquee.instances = []
+    frames = [(0.0, 100.0, 100.0, 100.0), (120.0, 100.0, 100.0, 100.0), (240.0, 100.0, 100.0, 100.0)]
+    view, tiles = _view_with_tile_frames(tmp_path, monkeypatch, frames)
+
+    view._handle_tile_drag(cocoa_events.GESTURE_BEGAN, (90.0, 150.0))
+    view._handle_tile_drag(cocoa_events.GESTURE_CHANGED, (230.0, 250.0))
+    view._handle_tile_drag(cocoa_events.GESTURE_ENDED, (230.0, 250.0))
+
+    assert view._selected_clones == {tiles[0].clone_name, tiles[1].clone_name}
+    assert tiles[0].selected is True
+    assert tiles[2].selected is False
+    # The rubber band is drawn while dragging and removed on mouse-up.
+    assert _FakeMarquee.instances and _FakeMarquee.instances[0].closed is True
+    assert view._click_suppressed is True
+
+
+def test_marquee_ignores_a_plain_click(toga_app, tmp_path, monkeypatch):
+    _FakeMarquee.instances = []
+    frames = [(0.0, 100.0, 100.0, 100.0), (120.0, 100.0, 100.0, 100.0), (240.0, 100.0, 100.0, 100.0)]
+    view, _tiles = _view_with_tile_frames(tmp_path, monkeypatch, frames)
+
+    view._handle_tile_drag(cocoa_events.GESTURE_BEGAN, (90.0, 150.0))
+    view._handle_tile_drag(cocoa_events.GESTURE_ENDED, (90.0, 150.0))
+
+    # A click keeps the click recognizer in charge: nothing selected, no suppression.
+    assert view._selected_clones == set()
+    assert view._click_suppressed is False
+
+
+def test_marquee_does_not_start_on_a_button(toga_app, tmp_path, monkeypatch):
+    _FakeMarquee.instances = []
+    frames = [(0.0, 100.0, 100.0, 100.0), (120.0, 100.0, 100.0, 100.0), (240.0, 100.0, 100.0, 100.0)]
+    view, _tiles = _view_with_tile_frames(tmp_path, monkeypatch, frames)
+    monkeypatch.setattr(cocoa_events, "hit_test_view", lambda owner, location: object())
+    monkeypatch.setattr(cocoa_events, "is_control_view", lambda view: True)
+
+    view._handle_tile_drag(cocoa_events.GESTURE_BEGAN, (90.0, 150.0))
+    view._handle_tile_drag(cocoa_events.GESTURE_CHANGED, (300.0, 250.0))
+
+    assert view._selected_clones == set()
+    assert _FakeMarquee.instances == []
+
+
+def test_marquee_can_start_on_empty_space(toga_app, tmp_path, monkeypatch):
+    """Pressing in the blank area of the page must still start a rubber band."""
+    _FakeMarquee.instances = []
+    frames = [(0.0, 100.0, 100.0, 100.0), (120.0, 100.0, 100.0, 100.0), (240.0, 100.0, 100.0, 100.0)]
+    view, tiles = _view_with_tile_frames(tmp_path, monkeypatch, frames)
+
+    # Start well below/right of the tiles, then sweep back over all three.
+    view._handle_tile_drag(cocoa_events.GESTURE_BEGAN, (500.0, 20.0))
+    view._handle_tile_drag(cocoa_events.GESTURE_CHANGED, (20.0, 260.0))
+
+    assert view._selected_clones == {tile.clone_name for tile in tiles}
+
+
+def test_multi_selection_swaps_the_tile_menu_for_batch_actions(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._update_status = {"Chrome-phone1": AppUpdate("1.0", "2.0", True)}
+    view._render()
+    tiles = view._cards["phone1"].tiles
+
+    view._select_tile(tiles["Chrome-phone1"], cocoa_events.SELECT_TOGGLE)
+    assert tiles["Chrome-phone1"]._menu_entries()[0].key == "open"
+
+    view._select_tile(tiles["ZCode-phone1"], cocoa_events.SELECT_TOGGLE)
+    keys = [entry.key for entry in tiles["Chrome-phone1"]._menu_entries()]
+    assert keys == [
+        "batch_open",
+        "batch_close",
+        "batch_update",
+        "batch_rebuild",
+        "batch_clear",
+    ]
+    # A tile outside the selection keeps its regular menu.
+    assert tiles["WorkBuddy-phone1"]._menu_entries()[0].key == "open"
+
+    view.clear_selection()
+    assert tiles["Chrome-phone1"]._menu_entries()[0].key == "open"
+
+
+def test_clicking_empty_space_clears_the_selection(toga_app, tmp_path, monkeypatch):
+    _FakeMarquee.instances = []
+    frames = [(0.0, 100.0, 100.0, 100.0), (120.0, 100.0, 100.0, 100.0), (240.0, 100.0, 100.0, 100.0)]
+    view, tiles = _view_with_tile_frames(tmp_path, monkeypatch, frames)
+
+    view._select_tile(tiles[0])
+    view._select_tile(tiles[1], cocoa_events.SELECT_TOGGLE)
+    assert view._selected_clones == {tiles[0].clone_name, tiles[1].clone_name}
+
+    # Press (and release) on empty space below the tiles.
+    view._handle_tile_drag(cocoa_events.GESTURE_BEGAN, (600.0, 20.0))
+    view._handle_tile_drag(cocoa_events.GESTURE_ENDED, (600.0, 20.0))
+
+    assert view._selected_clones == set()
+    assert all(tile.selected is False for tile in tiles)
+
+
+def test_shift_click_on_empty_space_keeps_the_selection(toga_app, tmp_path, monkeypatch):
+    _FakeMarquee.instances = []
+    frames = [(0.0, 100.0, 100.0, 100.0), (120.0, 100.0, 100.0, 100.0), (240.0, 100.0, 100.0, 100.0)]
+    view, tiles = _view_with_tile_frames(tmp_path, monkeypatch, frames)
+
+    view._select_tile(tiles[0])
+    monkeypatch.setattr(
+        cocoa_events, "selection_intent", lambda: cocoa_events.SELECT_EXTEND
+    )
+
+    view._handle_tile_drag(cocoa_events.GESTURE_BEGAN, (600.0, 20.0))
+    view._handle_tile_drag(cocoa_events.GESTURE_ENDED, (600.0, 20.0))
+
+    assert view._selected_clones == {tiles[0].clone_name}
+
+
+def test_update_all_lists_targets_and_skips_running_apps(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._confirm = AsyncMock(return_value=True)
+    view.app_instance.main_window.info_dialog = AsyncMock()
+    view._on_environment_changed = AsyncMock()
+    view._environments = service.list_environments()
+    view._running_clones = {"WorkBuddy-phone1"}
+    view._update_status = {
+        "Chrome-phone1": AppUpdate("1.0", "2.0", True),
+        "ZCode-phone1": AppUpdate("1.0", "2.0", True),
+        "WorkBuddy-phone1": AppUpdate("1.0", "2.0", True),
+    }
+
+    asyncio.run(view._update_all("phone1"))
+
+    service.update_environment.assert_awaited_once_with(
+        "phone1", app_keys=["chrome", "zcode"], on_progress=ANY
+    )
+    message = view._confirm.await_args.args[1]
+    assert "Chrome" in message and "ZCode" in message
+    # The running app is reported as skipped instead of aborting the update.
+    assert "WorkBuddy" in message
+
+
+def test_update_all_reports_when_everything_runs(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._confirm = AsyncMock(return_value=True)
+    view.app_instance.main_window.info_dialog = AsyncMock()
+    view._environments = service.list_environments()
+    view._running_clones = {"Chrome-phone1", "ZCode-phone1", "WorkBuddy-phone1"}
+    view._update_status = {"Chrome-phone1": AppUpdate("1.0", "2.0", True)}
+
+    asyncio.run(view._update_all("phone1"))
+
+    service.update_environment.assert_not_awaited()
+    view.app_instance.main_window.info_dialog.assert_awaited_once_with(
+        t("environment_done_title"), t("environment_update_all_running", name="phone1")
+    )
+
+
+def test_rebuild_all_skips_running_apps(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._confirm = AsyncMock(return_value=True)
+    view.app_instance.main_window.info_dialog = AsyncMock()
+    view._on_environment_changed = AsyncMock()
+    view._environments = service.list_environments()
+    view._running_clones = {"ZCode-phone1"}
+
+    asyncio.run(view._rebuild_all("phone1"))
+
+    # ZCode is running and skipped; WorkBuddy has no app key, so only Chrome.
+    service.update_environment.assert_awaited_once_with(
+        "phone1", app_keys=["chrome"], on_progress=ANY
+    )
+    message = view._confirm.await_args.args[1]
+    assert "Chrome" in message
+    assert "ZCode" in message  # listed as skipped
+
+
+def test_batch_rebuild_rebuilds_selected_apps_and_skips_running(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._confirm = AsyncMock(return_value=True)
+    view.app_instance.main_window.info_dialog = AsyncMock()
+    view._on_environment_changed = AsyncMock()
+    view._environments = service.list_environments()
+    view._running_clones = {"WorkBuddy-phone1"}
+    # No update status at all: a rebuild must not care about versions.
+    view._render()
+
+    tiles = view._cards["phone1"].tiles
+    for name in ("Chrome-phone1", "ZCode-phone1", "WorkBuddy-phone1"):
+        view._select_tile(tiles[name], cocoa_events.SELECT_TOGGLE)
+
+    asyncio.run(view._batch_rebuild_selected())
+
+    service.update_environment.assert_awaited_once_with(
+        "phone1", app_keys=["chrome", "zcode"], on_progress=ANY
+    )
+    message = view._confirm.await_args.args[1]
+    assert "WorkBuddy" in message  # skipped section
+    view.app_instance.main_window.info_dialog.assert_awaited_once_with(
+        t("environment_done_title"), t("environment_batch_rebuild_done", count=2)
+    )
+
+
+def test_batch_rebuild_reports_when_every_selected_app_runs(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._confirm = AsyncMock(return_value=True)
+    view.app_instance.main_window.info_dialog = AsyncMock()
+    view._environments = service.list_environments()
+    view._running_clones = {"Chrome-phone1", "ZCode-phone1"}
+    view._render()
+
+    tiles = view._cards["phone1"].tiles
+    for name in ("Chrome-phone1", "ZCode-phone1"):
+        view._select_tile(tiles[name], cocoa_events.SELECT_TOGGLE)
+
+    asyncio.run(view._batch_rebuild_selected())
+
+    service.update_environment.assert_not_awaited()
+    view.app_instance.main_window.info_dialog.assert_awaited_once_with(
+        t("environment_done_title"), t("environment_batch_update_all_running")
+    )
+
+
+def test_command_a_selects_every_tile(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    tiles = view._ordered_tiles()
+
+    assert view._handle_key("a", cocoa_events.COMMAND_MODIFIER) is True
+    assert view._selected_clones == {tile.clone_name for tile in tiles}
+    assert all(tile.selected for tile in tiles)
+
+
+def test_escape_clears_the_selection(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    tiles = view._ordered_tiles()
+
+    view._select_tile(tiles[0])
+    assert view._handle_key("\x1b", 0) is True
+    assert view._selected_clones == set()
+
+
+def test_escape_cancels_a_running_marquee_and_restores_the_selection(
+    toga_app, tmp_path, monkeypatch
+):
+    _FakeMarquee.instances = []
+    frames = [(0.0, 100.0, 100.0, 100.0), (120.0, 100.0, 100.0, 100.0), (240.0, 100.0, 100.0, 100.0)]
+    view, tiles = _view_with_tile_frames(tmp_path, monkeypatch, frames)
+    view._select_tile(tiles[0])
+    monkeypatch.setattr(
+        cocoa_events, "selection_intent", lambda: cocoa_events.SELECT_EXTEND
+    )
+
+    view._handle_tile_drag(cocoa_events.GESTURE_BEGAN, (90.0, 150.0))
+    view._handle_tile_drag(cocoa_events.GESTURE_CHANGED, (300.0, 250.0))
+    assert len(view._selected_clones) > 1
+
+    assert view._handle_key("\x1b", 0) is True
+    assert view._selected_clones == {tiles[0].clone_name}
+    assert view._drag_active is False
+    assert _FakeMarquee.instances[0].closed is True
+
+
+def test_plain_keys_are_left_to_the_app(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+
+    assert view._handle_key("a", 0) is False
+    assert view._handle_key("\x1b", 0) is False
+
+
+def test_a_second_update_is_ignored_while_one_runs(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._confirm = AsyncMock(return_value=True)
+    view._environments = service.list_environments()
+    view._update_status = {"Chrome-phone1": AppUpdate("1.0", "2.0", True)}
+    view._busy_operation = "update"
+
+    asyncio.run(view._update_all("phone1"))
+
+    service.update_environment.assert_not_awaited()
+    view.app_instance.main_window.confirm_dialog.assert_not_awaited()
+
+
+def test_progress_callback_paints_the_card_and_gets_restored(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    card = view._cards["phone1"]
+    app = service.app_for_key("zcode")
+
+    view._progress_reporter("phone1", "environment_progress_updating")(
+        2, 3, app, "updating"
+    )
+
+    assert card.status_text.text == t(
+        "environment_progress_updating", current=2, total=3, app=app.label
+    )
+
+    # The next repaint restores the running / idle label.
+    view._update_card(card, view._environments[0])
+    assert card.status_text.text in (
+        t("environment_running"),
+        t("environment_not_running"),
+    )
+
+
+def test_autoscroll_scrolls_while_the_pointer_sits_near_an_edge(
+    toga_app, tmp_path, monkeypatch
+):
+    _FakeMarquee.instances = []
+    frames = [(0.0, 100.0, 100.0, 100.0), (120.0, 100.0, 100.0, 100.0), (240.0, 100.0, 100.0, 100.0)]
+    view, _tiles = _view_with_tile_frames(tmp_path, monkeypatch, frames)
+    viewport = (0.0, 0.0, 800.0, 400.0)
+    monkeypatch.setattr(cocoa_events, "window_frame", lambda widget: viewport)
+    scrolled: list[float] = []
+    monkeypatch.setattr(
+        cocoa_events,
+        "scroll_content",
+        lambda widget, amount: scrolled.append(amount) or True,
+    )
+
+    view._drag_active = True
+    view._marquee_origin = (10.0, 10.0)
+    view._marquee_location = (10.0, 395.0)  # 5pt from the top edge
+    view._autoscroll_tick()
+    assert scrolled and scrolled[0] > 0
+
+    view._marquee_location = (10.0, 5.0)  # 5pt from the bottom edge
+    view._autoscroll_tick()
+    assert scrolled[-1] < 0
+
+    view._marquee_location = (10.0, 200.0)  # middle: no scrolling
+    before = len(scrolled)
+    view._autoscroll_tick()
+    assert len(scrolled) == before
+
+
+def test_blank_area_menu_offers_select_all_and_clear(toga_app, tmp_path, monkeypatch):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    monkeypatch.setattr(cocoa_events, "window_frame", lambda widget: (0.0, 0.0, 900.0, 700.0))
+    monkeypatch.setattr(cocoa_events, "hit_test_view", lambda owner, location: None)
+    monkeypatch.setattr(view, "_tile_at_location", lambda location: None)
+
+    entries = view._blank_menu_entries_at((10.0, 10.0))
+    assert [entry.key for entry in entries] == ["select_all", "clear_selection"]
+    assert entries[1].enabled is False
+
+    view._select_tile(view._ordered_tiles()[0])
+    entries = view._blank_menu_entries_at((10.0, 10.0))
+    assert entries[1].enabled is True
+
+    view._handle_blank_menu("select_all")
+    assert len(view._selected_clones) == 3
+    view._handle_blank_menu("clear_selection")
+    assert view._selected_clones == set()
+
+
+def test_blank_menu_is_empty_over_a_tile(toga_app, tmp_path, monkeypatch):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    monkeypatch.setattr(cocoa_events, "window_frame", lambda widget: (0.0, 0.0, 900.0, 700.0))
+
+    # Over a tile the tile's own NSMenu must be used.
+    assert view._blank_menu_entries_at((10.0, 10.0)) == ()
+
+
+def test_refresh_update_status_repaints_the_badges(toga_app, tmp_path, monkeypatch):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    monkeypatch.setattr(
+        "twinspace.gui.views.environment_list.update_statuses",
+        lambda records: {
+            record.clone_name: AppUpdate("1.0", "2.0", True) for record in records
+        },
+    )
+
+    asyncio.run(view.refresh_update_status())
+
+    tile = view._cards["phone1"].tiles["Chrome-phone1"]
+    assert tile.update_available is True
+    assert view._cards["phone1"].update_badge.text == t(
+        "environment_update_badge", count=3
+    )
+    assert view._cards["phone1"].update_button.enabled is True
+
+
+def test_confirm_uses_the_action_label(toga_app, tmp_path, monkeypatch):
+    captured: dict[str, str] = {}
+
+    async def fake_confirm(window, title, message, ok_label, cancel_label):
+        captured.update(ok=ok_label, cancel=cancel_label)
+        return True
+
+    monkeypatch.setattr(cocoa_events, "confirm_with_labels", fake_confirm)
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+
+    assert asyncio.run(view._confirm("t", "m", t("btn_update"))) is True
+    assert captured == {"ok": t("btn_update"), "cancel": t("btn_cancel")}

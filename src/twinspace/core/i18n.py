@@ -239,6 +239,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Last Opened",
         "zh": "上次打开",
     },
+    "list_col_version": {
+        "en": "Version",
+        "zh": "版本",
+    },
     "list_col_proxy": {
         "en": "Proxy",
         "zh": "代理",
@@ -471,6 +475,34 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Rebuild {app} from its current source app? Quit it first.",
         "zh": "要按当前源应用重新构建 {app} 吗？请先退出该应用。",
     },
+    "env_app_update_badge": {
+        "en": "⬆ {version}",
+        "zh": "⬆ {version}",
+    },
+    "env_app_update_tooltip": {
+        "en": "Source app is on {version}; this clone is {current}. Right-click → Rebuild from Source to update.",
+        "zh": "源应用已升级到 {version}，当前分身是 {current}。右键 →「从源应用重建」即可更新。",
+    },
+    "environment_update_badge": {
+        "en": "⬆ {count} to update",
+        "zh": "⬆ {count} 个待升级",
+    },
+    "environment_batch_update_confirm": {
+        "en": "Update the following apps to their latest source version?\n{apps}\n\nData directories are kept.",
+        "zh": "要把以下应用更新到源应用的最新版本吗？\n{apps}\n\n数据目录保持不变。",
+    },
+    "environment_batch_rebuild_confirm": {
+        "en": "Rebuild the following apps from their source apps?\n{apps}\n\nData directories are kept.",
+        "zh": "要从源应用重新构建以下应用吗？\n{apps}\n\n数据目录保持不变。",
+    },
+    "environment_batch_rebuild_done": {
+        "en": "Rebuilt {count} app(s) from their source apps.",
+        "zh": "已用源应用重新构建 {count} 个应用。",
+    },
+    "environment_batch_update_done": {
+        "en": "Updated {count} app(s) to the latest source version.",
+        "zh": "已把 {count} 个应用更新到源应用最新版。",
+    },
     "environment_app_update_done": {
         "en": "{app} rebuilt from its source app.",
         "zh": "{app} 已按源应用重建。",
@@ -487,13 +519,65 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Update All",
         "zh": "全部更新",
     },
+    "environment_btn_rebuild_all": {
+        "en": "Rebuild All",
+        "zh": "全部重建",
+    },
+    "environment_rebuild_confirm": {
+        "en": "Rebuild the following apps in {name} from their source apps?\n{apps}\n\nData directories are kept.",
+        "zh": "要从源应用重新构建 {name} 中的以下应用吗？\n{apps}\n\n数据目录保持不变。",
+    },
+    "environment_update_all_none": {
+        "en": "All apps in {name} are already up to date.",
+        "zh": "{name} 内的应用都已是最新版本。",
+    },
+    "environment_update_none_selected": {
+        "en": "The selected apps are already up to date.",
+        "zh": "所选应用都已是最新版本。",
+    },
+    "environment_menu_batch_open": {
+        "en": "Open {count} Selected Apps",
+        "zh": "打开选中的 {count} 个应用",
+    },
+    "environment_menu_batch_close": {
+        "en": "Quit {count} Selected Apps",
+        "zh": "停止选中的 {count} 个应用",
+    },
+    "environment_menu_batch_update": {
+        "en": "Update {count} Selected Apps",
+        "zh": "更新选中的 {count} 个应用",
+    },
+    "environment_menu_batch_rebuild": {
+        "en": "Rebuild {count} Selected Apps from Source",
+        "zh": "从源应用重建选中的 {count} 个应用",
+    },
     "environment_btn_backup": {
         "en": "Backup",
         "zh": "备份数据",
     },
     "environment_update_confirm": {
-        "en": "Rebuild every app in {name}? Quit all apps in this environment first.",
-        "zh": "要重新构建 {name} 中的全部 App 吗？请先退出该环境的所有 App。",
+        "en": "Update the following apps in {name} to their latest source version?\n{apps}\n\nData directories are kept.",
+        "zh": "要把 {name} 中的以下应用更新到源应用的最新版本吗？\n{apps}\n\n数据目录保持不变。",
+    },
+    "environment_update_skipped_running": {
+        "en": "\n\nSkipped (still running): {apps}",
+        "zh": "\n\n运行中已跳过：{apps}",
+    },
+    "environment_more_apps": {
+        "en": "{count} more",
+        "zh": "等 {count} 个",
+    },
+    "environment_update_all_running": {
+        "en": "Every app in {name} is still running. Quit them first.",
+        "zh": "{name} 内的应用都在运行中，请先退出后再操作。",
+    },
+    "environment_batch_update_all_running": {
+        "en": "The selected apps are still running. Quit them first.",
+        "zh": "所选应用都在运行中，请先退出后再操作。",
+    },
+    "environment_app_running": {
+        "en": "{app} is still running. Quit it before updating.",
+        "zh": "{app} 正在运行，请先退出后再更新。",
     },
     "environment_update_title": {
         "en": "Update environment",
@@ -502,6 +586,18 @@ MESSAGES: dict[str, dict[str, str]] = {
     "environment_update_done": {
         "en": "Environment {name} updated.",
         "zh": "环境 {name} 已更新。",
+    },
+    "environment_progress_updating": {
+        "en": "Updating {current}/{total} · {app}",
+        "zh": "更新中 {current}/{total} · {app}",
+    },
+    "environment_progress_rebuilding": {
+        "en": "Rebuilding {current}/{total} · {app}",
+        "zh": "重建中 {current}/{total} · {app}",
+    },
+    "environment_progress_failed": {
+        "en": "Failed: {app}",
+        "zh": "更新失败：{app}",
     },
     "environment_update_error": {
         "en": "Some apps failed to update:\n{errors}",
@@ -528,8 +624,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "每个环境使用独立的数据、Keychain 命名空间和 Chrome Profile；本环境的 App 只会打开本环境的浏览器。",
     },
     "environment_interaction_hint": {
-        "en": "Double-click an app to open it · Right-click for more actions",
-        "zh": "双击应用打开 · 右键查看更多操作",
+        "en": "Double-click an app to open it · Drag a box across icons or ⌘-click to select several · Right-click the selection for batch actions",
+        "zh": "双击应用打开 · 按住左键拉框或 ⌘ 点选可多选 · 右键选区可批量操作",
     },
     "environment_loading": {
         "en": "Loading environments…",
@@ -1027,6 +1123,38 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Delete",
         "zh": "删除",
     },
+    "clone_close_none_title": {
+        "en": "Nothing to close",
+        "zh": "没有需要关闭的分身",
+    },
+    "clone_close_none_msg": {
+        "en": "The selected clones are not running.",
+        "zh": "所选分身当前都没有在运行。",
+    },
+    "clone_close_still_running": {
+        "en": "still running",
+        "zh": "仍在运行",
+    },
+    "btn_batch_open": {
+        "en": "Open ({count})",
+        "zh": "批量打开 ({count})",
+    },
+    "btn_batch_close": {
+        "en": "Close ({count})",
+        "zh": "批量关闭 ({count})",
+    },
+    "btn_opening_progress": {
+        "en": "Opening ({current}/{total})...",
+        "zh": "正在打开 ({current}/{total})...",
+    },
+    "btn_closing_progress": {
+        "en": "Closing ({current}/{total})...",
+        "zh": "正在关闭 ({current}/{total})...",
+    },
+    "selection_clear": {
+        "en": "Clear Selection",
+        "zh": "取消选择",
+    },
     "btn_batch_update": {
         "en": "Update ({count})",
         "zh": "批量更新 ({count})",
@@ -1054,6 +1182,26 @@ MESSAGES: dict[str, dict[str, str]] = {
     "btn_save_changes": {
         "en": "Save Changes",
         "zh": "保存修改",
+    },
+    "btn_rebuild": {
+        "en": "Rebuild",
+        "zh": "重建",
+    },
+    "clone_menu_batch_open": {
+        "en": "Open {count} Selected Clones",
+        "zh": "打开选中的 {count} 个分身",
+    },
+    "clone_menu_batch_close": {
+        "en": "Quit {count} Selected Clones",
+        "zh": "停止选中的 {count} 个分身",
+    },
+    "clone_menu_batch_update": {
+        "en": "Update {count} Selected Clones",
+        "zh": "更新选中的 {count} 个分身",
+    },
+    "selection_select_all": {
+        "en": "Select All",
+        "zh": "全选",
     },
     "btn_cancel": {
         "en": "Cancel",
@@ -1778,6 +1926,18 @@ MESSAGES: dict[str, dict[str, str]] = {
     "card_env_badge": {
         "en": "Env: {name}",
         "zh": "环境: {name}",
+    },
+    "card_update_badge": {
+        "en": "⬆ Update available",
+        "zh": "⬆ 可升级",
+    },
+    "card_version_line": {
+        "en": "Version: {current} → {latest}",
+        "zh": "版本: {current} → {latest}",
+    },
+    "view_clones_selection_hint": {
+        "en": "Drag across cards or ⌘-click to select several",
+        "zh": "按住左键滑动或用 ⌘ 点选可多选",
     },
     "list_col_env": {
         "en": "Environment",

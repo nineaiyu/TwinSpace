@@ -165,6 +165,32 @@ def test_selected_tile_keeps_its_pill_on_hover(toga_app):
     assert tile.selected is False
 
 
+def test_list_views_install_the_drag_selection_monitor(toga_app, tmp_path):
+    """Both list pages must keep the NSEvent monitor alive.
+
+    ``addLocalMonitorForEventsMatchingMask:`` removes the monitor as soon as its
+    token is deallocated, and rubicon resolves the block's type hints lazily, so a
+    failed registration is completely silent — hence this guard.
+    """
+    from twinspace.core.state import StateManager
+    from twinspace.gui.services.clone_service import CloneService
+    from twinspace.gui.services.environment_service import EnvironmentService
+    from twinspace.gui.views.clone_list import CloneListView
+    from twinspace.gui.views.environment_list import EnvironmentListView
+
+    environment_view = EnvironmentListView(
+        environment_service=EnvironmentService(
+            state_manager=StateManager(state_file=tmp_path / "env.yaml")
+        )
+    )
+    clone_view = CloneListView(clone_service=CloneService(state_file=tmp_path / "clones.yaml"))
+
+    for view in (environment_view, clone_view):
+        refs = list(getattr(view, "_twinspace_cocoa_refs", []))
+        assert any("_NSLocalEventObserver" in repr(ref) for ref in refs), type(view).__name__
+        assert any(callable(ref) for ref in refs), type(view).__name__
+
+
 def test_table_cells_use_the_enlarged_icon_metrics(toga_app):
     patch_cocoa_widgets()
     from toga_cocoa.widgets import table as table_module

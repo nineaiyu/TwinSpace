@@ -19,7 +19,7 @@ This chapter guides you step-by-step through creating your first isolated applic
   - [Directly Opening the Data Directory](#directly-opening-the-data-directory)
   - [Editing Clone Configuration](#editing-clone-configuration)
   - [Updating Clones After Primary App Upgrades](#updating-clones-after-primary-app-upgrades)
-  - [Batch Operations (Batch Update & Batch Delete)](#batch-operations-batch-update--batch-delete)
+  - [Batch Operations](#batch-operations)
   - [Safe Deletion (Keeping vs. Purging Data)](#safe-deletion-keeping-vs-purging-data)
 - [🗂️ Isolated Multi-App Environments](#️-isolated-multi-app-environments)
 
@@ -200,16 +200,25 @@ When your primary application (e.g., WeChat or Chrome) is upgraded through the M
 
 ---
 
-### Batch Operations (Batch Update & Batch Delete)
+### Batch Operations
 When managing multiple cloned applications:
 
-1. Switch to **Table View** using the segmented List/Card toggle in the top toolbar.
-2. Use standard macOS multi-selection:
-   * `Cmd + Click`: Select multiple non-contiguous rows.
-   * `Shift + Click`: Select a contiguous range of rows.
-3. The bottom action bar will adapt dynamically:
-   * **"Update (N Clones)"**: Upgrades all selected clones sequentially.
-   * **"Delete (N Clones)"**: Deletes all selected clones in a single operation.
+1. **Table view**: use standard macOS multi-selection — `Cmd + Click` for non-contiguous rows, `Shift + Click` for a range, or press and drag across rows.
+2. **Card view**: press and drag a rubber band across the grid (empty space counts; `Cmd + A` selects all, `Esc` clears, dragging near an edge auto-scrolls). Right-click a selected card for Open / Quit / Update on the N selected clones, or right-click the background for Select All / Clear Selection.
+3. The bottom action bar / batch bar adapts to the selection:
+   * **"Open (N)"**: launches the selected clones (already-running ones are skipped).
+   * **"Close (N)"**: quits the running processes among the selected clones.
+   * **"Update (N)"**: rebuilds the selected clones sequentially, keeping their data.
+   * **"Delete (N)"**: removes the selected clones in a single operation.
+
+---
+
+### Update Badges (Source App Upgraded)
+When the original app is upgraded, clones keep the version they were built from:
+
+* **All Clones**: the table gains a **Version** column showing `⬆ old → new`; card view shows an "⬆ Update available" badge plus the version comparison.
+* **My Environments**: affected tiles show `⬆ <new version>` under the icon, and the environment header shows "⬆ N to update".
+* Use **Update** to rebuild the clone from the current source app; data and sign-in state are preserved.
 
 ---
 
@@ -318,14 +327,41 @@ twinspace env remove phone1                 # remove env (asks about data)
 ```
 
 In the GUI the same actions live on each environment card
-(**Open All / Update All / Backup / Add Apps**); the remaining actions (export
-template, restore backup, remove environment, reveal the environment folder)
-are grouped in the **⋯** menu in the card header. Apps are shown as icon tiles:
-**double-click** to open, **right-click** for the context menu (Open/Close,
-Edit Configuration, Rebuild from Source, Reveal in Finder). Running apps show a
-green status line under the icon. The environment header also shows the device
-UUID prefix and hostname; use `⋯ → Device Identity…` to copy the full values,
-and the clone details window lists the same environment and device identity.
+(**Open All / Update All / Rebuild All / Backup / Add Apps**); the remaining
+actions (export template, restore backup, remove environment, reveal the
+environment folder) are grouped in the **⋯** menu in the card header.
+
+* **Update All** only processes apps that are behind their source app (the ones
+  showing `⬆`); up-to-date apps are skipped, and the button is disabled when
+  nothing is pending.
+* **Rebuild All** ignores versions and recreates every app in the environment
+  from its source app (useful to repair a broken copy or force a refresh).
+* Both **skip running apps** (the confirmation lists them under "Skipped
+  (still running)") and ask for a **second confirmation** that names the apps
+  about to be updated/rebuilt (e.g. `Google Chrome, ZCode`). Data directories
+  are untouched; if every app is running the action only reports it.
+
+Apps are shown as icon tiles: **double-click** to open, **right-click** for the
+context menu (Open/Close, Edit Configuration, Rebuild from Source, Reveal in
+Finder). Running apps show a green status line under the icon. Tiles support
+rubber-band selection: **press and drag a box** anywhere in the page — including
+the blank space — and everything it touches gets selected, with a translucent
+rectangle drawn while dragging. `Cmd + Click` toggles one, `Shift + Click`
+extends, and a plain **left-click on empty space clears the selection**
+(`Shift`-click on empty space keeps it). `Cmd + A` selects everything and `Esc`
+clears the selection (pressing `Esc` mid-drag cancels that rubber band and
+restores the previous selection); dragging against the top or bottom edge
+auto-scrolls the page, and right-clicking the background offers Select All /
+Clear Selection. The `⬆` badges are recomputed whenever the app becomes active
+again (e.g. after updating the source app in Finder). With several tiles selected, **right-clicking any selected tile**
+switches its menu to batch actions (Open / Quit / Update / Rebuild from Source
+for the N selected apps, Clear Selection). Updates skip the up-to-date apps and
+rebuilds ignore versions; running apps are skipped and listed in the
+confirmation dialog. When the source app has been upgraded, affected tiles show
+`⬆ <new version>` and the environment header shows "⬆ N to update". The
+environment header also shows the device UUID prefix and hostname; use
+`⋯ → Device Identity…` to copy the full values, and the clone details window
+lists the same environment and device identity.
 
 ---
 

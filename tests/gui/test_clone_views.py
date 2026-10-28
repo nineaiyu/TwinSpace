@@ -319,15 +319,18 @@ def test_clone_list_view_multi_selection():
         assert view.btn_delete_table.enabled is True
         assert "(" not in view.btn_update_table.text
 
-    # Case 3: 2 items selected (Multi-select)
+    # Case 3: 2 items selected (Multi-select → batch open/close/update/delete)
     with patch.object(view, "get_selected_records", return_value=[r1, r2]):
         view.on_table_select(view.table)
-        assert view.btn_launch_table.enabled is False
+        assert view.btn_launch_table.enabled is True
+        assert view.btn_close_table.enabled is True
         assert view.btn_open_dir_table.enabled is False
         assert view.btn_edit_table.enabled is False
         assert view.btn_detail_table.enabled is False
         assert view.btn_update_table.enabled is True
         assert view.btn_delete_table.enabled is True
+        assert "2" in view.btn_launch_table.text
+        assert "2" in view.btn_close_table.text
         assert "2" in view.btn_update_table.text
         assert "2" in view.btn_delete_table.text
 
@@ -503,6 +506,128 @@ def test_clone_list_exposes_environment_column_and_filter():
     assert len(view._filtered_clones) == 3
 
 
+def test_version_column_flags_pending_updates():
+    from twinspace.core.app_version import AppUpdate
+    from twinspace.core.i18n import t
+
+    view = CloneListView()
+    record = CloneRecord(
+        clone_name="App1",
+        source_app="A1",
+        source_path="/p1",
+        bundle_id="b1",
+        strategy="hard_clone",
+        dest_path="/d1",
+        data_dir="/data1",
+        created_at="2026-08-20T10:00:00",
+    )
+    view._filtered_clones = [record]
+    view._update_status = {"App1": AppUpdate(current="1.0", latest="2.0", needs_update=True)}
+    view._render_current_view()
+
+    assert view.table.columns[8].heading == t("list_col_version")
+    cell = view.table.data[0].version
+    assert cell.startswith("⬆")
+    assert "1.0" in cell and "2.0" in cell
+
+
+def test_batch_open_and_close_selected_clones(tmp_path):
+    async def _test():
+        service = CloneService(state_file=tmp_path / "clones.yaml")
+        records = [
+            CloneRecord(
+                clone_name=name,
+                source_app="App",
+                source_path=f"/Applications/{name}.app",
+                bundle_id=f"b.{name}",
+                strategy="hard_clone",
+                dest_path=str(tmp_path / f"{name}.app"),
+                data_dir=str(tmp_path / f"{name}.data"),
+                created_at="2026-08-20T10:00:00",
+            )
+            for name in ("A1", "A2")
+        ]
+        for record in records:
+            service.state_manager.add(record)
+            (tmp_path / f"{record.clone_name}.app").mkdir()
+
+        view = CloneListView(clone_service=service)
+        await view.refresh_clones()
+        view._record_opened = AsyncMock()
+        view._selected_names = {"A1", "A2"}
+
+        with patch("twinspace.gui.views.clone_list.subprocess.Popen") as popen:
+            await view.on_open_selected()
+        assert popen.call_count == 2
+        assert popen.call_args_list[0].args[0][0] == "open"
+
+        with patch(
+            "twinspace.gui.views.clone_list.running_clone_names",
+            return_value={"A1"},
+        ), patch(
+            "twinspace.gui.views.clone_list.quit_clone", return_value=True
+        ) as quit_mock:
+            await view.on_close_selected()
+        quit_mock.assert_called_once_with(str(tmp_path / "A1.app"))
+
+    asyncio.run(_test())
+
+
+def test_grid_cards_support_a_multi_selection():
+    from twinspace.gui import cocoa_events
+
+    view = CloneListView()
+    view._filtered_clones = [
+        CloneRecord(
+            clone_name="App1",
+            source_app="A1",
+            source_path="/p1",
+            bundle_id="b1",
+            strategy="hard_clone",
+            dest_path="/d1",
+            data_dir="/data1",
+            created_at="2026-08-20T10:00:00",
+        ),
+        CloneRecord(
+            clone_name="App2",
+            source_app="A2",
+            source_path="/p2",
+            bundle_id="b2",
+            strategy="soft_clone",
+            dest_path="/d2",
+            data_dir="/data2",
+            created_at="2026-08-20T11:00:00",
+        ),
+    ]
+    view.on_view_mode_changed("grid")
+    assert [card.record.clone_name for card in view._grid_cards] == ["App1", "App2"]
+
+    view._on_card_click("App1")
+    assert view._selected_names == {"App1"}
+    assert view._grid_cards[0].selected is True
+    assert view._grid_cards[1].selected is False
+
+    view._on_card_click("App2", cocoa_events.SELECT_TOGGLE)
+    assert view._selected_names == {"App1", "App2"}
+    # The grid has no batch bar; a selected card's menu carries the actions.
+    assert not hasattr(view, "grid_selection_bar")
+    keys = [entry.key for entry in view._card_batch_entries()]
+    assert keys == [
+        "card_batch_open",
+        "card_batch_close",
+        "card_batch_update",
+        "card_batch_clear",
+    ]
+
+    # ⇧-click extends from the anchor (App2) to App1.
+    view._on_card_click("App1", cocoa_events.SELECT_EXTEND)
+    assert view._selected_names == {"App1", "App2"}
+
+    view.clear_selection()
+    assert view._selected_names == set()
+    assert all(card.selected is False for card in view._grid_cards)
+
+
 def test_clone_edit_window_updates_display_name():
     record = CloneRecord(
         clone_name="WeChat2",
@@ -547,3 +672,125 @@ def test_clone_detail_window_shows_environment_device_identity():
     assert window.label_env_group.text == "phone1"
     assert expected.platform_uuid in window.get_summary_text()
     assert expected.hostname in window.get_summary_text()
+
+
+class _GridFakeMarquee:
+    """Stand-in for the Cocoa rubber band overlay."""
+
+    instances: list["_GridFakeMarquee"] = []
+
+    def __init__(self, owner):
+        self.rects: list[tuple[float, float, float, float]] = []
+        self.closed = False
+        _GridFakeMarquee.instances.append(self)
+
+    def set_rect(self, rect) -> None:
+        self.rects.append(rect)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _grid_view_with_frames(monkeypatch, names=("App1", "App2", "App3")):
+    from twinspace.gui import cocoa_events
+
+    view = CloneListView()
+    view._filtered_clones = [
+        CloneRecord(
+            clone_name=name,
+            source_app="A",
+            source_path=f"/p{index}",
+            bundle_id=f"b{index}",
+            strategy="hard_clone",
+            dest_path=f"/d{index}",
+            data_dir=f"/data{index}",
+            created_at="2026-08-20T10:00:00",
+        )
+        for index, name in enumerate(names)
+    ]
+    view.on_view_mode_changed("grid")
+    frames = {
+        name: (index * 300.0, 100.0, 280.0, 200.0)
+        for index, name in enumerate(names)
+    }
+
+    def frame_of(widget):
+        record = getattr(widget, "record", None)
+        if record is not None and record.clone_name in frames:
+            return frames[record.clone_name]
+        # The scroll page covers everything the tests press on.
+        return (0.0, 0.0, 2000.0, 900.0)
+
+    monkeypatch.setattr(cocoa_events, "window_frame", frame_of)
+    monkeypatch.setattr(cocoa_events, "Marquee", _GridFakeMarquee)
+    _GridFakeMarquee.instances = []
+    return view
+
+
+def test_grid_marquee_selects_the_cards_inside_the_box(monkeypatch):
+    from twinspace.gui import cocoa_events
+
+    view = _grid_view_with_frames(monkeypatch)
+
+    view._handle_card_drag(cocoa_events.GESTURE_BEGAN, (270.0, 150.0))
+    view._handle_card_drag(cocoa_events.GESTURE_CHANGED, (620.0, 250.0))
+    assert view._selected_names == {"App1", "App2", "App3"}
+    assert _GridFakeMarquee.instances[0].closed is False
+
+    view._handle_card_drag(cocoa_events.GESTURE_ENDED, (620.0, 250.0))
+    assert _GridFakeMarquee.instances[0].closed is True
+    assert view._click_suppressed is True
+
+
+def test_grid_blank_click_clears_the_selection(monkeypatch):
+    from twinspace.gui import cocoa_events
+
+    view = _grid_view_with_frames(monkeypatch)
+    view._on_card_click("App1")
+    view._on_card_click("App2", cocoa_events.SELECT_TOGGLE)
+    assert view._selected_names == {"App1", "App2"}
+
+    view._handle_card_drag(cocoa_events.GESTURE_BEGAN, (1500.0, 40.0))
+    view._handle_card_drag(cocoa_events.GESTURE_ENDED, (1500.0, 40.0))
+
+    assert view._selected_names == set()
+
+
+def test_grid_shortcuts_select_all_and_escape(monkeypatch):
+    from twinspace.gui import cocoa_events
+
+    view = _grid_view_with_frames(monkeypatch)
+
+    assert view._handle_key("a", cocoa_events.COMMAND_MODIFIER) is True
+    assert view._selected_names == {"App1", "App2", "App3"}
+
+    assert view._handle_key("\x1b", 0) is True
+    assert view._selected_names == set()
+
+
+def test_grid_shortcuts_are_ignored_in_list_mode(monkeypatch):
+    from twinspace.gui import cocoa_events
+
+    view = _grid_view_with_frames(monkeypatch)
+    view.view_mode = "list"
+    assert view._handle_key("a", cocoa_events.COMMAND_MODIFIER) is False
+
+
+def test_selected_cards_expose_the_batch_menu(monkeypatch):
+    from twinspace.gui import cocoa_events
+
+    view = _grid_view_with_frames(monkeypatch)
+    view._on_card_click("App1")
+    # A single card has no batch menu.
+    assert view._card_menu_entries_at((150.0, 150.0))[0].key == "select_all"
+
+    view._on_card_click("App2", cocoa_events.SELECT_TOGGLE)
+    entries = view._card_menu_entries_at((150.0, 150.0))
+    assert [entry.key for entry in entries] == [
+        "card_batch_open",
+        "card_batch_close",
+        "card_batch_update",
+        "card_batch_clear",
+    ]
+    # Empty grid space keeps the select-all menu.
+    assert view._card_menu_entries_at((1500.0, 40.0))[0].key == "select_all"
