@@ -883,6 +883,25 @@ def window_frame(widget: Any) -> tuple[float, float, float, float] | None:
         return None
 
 
+def configure_label_single_line(label: Any) -> None:
+    """Keep a label on one line, truncating in the middle when it overflows.
+
+    The tile caption is sized for one line; without this a longer app name (for
+    example "WorkBuddy AI") wraps and the second line is clipped, hiding exactly
+    the suffix that tells the builds apart.
+    """
+    native = native_of(label)
+    if native is None:
+        return
+    try:
+        cell = native.cell
+        cell.setWraps_(False)
+        cell.setLineBreakMode_(5)  # NSLineBreakByTruncatingMiddle
+        native.setAttributedStringValue_(native.attributedStringValue)
+    except Exception:
+        logger.debug("Could not configure the label line mode", exc_info=True)
+
+
 def frame_contains(frame: tuple[float, float, float, float], location: tuple[float, float]) -> bool:
     """True when ``location`` (window coordinates) falls inside ``frame``."""
     x, y, width, height = frame

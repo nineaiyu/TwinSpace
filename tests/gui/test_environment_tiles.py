@@ -1173,3 +1173,30 @@ def test_batch_close_names_the_apps_that_kept_running(toga_app, tmp_path):
         t("environment_quit_error_title"),
         t("environment_quit_error", apps="ZCode-phone1"),
     )
+
+
+def test_tile_name_stays_on_one_line(toga_app):
+    """Long names must not wrap into a clipped second line (hides "AI")."""
+    tile = AppTile(label="WorkBuddy AI", clone_name="WorkBuddyAI-ly")
+
+    cell = tile.name_label._impl.native.cell
+    assert bool(cell.wraps) is False
+    # NSLineBreakByTruncatingMiddle keeps both ends visible when it overflows.
+    assert int(cell.lineBreakMode) == 5
+
+
+def test_builtin_app_names_fit_the_tile_caption(toga_app):
+    from rubicon.objc import ObjCClass
+
+    from twinspace.core.environments.apps import KNOWN_APPS
+    from twinspace.gui.components.app_tile import PILL_WIDTH
+
+    font = ObjCClass("NSFont").boldSystemFontOfSize_(12.0)
+    attrs = ObjCClass("NSDictionary").dictionaryWithObject_forKey_(font, "NSFont")
+    string_class = ObjCClass("NSString")
+
+    for app in KNOWN_APPS:
+        text = string_class.stringWithString_(app.label)
+        # Toga's label cell adds horizontal padding on top of the glyph width.
+        needed = float(text.sizeWithAttributes_(attrs).width) + 40.0
+        assert needed <= PILL_WIDTH, f"{app.label} needs {needed:.0f}pt"

@@ -18,7 +18,7 @@ from twinspace.gui.theme import Theme
 
 logger = get_logger("gui.app_tile")
 
-TILE_WIDTH = 108
+TILE_WIDTH = 144
 TILE_HEIGHT = 149
 ICON_SIZE = 56
 TILE_GAP = 12
@@ -30,7 +30,7 @@ UPDATE_BADGE_HEIGHT = 14
 # Hover/selection pill: hugs the icon and caption instead of filling the tile.
 # The height is derived from its content so the vertical padding stays symmetric:
 # 8pt pad + 56pt icon + 4pt gap + 19pt caption + 8pt pad.
-PILL_WIDTH = 100
+PILL_WIDTH = 136
 PILL_PADDING = 8
 PILL_GAP = 4
 CAPTION_HEIGHT = 19
@@ -150,6 +150,9 @@ class AppTile(toga.Box):
                 margin_top=PILL_GAP,
             ),
         )
+        # One line only: an overflowing name truncates in the middle instead of
+        # wrapping into a clipped second line (which hid the "AI" suffix).
+        cocoa_events.configure_label_single_line(self.name_label)
         self.pill.add(self.name_label)
         self.add(self.pill)
 
