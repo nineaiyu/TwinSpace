@@ -155,29 +155,50 @@ def running_clone_names(records: Iterable[CloneRecord]) -> set[str]:
     }
 
 
-def quit_clone(dest_path: str | Path, timeout: float = 4.0) -> bool:
-    """Stop every process of a clone, starting with a graceful SIGTERM."""
+def _signal_clone(needle: str, signal_name: str) -> None:
+    """Send ``signal_name`` to every process whose command line mentions ``needle``."""
     import subprocess
-    import time
 
-    needle = str(dest_path)
-    if not needle.endswith(".app"):
-        return True
-    if not is_clone_running(needle):
-        return True
     pids = clone_pids(needle)
     if not pids:
-        return not is_clone_running(needle)
+        return
     try:
-        subprocess.run(["kill", "-TERM", *pids], capture_output=True, timeout=5)
+        subprocess.run(["kill", signal_name, *pids], capture_output=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
-        return False
-    deadline = time.monotonic() + timeout
+        pass
+
+
+def _wait_until_stopped(needle: str, timeout: float) -> bool:
+    """Poll the process table until the clone is gone (or the timeout expires)."""
+    import time
+
+    deadline = time.monotonic() + max(0.0, timeout)
     while time.monotonic() < deadline:
         if not is_clone_running(needle):
             return True
         time.sleep(0.2)
     return not is_clone_running(needle)
+
+
+def quit_clone(dest_path: str | Path, timeout: float = 4.0) -> bool:
+    """Stop every process of a clone, escalating when it ignores SIGTERM.
+
+    Electron apps (WorkBuddy, Qoder, Trae…) install a SIGTERM handler that can
+    keep them alive, so a plain TERM leaves the clone "still running" and the
+    stop action appears to fail. After ``timeout`` seconds the remaining
+    processes get SIGKILL — the data directory is separate from the bundle, so
+    nothing but unsaved window state is lost.
+    """
+    needle = str(dest_path)
+    if not needle.endswith(".app"):
+        return True
+    if not is_clone_running(needle):
+        return True
+    _signal_clone(needle, "-TERM")
+    if _wait_until_stopped(needle, timeout):
+        return True
+    _signal_clone(needle, "-KILL")
+    return _wait_until_stopped(needle, 2.0)
 
 
 class StateManager:

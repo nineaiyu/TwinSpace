@@ -398,20 +398,20 @@ class EnvironmentCreateWindow(toga.Window):
 
         name = self.input_name.value.strip()
         if not name:
-            await self.error_dialog(t("environment_error_title"), t("environment_name_required"))
+            await self.error_dialog(t("environment_create_error_title"), t("environment_name_required"))
             return
         try:
             validate_clone_name(name)
         except ValueError as exc:
             await self.error_dialog(
-                t("environment_error_title"),
+                t("environment_create_error_title"),
                 t("environment_name_invalid", error=str(exc)),
             )
             return
 
         selected = [key for key, switch in self._app_switches.items() if switch.value]
         if not selected:
-            await self.error_dialog(t("environment_error_title"), t("environment_select_one"))
+            await self.error_dialog(t("environment_create_error_title"), t("environment_select_one"))
             return
 
         clone_names: dict[str, str] = {}
@@ -423,7 +423,7 @@ class EnvironmentCreateWindow(toga.Window):
             clone_name = (name_input.value or "").strip() if name_input else ""
             if not clone_name:
                 await self.error_dialog(
-                    t("environment_error_title"),
+                    t("environment_create_error_title"),
                     t("environment_clone_name_required", app=app_label),
                 )
                 return
@@ -431,13 +431,13 @@ class EnvironmentCreateWindow(toga.Window):
                 validate_clone_name(clone_name)
             except ValueError as exc:
                 await self.error_dialog(
-                    t("environment_error_title"),
+                    t("environment_create_error_title"),
                     t("environment_clone_name_invalid", app=app_label, error=str(exc)),
                 )
                 return
             if clone_name in seen_names:
                 await self.error_dialog(
-                    t("environment_error_title"),
+                    t("environment_create_error_title"),
                     t("environment_clone_name_duplicate", name=clone_name),
                 )
                 return
@@ -446,7 +446,7 @@ class EnvironmentCreateWindow(toga.Window):
 
         browser_path, browser_error = self._resolve_browser_path()
         if browser_error:
-            await self.error_dialog(t("environment_error_title"), t(browser_error))
+            await self.error_dialog(t("environment_create_error_title"), t(browser_error))
             return
 
         existing = self.environment_service.environment(name)
@@ -505,4 +505,4 @@ class EnvironmentCreateWindow(toga.Window):
                     await self.on_complete_callback()
                 except Exception:
                     pass
-            await self.error_dialog(t("environment_error_title"), str(exc))
+            await self.error_dialog(t("environment_create_error_title"), str(exc))

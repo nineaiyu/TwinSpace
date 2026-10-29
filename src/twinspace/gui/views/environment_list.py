@@ -1096,6 +1096,14 @@ class EnvironmentListView(toga.Box):
             self._apply_update_badge(state, env)
             state.update_button.enabled = self._pending_updates(env) > 0
 
+    @staticmethod
+    def _failed_app_names(errors: list[str]) -> str:
+        """Pull the clone names out of ``"<name>: <reason>"`` error strings."""
+        names = [
+            error.split(":", 1)[0].strip() for error in errors if error.strip()
+        ]
+        return ", ".join(dict.fromkeys(names))
+
     def _batch_menu_entries(self) -> tuple[cocoa_events.MenuEntry, ...]:
         """Context-menu items offered by a tile that belongs to a multi-selection."""
         selected = self._selected_records()
@@ -1440,9 +1448,15 @@ class EnvironmentListView(toga.Box):
         except Exception as exc:
             errors = [str(exc)]
         if errors and self.app_instance:
-            await self.app_instance.main_window.error_dialog(
-                t("environment_error_title"), "\n".join(errors)
-            )
+            if running:
+                await self.app_instance.main_window.error_dialog(
+                    t("environment_quit_error_title"),
+                    t("environment_quit_error", apps=self._failed_app_names(errors)),
+                )
+            else:
+                await self.app_instance.main_window.error_dialog(
+                    t("environment_error_title"), "\n".join(errors)
+                )
             await self.refresh_environments(show_loading=False)
             return
         # Flip the tile immediately instead of tearing the page down and
@@ -1612,7 +1626,8 @@ class EnvironmentListView(toga.Box):
         self._schedule(self._verify_running_later())
         if errors and self.app_instance:
             await self.app_instance.main_window.error_dialog(
-                t("environment_error_title"), "\n".join(errors)
+                t("environment_quit_error_title"),
+                t("environment_quit_error", apps=self._failed_app_names(errors)),
             )
 
     @_exclusive("update")

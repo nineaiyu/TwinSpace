@@ -1152,3 +1152,24 @@ def test_confirm_uses_the_action_label(toga_app, tmp_path, monkeypatch):
 
     assert asyncio.run(view._confirm("t", "m", t("btn_update"))) is True
     assert captured == {"ok": t("btn_update"), "cancel": t("btn_cancel")}
+
+
+def test_batch_close_names_the_apps_that_kept_running(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.quit_environment = MagicMock(return_value=["ZCode-phone1: still running"])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.error_dialog = AsyncMock()
+    view._environments = service.list_environments()
+    view._running_clones = {"ZCode-phone1"}
+    view._mark_running = MagicMock()
+    view._schedule = MagicMock()
+    view._render()
+    view._select_tile(view._cards["phone1"].tiles["ZCode-phone1"])
+
+    asyncio.run(view._batch_close_selected())
+
+    view.app_instance.main_window.error_dialog.assert_awaited_once_with(
+        t("environment_quit_error_title"),
+        t("environment_quit_error", apps="ZCode-phone1"),
+    )

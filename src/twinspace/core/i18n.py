@@ -708,8 +708,20 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "环境 {name} 已创建完成。\n数据目录：{path}\n\n可在「环境」页面打开各个 App。",
     },
     "environment_error_title": {
+        "en": "Operation Failed",
+        "zh": "操作失败",
+    },
+    "environment_create_error_title": {
         "en": "Environment Creation Failed",
         "zh": "环境创建失败",
+    },
+    "environment_quit_error_title": {
+        "en": "Could Not Stop the Apps",
+        "zh": "停止应用失败",
+    },
+    "environment_quit_error": {
+        "en": "These apps are still running:\n{apps}\n\nTry again in a moment, or quit them from Activity Monitor.",
+        "zh": "以下应用仍在运行：\n{apps}\n\n请稍后重试，或在「活动监视器」中手动退出。",
     },
     "environment_name_required": {
         "en": "Please enter an environment name.",
