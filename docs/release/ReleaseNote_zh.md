@@ -2,6 +2,12 @@
 
 # TwinSpace 更新日志 (Release Notes)
 
+## [v1.6.2] - 2026-10-29
+
+### 🩹 修复
+- **⌘ + 点击「有时没反应」**：Toga 是扁平布局，单击识别器装在磁贴/卡片的每个子视图上，一次物理点击会触发 2~3 次回调，`⌘ + 点击` 的切换因此被连切两次而互相抵消。现在单击做了 120ms 去抖（与已有的双击去抖一致），日志里也不会再出现同一秒多条重复的 `Tile click`。
+- **测试日志污染运行日志**：历史 `ERROR` 大多是 pytest 在真实 HOME 下运行写进来的假记录（`Environment creation failed`、`SHAN mismatch`、doctor 检查失败等）。测试入口现在设置 `TWINSPACE_LOG_DISABLE=1`，仅对默认的 `~/TwinSpace/twinspace.log` 生效；日志页与 CLI 测试里显式指定路径的日志不受影响。
+
 ## [v1.6.1] - 2026-10-29
 
 ### 🩹 修复

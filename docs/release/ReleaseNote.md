@@ -2,6 +2,12 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.6.2] - 2026-10-29
+
+### 🩹 Fixes
+- **⌘-click sometimes did nothing**: Toga flattens its layout, so the click recognizer is installed on every child view of a tile/card and one physical click fired the handler 2–3 times — a ⌘-click toggled the selection twice and cancelled itself out. Single clicks are now debounced by 120 ms (matching the existing double-click debounce), which also stops the duplicated `Tile click` lines in the log.
+- **Test runs polluted the operational log**: most historical `ERROR` entries (`Environment creation failed`, `SHAN mismatch`, doctor checks…) were fake records written by pytest under the real HOME. The test entry point now sets `TWINSPACE_LOG_DISABLE=1`, which only mutes the default `~/TwinSpace/twinspace.log`; explicitly passed log paths (log view, CLI tests) are unaffected.
+
 ## [v1.6.1] - 2026-10-29
 
 ### 🩹 Fixes
