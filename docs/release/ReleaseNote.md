@@ -2,6 +2,13 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.6.1] - 2026-10-29
+
+### 🩹 Fixes
+- **Batch stop reported "still running" under the wrong title**: the failure dialog reused the "Environment Creation Failed" heading even though nothing was being created. Stop failures now say "Could Not Stop the Apps" and list the apps that are still running, with a hint to retry or quit them from Activity Monitor; the create flow keeps its own title.
+- **Stopping Electron clones did nothing**: WorkBuddy / Qoder / Trae install a SIGTERM handler and kept running, so after four seconds they were reported as "still running". Stopping now escalates `SIGTERM → wait 4s → SIGKILL → wait 2s` (data lives outside the bundle, so only unsaved window state is lost).
+- The generic error title no longer claims "Environment Creation Failed" for updates, backups and deletions.
+
 ## [v1.6.0] - 2026-10-29
 
 ### 🌍 International WorkBuddy AI / CodeBuddy AI
