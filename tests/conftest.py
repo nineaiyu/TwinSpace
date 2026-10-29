@@ -34,6 +34,10 @@ def _keep_temp_out_of_twinspace() -> None:
 
 _keep_temp_out_of_twinspace()
 
+# Keep pytest output out of the user's operational log file: a test run inside a
+# clone would otherwise append thousands of fake records to ~/TwinSpace/twinspace.log.
+os.environ.setdefault("TWINSPACE_LOG_DISABLE", "1")
+
 from twinspace.core.i18n import set_language
 
 

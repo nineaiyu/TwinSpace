@@ -38,6 +38,9 @@ _appkit_ready = False
 # Recognizers are installed on every view of a tile (icon, labels, tile frame).
 # Nested views can both report the same click, so ignore repeats within this window.
 _DOUBLE_CLICK_DEBOUNCE = 0.35
+# Same idea for single clicks: one physical click can reach several recognizers,
+# and a ⌘-click that toggles the selection twice would cancel itself out.
+_SINGLE_CLICK_DEBOUNCE = 0.12
 
 # NSGestureRecognizerState
 GESTURE_BEGAN = 1
@@ -653,6 +656,26 @@ def update_tile_menu(
         logger.debug("Could not retain Cocoa menu references", exc_info=True)
 
 
+def _debounced(callback: Callable[[], None], window: float) -> Callable[[], None]:
+    """Ignore repeats of ``callback`` within ``window`` seconds.
+
+    Toga flattens the layout, so one physical click reaches a recognizer on every
+    view of the tile. Without this a ⌘-click toggles the selection twice and
+    cancels itself out (and every click is logged two or three times).
+    """
+    last = 0.0
+
+    def wrapper() -> None:
+        nonlocal last
+        now = time.monotonic()
+        if now - last < window:
+            return
+        last = now
+        callback()
+
+    return wrapper
+
+
 def attach_tile_interactions(
     widget: Any,
     *,
@@ -681,13 +704,14 @@ def attach_tile_interactions(
     native_views = list(_native_views(widget))
 
     if on_click is not None:
+        click_callback = _debounced(on_click, _SINGLE_CLICK_DEBOUNCE)
         for view in native_views:
             try:
                 from rubicon.objc import SEL, ObjCClass
 
                 gesture_class = ObjCClass("NSClickGestureRecognizer")
                 target = _SingleClickTarget.alloc().init()
-                target._callback = on_click
+                target._callback = click_callback
                 recognizer = gesture_class.alloc().initWithTarget_action_(
                     target, SEL("handleSingleClick:")
                 )
@@ -1232,13 +1256,16 @@ def attach_click_selection(
     if not _ensure_appkit():
         return
     references: list[Any] = []
+    click_callback = _debounced(
+        lambda: on_click(selection_intent()), _SINGLE_CLICK_DEBOUNCE
+    )
     for view in list(_native_views(widget)):
         try:
             from rubicon.objc import SEL, ObjCClass
 
             gesture_class = ObjCClass("NSClickGestureRecognizer")
             target = _SingleClickTarget.alloc().init()
-            target._callback = lambda: on_click(selection_intent())
+            target._callback = click_callback
             recognizer = gesture_class.alloc().initWithTarget_action_(
                 target, SEL("handleSingleClick:")
             )

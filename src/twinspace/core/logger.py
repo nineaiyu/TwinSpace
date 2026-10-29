@@ -1,6 +1,7 @@
 """Unified Logging System for TwinSpace."""
 
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -42,19 +43,26 @@ def setup_logging(log_file: Path = DEFAULT_LOG_FILE) -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # File Handler (10MB, 3 backups, UTF-8)
-    try:
-        _initialized_log_file.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = RotatingFileHandler(
-            str(_initialized_log_file),
-            maxBytes=10 * 1024 * 1024,
-            backupCount=3,
-            encoding="utf-8",
-        )
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    except (OSError, PermissionError):
-        pass
+    # File Handler (10MB, 3 backups, UTF-8). The test suite disables it so
+    # pytest runs cannot flood the user's real operational log.
+    disabled = os.environ.get("TWINSPACE_LOG_DISABLE", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    } and Path(log_file) == Path(DEFAULT_LOG_FILE)
+    if not disabled:
+        try:
+            _initialized_log_file.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = RotatingFileHandler(
+                str(_initialized_log_file),
+                maxBytes=10 * 1024 * 1024,
+                backupCount=3,
+                encoding="utf-8",
+            )
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+        except (OSError, PermissionError):
+            pass
 
     # Broadcast Handler for live subscribers
     broadcast_handler = BroadcastHandler()
