@@ -2,6 +2,11 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.6.3] - 2026-10-29
+
+### 🩹 Fixes
+- **Environment tiles cut app names in half, hiding the international builds**: the caption wrapped at word boundaries and the fixed-height row clipped the second line, so `WorkBuddy AI` rendered as `WorkBuddy`, both `CodeBuddy CN` and `CodeBuddy AI` as `CodeBuddy`, and `Google Chrome` as `Google`. Names are now single-line (middle-truncated with both ends kept when too long) and the tile/pill grew to 144/136 so every built-in name fits.
+
 ## [v1.6.2] - 2026-10-29
 
 ### 🩹 Fixes

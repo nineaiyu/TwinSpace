@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "twinspace"
-version = "1.6.2"
+version = "1.6.3"
 description = "macOS app multi-instancing and isolated environment manager"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
@@ -35,7 +35,7 @@ gui = ["toga>=0.4.0", "requests>=2.28"]
 [tool.briefcase]
 project_name = "TwinSpace"
 bundle = "com.twinspace"
-version = "1.6.2"
+version = "1.6.3"
 url = "https://github.com/nineaiyu/TwinSpace"
 author = "TwinSpace Contributors"
 author_email = "nineaiyu@users.noreply.github.com"

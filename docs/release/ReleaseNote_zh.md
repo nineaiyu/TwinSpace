@@ -2,6 +2,11 @@
 
 # TwinSpace 更新日志 (Release Notes)
 
+## [v1.6.3] - 2026-10-29
+
+### 🩹 修复
+- **环境磁贴只显示半个名字，国际版分不出来**：磁贴名称按单词换行，第二行被固定高度的行裁掉，于是 `WorkBuddy AI` 只显示成 `WorkBuddy`、`CodeBuddy CN`/`CodeBuddy AI` 都显示成 `CodeBuddy`、`Google Chrome` 显示成 `Google`。现在名称固定单行（超长时中间省略、两端保留），磁贴与胶囊同步加宽到 144/136，内置应用名都能完整显示。
+
 ## [v1.6.2] - 2026-10-29
 
 ### 🩹 修复
