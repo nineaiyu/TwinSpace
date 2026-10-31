@@ -2,6 +2,12 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.6.4] - 2026-10-31
+
+### 🩹 Fixes
+- **Trae clones spun for 30–40 seconds on every chat, and tasks would not start or stop**: Trae's ai-agent / cue-server / libtoolhost create unix sockets under `TMPDIR`, and macOS caps a socket path at 104 bytes. The clone data directory alone is already ~58 characters, so the socket silently failed to bind and every lite RPC (create session, list skills, stop session) waited out its 30–40s timeout. `TMPDIR` now points at `/tmp/twinspace/<bundle id>/`; measured `slash_list` dropped from 39963 ms to 700 ms. Run "Update" once on existing Trae clones to apply it.
+- **Clicking a card's `⋯` button scrolled the page**: autoscroll only checked whether the mouse was down, not whether a sweep had actually started, so a press inside the 42pt edge band kept scrolling and pushed the menu away from the cursor. Autoscroll now requires the marquee to pass its drag threshold, so a plain click never moves the page.
+
 ## [v1.6.3] - 2026-10-29
 
 ### 🩹 Fixes
