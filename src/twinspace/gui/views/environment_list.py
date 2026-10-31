@@ -1242,7 +1242,10 @@ class EnvironmentListView(toga.Box):
         which used to leave the page scrolling forever.
         """
         while self._drag_active and cocoa_events.mouse_is_down():
-            self._autoscroll_tick()
+            # Only a real sweep scrolls: a plain click (for example on a card's
+            # "⋯" button, or a few pixels beside it) must never move the page.
+            if self._drag_moved:
+                self._autoscroll_tick()
             await asyncio.sleep(_AUTOSCROLL_INTERVAL)
         if self._drag_active and not cocoa_events.mouse_is_down():
             self._drag_active = False
