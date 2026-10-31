@@ -775,10 +775,8 @@ class EnvironmentListView(toga.Box):
         header.add(
             toga.Button(
                 "⋯",
-                on_press=lambda widget, current=env: cocoa_events.popup_menu(
-                    widget,
-                    self._env_menu_entries(env_running),
-                    lambda key: self._handle_env_menu(current, key),
+                on_press=lambda widget, current=env: self._show_env_menu(
+                    widget, current, env_running
                 ),
                 style=Pack(width=34, height=24, font_size=14),
             )
@@ -1237,10 +1235,19 @@ class EnvironmentListView(toga.Box):
         self._apply_selection()
 
     async def _autoscroll_loop(self) -> None:
-        """Keep scrolling while the pointer rests near the page edges."""
-        while self._drag_active:
+        """Keep scrolling while the pointer rests near the page edges.
+
+        The physical button state is checked as well: a native menu opened from
+        a card button runs its own tracking loop and can swallow the mouse-up,
+        which used to leave the page scrolling forever.
+        """
+        while self._drag_active and cocoa_events.mouse_is_down():
             self._autoscroll_tick()
             await asyncio.sleep(_AUTOSCROLL_INTERVAL)
+        if self._drag_active and not cocoa_events.mouse_is_down():
+            self._drag_active = False
+            self._drag_moved = False
+            self._close_marquee()
 
     def _autoscroll_tick(self) -> None:
         location = self._marquee_location
@@ -1340,6 +1347,25 @@ class EnvironmentListView(toga.Box):
             cocoa_events.MenuEntry(
                 "remove", t("environment_btn_remove"), enabled=not running, separator=True
             ),
+        )
+
+    def _show_env_menu(
+        self, widget: Any, env: EnvironmentInfo, running: bool
+    ) -> None:
+        """Open a card's overflow menu without leaving a drag behind.
+
+        The press that opens the menu can swallow the drag monitor's
+        GESTURE_ENDED (the native menu runs its own tracking loop), which leaves
+        ``_drag_active`` set and lets the autoscroll loop keep scrolling the page
+        underneath the menu. Drop the rubber band before showing it.
+        """
+        self._close_marquee()
+        self._drag_active = False
+        self._drag_moved = False
+        cocoa_events.popup_menu(
+            widget,
+            self._env_menu_entries(running),
+            lambda key: self._handle_env_menu(env, key),
         )
 
     def _handle_env_menu(self, env: EnvironmentInfo, key: str) -> None:

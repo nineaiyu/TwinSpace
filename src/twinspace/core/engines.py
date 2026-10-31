@@ -100,7 +100,11 @@ class CloneEngine:
             path = Path(value)
             if not path.is_absolute():
                 continue
-            if any(path == root or path.is_relative_to(root) for root in roots):
+            # TMPDIR may intentionally live outside the clone roots (short
+            # /tmp path) because unix socket paths are capped at 104 bytes.
+            if key == "TMPDIR" or any(
+                path == root or path.is_relative_to(root) for root in roots
+            ):
                 directories.add(path)
         return "mkdir -p " + " ".join(
             shlex.quote(str(directory)) for directory in sorted(directories)

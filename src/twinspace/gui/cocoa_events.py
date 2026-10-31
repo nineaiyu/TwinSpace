@@ -964,6 +964,25 @@ def is_control_view(view: Any) -> bool:
     return False
 
 
+def mouse_is_down() -> bool:
+    """True while the primary mouse button is held.
+
+    Rubber-band autoscroll uses this as a safety net: a native menu opened from
+    a button runs its own tracking loop and can swallow the mouse-up, which
+    leaves the drag monitor believing the sweep is still in progress. Returns
+    ``True`` when the state cannot be read, so callers keep their old behaviour.
+    """
+    try:
+        from rubicon.objc import ObjCClass
+
+        event_class = ObjCClass("NSEvent")
+        pressed = event_class.pressedMouseButtons
+        mask = pressed() if callable(pressed) else pressed
+        return bool(int(mask) & 0x1)
+    except Exception:  # pragma: no cover - macOS only in practice
+        return True
+
+
 def drag_rect(
     start: tuple[float, float],
     end: tuple[float, float],

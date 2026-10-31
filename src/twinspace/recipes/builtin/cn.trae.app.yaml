@@ -11,7 +11,13 @@ launch_args:
 - --skip-release-notes
 environment_injection:
   HOME: '{{TWINSPACE_DATA_DIR}}/Home'
-  TMPDIR: '{{TWINSPACE_DATA_DIR}}/Tmp/'
+  # Trae's agent services (ai-agent / cue-server / libtoolhost) create unix
+  # sockets under TMPDIR. macOS caps sun_path at 104 bytes, and the clone data
+  # directory is already ~58 characters, so a nested Tmp/ path pushes
+  # agent-code-toolhost-<pid>-<hash>.sock over the limit. The socket silently
+  # fails to bind and every lite RPC (create_chat_session, slash_list, ...)
+  # then waits for its 30-40s timeout. Keep TMPDIR on a short absolute path.
+  TMPDIR: '/tmp/twinspace/{{TWINSPACE_BUNDLE_ID}}/'
   TWINSPACE_KEYCHAIN_PREFIX: '{{TWINSPACE_KEYCHAIN_PREFIX}}'
   TWINSPACE_DEVICE_UUID: '{{TWINSPACE_DEVICE_UUID}}'
   TWINSPACE_DEVICE_SERIAL: '{{TWINSPACE_DEVICE_SERIAL}}'
