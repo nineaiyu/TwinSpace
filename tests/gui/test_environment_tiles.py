@@ -502,6 +502,31 @@ def test_tile_and_environment_show_pending_updates(toga_app, tmp_path):
     assert card.update_badge.text == t("environment_update_badge", count=1)
 
 
+def test_tile_and_environment_show_a_source_rollback(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._update_status = {
+        "ZCode-phone1": AppUpdate(
+            current="3.4.14",
+            latest="3.4.13",
+            needs_update=False,
+            needs_downgrade=True,
+        ),
+        "Chrome-phone1": AppUpdate(current="9.9", latest="9.9", needs_update=False),
+    }
+    view._environments = service.list_environments()
+    view._render()
+
+    card = view._cards["phone1"]
+    zcode = card.tiles["ZCode-phone1"]
+    assert zcode.update_available is False
+    assert zcode.downgrade_available is True
+    assert "3.4.13" in zcode.update_label.text
+    assert card.tiles["Chrome-phone1"].downgrade_available is False
+    assert card.tiles["Chrome-phone1"].update_label.text == ""
+    assert card.update_badge.text == t("environment_downgrade_badge", count=1)
+
+
 def test_batch_open_and_close_only_touch_selected_apps(toga_app, tmp_path):
     service = EnvironmentService(state_manager=_environment_state(tmp_path))
     view = EnvironmentListView(environment_service=service)
@@ -593,6 +618,33 @@ def test_batch_update_skips_apps_that_are_already_current(toga_app, tmp_path):
     service.update_environment.assert_not_awaited()
     view.app_instance.main_window.info_dialog.assert_awaited_once_with(
         t("environment_done_title"), t("environment_update_none_selected")
+    )
+
+
+def test_batch_update_rebuilds_a_source_rollback(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.update_environment = AsyncMock(return_value=[])
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view._confirm = AsyncMock(return_value=True)
+    view.app_instance.main_window.info_dialog = AsyncMock()
+    view._on_environment_changed = AsyncMock()
+    view._environments = service.list_environments()
+    view._update_status = {
+        "Chrome-phone1": AppUpdate("3.4.14", "3.4.13", False, True),
+        "ZCode-phone1": AppUpdate("3.4.14", "3.4.13", False, True),
+    }
+    view._render()
+
+    tiles = view._cards["phone1"].tiles
+    for name in ("Chrome-phone1", "ZCode-phone1"):
+        view._select_tile(tiles[name], cocoa_events.SELECT_TOGGLE)
+
+    asyncio.run(view._batch_update_selected())
+
+    # A rollback is fixed by the same rebuild that applies an upgrade.
+    service.update_environment.assert_awaited_once_with(
+        "phone1", app_keys=["chrome", "zcode"], on_progress=ANY
     )
 
 

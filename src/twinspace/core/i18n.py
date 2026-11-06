@@ -483,13 +483,25 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Source app is on {version}; this clone is {current}. Right-click → Rebuild from Source to update.",
         "zh": "源应用已升级到 {version}，当前分身是 {current}。右键 →「从源应用重建」即可更新。",
     },
+    "env_app_downgrade_badge": {
+        "en": "⬇ {version}",
+        "zh": "⬇ {version}",
+    },
+    "env_app_downgrade_tooltip": {
+        "en": "Source app was rolled back to {version}; this clone is still {current}. Right-click → Rebuild from Source to match it.",
+        "zh": "源应用已回退到 {version}，当前分身仍是 {current}。右键 →「从源应用重建」即可对齐。",
+    },
     "environment_update_badge": {
         "en": "⬆ {count} to update",
         "zh": "⬆ {count} 个待升级",
     },
+    "environment_downgrade_badge": {
+        "en": "⬇ {count} rolled back",
+        "zh": "⬇ {count} 个待回退",
+    },
     "environment_batch_update_confirm": {
-        "en": "Update the following apps to their latest source version?\n{apps}\n\nData directories are kept.",
-        "zh": "要把以下应用更新到源应用的最新版本吗？\n{apps}\n\n数据目录保持不变。",
+        "en": "Rebuild the following apps from their source app version?\n{apps}\n\nData directories are kept.",
+        "zh": "要按源应用当前版本重建以下应用吗？\n{apps}\n\n数据目录保持不变。",
     },
     "environment_batch_rebuild_confirm": {
         "en": "Rebuild the following apps from their source apps?\n{apps}\n\nData directories are kept.",
@@ -556,8 +568,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "备份数据",
     },
     "environment_update_confirm": {
-        "en": "Update the following apps in {name} to their latest source version?\n{apps}\n\nData directories are kept.",
-        "zh": "要把 {name} 中的以下应用更新到源应用的最新版本吗？\n{apps}\n\n数据目录保持不变。",
+        "en": "Rebuild the following apps in {name} from their source app version?\n{apps}\n\nData directories are kept.",
+        "zh": "要按源应用当前版本重建 {name} 中的以下应用吗？\n{apps}\n\n数据目录保持不变。",
+    },
+    "environment_update_rollback_note": {
+        "en": "\n\nHeads-up: {apps} currently run a newer build than the source app; rebuilding will move them back to the source version.",
+        "zh": "\n\n注意：{apps} 的版本比当前源应用更新，重建后这些分身会回到源应用版本。",
     },
     "environment_update_skipped_running": {
         "en": "\n\nSkipped (still running): {apps}",
@@ -1946,6 +1962,14 @@ MESSAGES: dict[str, dict[str, str]] = {
     "card_version_line": {
         "en": "Version: {current} → {latest}",
         "zh": "版本: {current} → {latest}",
+    },
+    "card_downgrade_badge": {
+        "en": "⬇ Source rolled back",
+        "zh": "⬇ 源已回退",
+    },
+    "card_downgrade_version_line": {
+        "en": "Version: {current} → {latest} (source)",
+        "zh": "版本: {current} → {latest}（源）",
     },
     "view_clones_selection_hint": {
         "en": "Drag across cards or ⌘-click to select several",

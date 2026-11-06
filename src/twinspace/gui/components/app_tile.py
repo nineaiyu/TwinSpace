@@ -24,7 +24,8 @@ ICON_SIZE = 56
 TILE_GAP = 12
 # "Today 5:30" caption sits between the name and the running-status row.
 LAST_OPENED_HEIGHT = 13
-# "⬆ 1.2.3" badge row: appears when the source app moved past the clone version.
+# "⬆ 1.2.3" / "⬇ 1.2.3" badge row: appears when the source app version and the
+# version baked into the clone disagree in either direction.
 UPDATE_BADGE_HEIGHT = 14
 
 # Hover/selection pill: hugs the icon and caption instead of filling the tile.
@@ -83,6 +84,7 @@ class AppTile(toga.Box):
         update_available: bool = False,
         current_version: str = "",
         latest_version: str = "",
+        downgrade_available: bool = False,
         on_open: Optional[Callable[[], None]] = None,
         on_close: Optional[Callable[[], None]] = None,
         on_edit: Optional[Callable[[], None]] = None,
@@ -106,6 +108,7 @@ class AppTile(toga.Box):
         self.tooltip = tooltip or clone_name
         self.selected = False
         self.update_available = bool(update_available)
+        self.downgrade_available = bool(downgrade_available)
         self.current_version = current_version
         self.latest_version = latest_version
         self._base_tooltip = self.tooltip
@@ -189,7 +192,7 @@ class AppTile(toga.Box):
         )
         self.add(self.update_label)
         self.set_update_info(
-            update_available, current_version, latest_version
+            update_available, current_version, latest_version, downgrade_available
         )
 
         # The status row spans the pill width and centres its text so the dot +
@@ -273,30 +276,52 @@ class AppTile(toga.Box):
         update_available: bool,
         current_version: str = "",
         latest_version: str = "",
+        downgrade_available: bool = False,
     ) -> None:
-        """Show or hide the "new version available" badge without a rebuild."""
+        """Show or hide the version badge without a rebuild.
+
+        ``update_available`` means the source app moved ahead of this clone;
+        ``downgrade_available`` means the source app was rolled back below it.
+        A clone can never be both, so the newer source wins when both are set.
+        """
         available = bool(update_available)
-        changed = available != self.update_available
+        downgraded = bool(downgrade_available) and not available
+        changed = (available, downgraded) != (
+            self.update_available,
+            self.downgrade_available,
+        )
         self.update_available = available
+        self.downgrade_available = downgraded
         self.current_version = current_version or self.current_version
         self.latest_version = latest_version or self.latest_version
         label = getattr(self, "update_label", None)
-        text = (
-            t("env_app_update_badge", version=self.latest_version)
-            if available
-            else ""
-        )
-        if label is not None and label.text != text:
-            label.text = text
-        note = (
-            t(
+        if available:
+            text = t("env_app_update_badge", version=self.latest_version)
+            color = Theme.BTN_WARNING
+        elif downgraded:
+            text = t("env_app_downgrade_badge", version=self.latest_version)
+            color = Theme.BADGE_HARD_TEXT
+        else:
+            text = ""
+            color = Theme.BTN_WARNING
+        if label is not None:
+            if label.text != text:
+                label.text = text
+            label.style.color = color
+        if available:
+            note = t(
                 "env_app_update_tooltip",
                 version=self.latest_version,
                 current=self.current_version or "-",
             )
-            if available
-            else ""
-        )
+        elif downgraded:
+            note = t(
+                "env_app_downgrade_tooltip",
+                version=self.latest_version,
+                current=self.current_version or "-",
+            )
+        else:
+            note = ""
         self.tooltip = (
             f"{self._base_tooltip}\n{note}" if note and self._base_tooltip else (
                 note or self._base_tooltip

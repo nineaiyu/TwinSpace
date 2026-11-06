@@ -105,6 +105,30 @@ def test_update_status_is_quiet_for_up_to_date_clones(tmp_path):
     status = update_status(source, clone)
     assert status is not None
     assert status.needs_update is False
+    assert status.needs_downgrade is False
+
+
+def test_update_status_flags_a_source_rolled_back_below_the_clone(tmp_path):
+    # The user downgraded /Applications; the clone still carries the newer build.
+    source = _make_bundle(tmp_path / "App.app", short="3.4.13")
+    clone = _make_bundle(tmp_path / "App-2.app", short="3.4.14")
+
+    status = update_status(source, clone)
+    assert status is not None
+    assert status.current == "3.4.14"
+    assert status.latest == "3.4.13"
+    assert status.needs_update is False
+    assert status.needs_downgrade is True
+
+
+def test_update_status_detects_build_only_rollbacks(tmp_path):
+    source = _make_bundle(tmp_path / "App.app", short="3.4.13", build="1")
+    clone = _make_bundle(tmp_path / "App-2.app", short="3.4.13", build="2")
+
+    status = update_status(source, clone)
+    assert status is not None
+    assert status.needs_update is False
+    assert status.needs_downgrade is True
 
 
 def test_update_status_is_none_without_version_metadata(tmp_path):

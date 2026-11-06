@@ -2,6 +2,16 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.7.0] - 2026-11-06
+
+### ✨ Features
+- **Clones now notice when the source app is rolled back**: a clone keeps the version it was created from, so downgrading the original app in `/Applications` (for example Trae CN from 3.4.14 back to 3.4.13) leaves the clone newer than its source. The old comparison only asked "is the source newer?", so this case was silent. It is bidirectional now: tiles show a blue `⬇ 3.4.13` badge, clone cards show "⬇ Source rolled back", the list version column shows `⬇ 3.4.14 → 3.4.13`, and the environment card header shows "⬇ N rolled back".
+- **"Update" now applies a rollback too**: rebuilding always re-clones from the current source bundle, so one action covers both directions. The "Update all" button, the multi-selection "Update N apps" menu entry and the footer button are enabled whenever the version differs from the source instead of only when the source is newer, so rollback-only environments are no longer greyed out.
+- A rollback is usually deliberate, so nothing is rebuilt automatically. The confirmation dialog calls out "these clones are newer than the source app and will move back to the source version" when the selection contains such apps.
+
+### 🩹 Fixes
+- The confirmation text said "update to their latest source version", which is wrong for a rollback; it now reads "rebuild from their source app version".
+
 ## [v1.6.4] - 2026-10-31
 
 ### 🩹 Fixes

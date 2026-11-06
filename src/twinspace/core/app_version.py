@@ -46,6 +46,7 @@ class AppUpdate:
     current: str
     latest: str
     needs_update: bool
+    needs_downgrade: bool = False
 
 
 def parse_version(value: str) -> tuple[int, ...]:
@@ -130,17 +131,25 @@ def bundle_version(app_path: str | Path) -> BundleVersion | None:
 
 
 def update_status(source_path: str | Path, clone_path: str | Path) -> AppUpdate | None:
-    """Compare the clone bundle against its source app; None when unknown."""
+    """Compare the clone bundle against its source app; None when unknown.
+
+    Both directions are reported: ``needs_update`` when the source app moved ahead
+    (the clone lags) and ``needs_downgrade`` when the source app was rolled back
+    below the version baked into the clone. The latter stays advisory — nothing is
+    rebuilt automatically, because a rollback is often deliberate.
+    """
     current = bundle_version(clone_path)
     if current is None:
         return None
     latest = bundle_version(source_path)
     if latest is None:
         return None
+    comparison = compare_bundle_versions(latest, current)
     return AppUpdate(
         current=current.label,
         latest=latest.label,
-        needs_update=compare_bundle_versions(latest, current) > 0,
+        needs_update=comparison > 0,
+        needs_downgrade=comparison < 0,
     )
 
 

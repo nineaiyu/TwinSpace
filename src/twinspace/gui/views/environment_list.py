@@ -574,18 +574,19 @@ class EnvironmentListView(toga.Box):
         # skipped one by one instead of blocking the whole action.
         if not state.rebuild_button.enabled:
             state.rebuild_button.enabled = True
-        update_enabled = self._pending_updates(env) > 0
+        update_enabled = self._pending_syncs(env) > 0
         if state.update_button.enabled != update_enabled:
             state.update_button.enabled = update_enabled
         self._apply_update_badge(state, env)
 
     def _apply_tile_update(self, tile: AppTile, clone_name: str) -> None:
-        """Paint the "new version" badge of one tile from the cached comparison."""
+        """Paint the version badge of one tile from the cached comparison."""
         status = self._update_status.get(clone_name)
         tile.set_update_info(
             bool(status and status.needs_update),
             status.current if status else "",
             status.latest if status else "",
+            bool(status and status.needs_downgrade),
         )
 
     def _pending_updates(self, env: EnvironmentInfo) -> int:
@@ -597,12 +598,42 @@ class EnvironmentListView(toga.Box):
                 pending += 1
         return pending
 
-    def _apply_update_badge(self, state: _EnvironmentCard, env: EnvironmentInfo) -> None:
-        """Show "n pending updates" next to the environment status pill."""
+    def _pending_downgrades(self, env: EnvironmentInfo) -> int:
+        """How many apps are newer than a source app that was rolled back."""
+        rolled_back = 0
+        for record in env.records:
+            status = self._update_status.get(record.clone_name)
+            if status is not None and status.needs_downgrade:
+                rolled_back += 1
+        return rolled_back
+
+    def _pending_syncs(self, env: EnvironmentInfo) -> int:
+        """Apps whose version differs from the source in either direction."""
+        return self._pending_updates(env) + self._pending_downgrades(env)
+
+    def _version_badge(self, env: EnvironmentInfo) -> tuple[str, str]:
+        """Header badge text/colour for pending upgrades and source rollbacks.
+
+        Upgrades keep the orange "action needed" colour; a pure rollback notice is
+        informational (the user rolled the source back on purpose), so it uses the
+        blue accent instead of warning orange.
+        """
         pending = self._pending_updates(env)
-        text = t("environment_update_badge", count=pending) if pending else ""
+        rolled_back = self._pending_downgrades(env)
+        parts: list[str] = []
+        if pending:
+            parts.append(t("environment_update_badge", count=pending))
+        if rolled_back:
+            parts.append(t("environment_downgrade_badge", count=rolled_back))
+        color = Theme.BTN_WARNING if pending else Theme.BADGE_HARD_TEXT
+        return "  ".join(parts), color
+
+    def _apply_update_badge(self, state: _EnvironmentCard, env: EnvironmentInfo) -> None:
+        """Show pending upgrade/rollback counts next to the environment status pill."""
+        text, color = self._version_badge(env)
         if state.update_badge.text != text:
             state.update_badge.text = text
+        state.update_badge.style.color = color
 
     @staticmethod
     def _apply_status_pill(state: _EnvironmentCard, running: bool) -> None:
@@ -761,12 +792,13 @@ class EnvironmentListView(toga.Box):
         status_pill, status_dot, status_text = self._build_status_pill(env_running)
         header.add(status_pill)
         pending = self._pending_updates(env)
+        badge_text, badge_color = self._version_badge(env)
         update_badge = toga.Label(
-            t("environment_update_badge", count=pending) if pending else "",
+            badge_text,
             style=Pack(
                 font_size=11.5,
                 font_weight="bold",
-                color=Theme.BTN_WARNING,
+                color=badge_color,
                 margin_left=8,
             ),
         )
@@ -945,6 +977,7 @@ class EnvironmentListView(toga.Box):
             update_available=bool(status and status.needs_update),
             current_version=status.current if status else "",
             latest_version=status.latest if status else "",
+            downgrade_available=bool(status and status.needs_downgrade),
             on_open=lambda: self._schedule(self._toggle_app(env.name, key, False)),
             on_close=lambda: self._schedule(self._toggle_app(env.name, key, True)),
             on_edit=lambda: self._edit_app(record),
@@ -1092,7 +1125,7 @@ class EnvironmentListView(toga.Box):
             for clone_name, tile in state.tiles.items():
                 self._apply_tile_update(tile, clone_name)
             self._apply_update_badge(state, env)
-            state.update_button.enabled = self._pending_updates(env) > 0
+            state.update_button.enabled = self._pending_syncs(env) > 0
 
     @staticmethod
     def _failed_app_names(errors: list[str]) -> str:
@@ -1111,7 +1144,7 @@ class EnvironmentListView(toga.Box):
             1
             for record in selected
             if not self._is_running(record.clone_name)
-            and self._needs_update(record.clone_name)
+            and self._needs_sync(record.clone_name)
         )
         return (
             cocoa_events.MenuEntry(
@@ -1661,10 +1694,10 @@ class EnvironmentListView(toga.Box):
 
     @_exclusive("update")
     async def _batch_update_selected(self) -> None:
-        """Update the selected apps, skipping the ones already up to date."""
+        """Rebuild the selected apps, skipping the ones already matching the source."""
         selected = self._selected_records()
         outdated = [
-            record for record in selected if self._needs_update(record.clone_name)
+            record for record in selected if self._needs_sync(record.clone_name)
         ]
         targets = [
             record for record in outdated if not self._is_running(record.clone_name)
@@ -1689,10 +1722,14 @@ class EnvironmentListView(toga.Box):
         groups = self._group_by_environment(targets)
         if not groups:
             return
+        rollbacks = [
+            record for record in targets if self._needs_downgrade(record.clone_name)
+        ]
         if self.app_instance:
             confirmed = await self._confirm(
                 t("environment_update_title"),
                 t("environment_batch_update_confirm", apps=self._app_list_text(targets))
+                + self._rollback_note_text(rollbacks)
                 + self._skipped_running_text(skipped),
                 t("btn_update"),
             )
@@ -1806,14 +1843,18 @@ class EnvironmentListView(toga.Box):
 
     @_exclusive("update")
     async def _update_all(self, name: str) -> None:
-        """Update only the apps whose version lags behind their source app."""
+        """Rebuild the apps whose version differs from their source app.
+
+        Rebuilding re-clones from the current source bundle, so it applies an
+        upgrade and a source rollback alike.
+        """
         if not self.app_instance:
             return
         env = next((item for item in self._environments if item.name == name), None)
         if env is None:
             return
         outdated = [
-            record for record in env.records if self._needs_update(record.clone_name)
+            record for record in env.records if self._needs_sync(record.clone_name)
         ]
         targets = [
             record
@@ -1833,6 +1874,9 @@ class EnvironmentListView(toga.Box):
                 t("environment_update_all_running", name=name),
             )
             return
+        rollbacks = [
+            record for record in targets if self._needs_downgrade(record.clone_name)
+        ]
         confirmed = await self._confirm(
             t("environment_update_title"),
             t(
@@ -1840,6 +1884,7 @@ class EnvironmentListView(toga.Box):
                 name=name,
                 apps=self._app_list_text(targets),
             )
+            + self._rollback_note_text(rollbacks)
             + self._skipped_running_text(skipped),
             t("btn_update"),
         )
@@ -1937,6 +1982,22 @@ class EnvironmentListView(toga.Box):
         status = self._update_status.get(clone_name)
         return bool(status is not None and status.needs_update)
 
+    def _needs_downgrade(self, clone_name: str) -> bool:
+        """True when the clone is newer than a source app that was rolled back."""
+        status = self._update_status.get(clone_name)
+        return bool(status is not None and status.needs_downgrade)
+
+    def _needs_sync(self, clone_name: str) -> bool:
+        """True when the clone diverges from its source in either direction.
+
+        Rebuilding always re-clones from the current source bundle, so a rollback
+        is fixed by the very same action that applies an upgrade.
+        """
+        status = self._update_status.get(clone_name)
+        return bool(
+            status is not None and (status.needs_update or status.needs_downgrade)
+        )
+
     def _app_label(self, record: CloneRecord) -> str:
         """Human readable app name (ZCode, WorkBuddy, …) of a clone record."""
         key = self.environment_service.app_key_for_bundle_id(record.bundle_id)
@@ -1958,6 +2019,12 @@ class EnvironmentListView(toga.Box):
         if not records:
             return ""
         return t("environment_update_skipped_running", apps=self._app_list_text(records))
+
+    def _rollback_note_text(self, records: list[CloneRecord]) -> str:
+        """Dialog suffix warning that some clones will be rebuilt at a lower version."""
+        if not records:
+            return ""
+        return t("environment_update_rollback_note", apps=self._app_list_text(records))
 
     async def _confirm(self, title: str, message: str, ok_label: str) -> bool:
         """Confirm dialog whose accept button names the action."""

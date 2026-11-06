@@ -31,11 +31,13 @@ class CloneCard(toga.Box):
         current_version: str = "",
         latest_version: str = "",
         update_available: bool = False,
+        downgrade_available: bool = False,
     ):
         super().__init__(style=Pack(direction=COLUMN, margin=(6, 8, 8, 8), flex=1, background_color=Theme.BG_CARD))
         self.record = record
         self.selected = False
         self.update_available = bool(update_available)
+        self.downgrade_available = bool(downgrade_available) and not update_available
         self.current_version = current_version
         self.latest_version = latest_version
 
@@ -71,12 +73,21 @@ class CloneCard(toga.Box):
             )
             header.add(self.label_env)
         header.add(self.label_strategy)
+        if self.update_available:
+            update_badge_text = t("card_update_badge")
+            update_badge_color = Theme.BTN_WARNING
+        elif self.downgrade_available:
+            update_badge_text = t("card_downgrade_badge")
+            update_badge_color = Theme.BADGE_HARD_TEXT
+        else:
+            update_badge_text = ""
+            update_badge_color = Theme.BTN_WARNING
         self.label_update = toga.Label(
-            t("card_update_badge") if update_available else "",
+            update_badge_text,
             style=Pack(
                 font_size=11.5,
                 font_weight="bold",
-                color=Theme.BTN_WARNING,
+                color=update_badge_color,
                 margin_left=8,
             ),
         )
@@ -96,15 +107,25 @@ class CloneCard(toga.Box):
             style=Pack(font_size=11.5, color=Theme.TEXT_TERTIARY, margin_top=3),
         )
         body.add(self.last_opened_label)
-        if update_available:
+        if self.update_available or self.downgrade_available:
             body.add(
                 toga.Label(
                     t(
-                        "card_version_line",
+                        "card_version_line"
+                        if self.update_available
+                        else "card_downgrade_version_line",
                         current=current_version or "-",
                         latest=latest_version or "-",
                     ),
-                    style=Pack(font_size=11.5, color=Theme.BTN_WARNING, margin_top=3),
+                    style=Pack(
+                        font_size=11.5,
+                        color=(
+                            Theme.BTN_WARNING
+                            if self.update_available
+                            else Theme.BADGE_HARD_TEXT
+                        ),
+                        margin_top=3,
+                    ),
                 )
             )
         notes_raw = (getattr(record, "notes", "") or "").replace("\n", " ").replace("\r", "")

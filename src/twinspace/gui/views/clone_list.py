@@ -392,6 +392,7 @@ class CloneListView(toga.Box):
                         current_version=status.current if status else "",
                         latest_version=status.latest if status else "",
                         update_available=bool(status and status.needs_update),
+                        downgrade_available=bool(status and status.needs_downgrade),
                     )
                     self._attach_card_selection(card)
                     self._grid_cards.append(card)
@@ -455,13 +456,17 @@ class CloneListView(toga.Box):
         return parse_version(status.latest if status else "")
 
     def _version_cell(self, record: CloneRecord) -> str:
-        """Version column: "⬆ old → new" when the source app moved ahead."""
+        """Version column: "⬆ old → new" when the source app moved ahead and
+        "⬇ old → new" when the source app was rolled back below the clone."""
         status = self._update_status.get(record.clone_name)
         if status is None:
             return "—"
         if status.needs_update:
             current = status.current or "—"
             return f"⬆ {current} → {status.latest}"
+        if status.needs_downgrade:
+            current = status.current or "—"
+            return f"⬇ {current} → {status.latest}"
         return status.current or status.latest or "—"
 
     def _apply_last_opened(self, clone_name: str, timestamp: str) -> None:

@@ -531,6 +531,36 @@ def test_version_column_flags_pending_updates():
     assert "1.0" in cell and "2.0" in cell
 
 
+def test_version_column_flags_a_source_rollback():
+    from twinspace.core.app_version import AppUpdate
+
+    view = CloneListView()
+    record = CloneRecord(
+        clone_name="App1",
+        source_app="A1",
+        source_path="/p1",
+        bundle_id="b1",
+        strategy="hard_clone",
+        dest_path="/d1",
+        data_dir="/data1",
+        created_at="2026-08-20T10:00:00",
+    )
+    view._filtered_clones = [record]
+    view._update_status = {
+        "App1": AppUpdate(
+            current="3.4.14",
+            latest="3.4.13",
+            needs_update=False,
+            needs_downgrade=True,
+        )
+    }
+    view._render_current_view()
+
+    cell = view.table.data[0].version
+    assert cell.startswith("⬇")
+    assert "3.4.14" in cell and "3.4.13" in cell
+
+
 def test_batch_open_and_close_selected_clones(tmp_path):
     async def _test():
         service = CloneService(state_file=tmp_path / "clones.yaml")
