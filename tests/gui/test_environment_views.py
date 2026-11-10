@@ -7,6 +7,7 @@ import toga
 
 from twinspace.core.environments import apps as environment_apps
 from twinspace.core.environments import manager as environment_manager_module
+from twinspace.core.i18n import t
 from twinspace.core.models import AppInfo
 from twinspace.core.state import CloneRecord, StateManager
 from twinspace.gui.components.app_tile import AppTile
@@ -525,3 +526,91 @@ def test_environment_toggle_app_opens_and_quits_selected_app(toga_app, tmp_path)
         ("quit", "phone1", ["chrome"]),
         ("open", "phone1", ["zcode"]),
     ]
+
+
+def _close_all_service(tmp_path) -> EnvironmentService:
+    state = StateManager(state_file=tmp_path / "clones.yaml")
+    for clone_name, bundle_id in (
+        ("Chrome-phone1", "com.google.Chrome"),
+        ("ZCode-phone1", "dev.zcode.app"),
+    ):
+        source_app = clone_name.split("-")[0]
+        state.add(
+            CloneRecord(
+                clone_name=clone_name,
+                source_app=source_app,
+                source_path=f"/Applications/{source_app}.app",
+                bundle_id=bundle_id,
+                strategy="hard_clone",
+                dest_path=str(tmp_path / f"{clone_name}.app"),
+                data_dir=str(tmp_path / "env" / clone_name),
+                created_at="2026-08-19T00:00:00Z",
+                env_group="phone1",
+                env_dir=str(tmp_path / "env"),
+            )
+        )
+    return EnvironmentService(state_manager=state)
+
+
+def _collect_buttons(widget) -> list[toga.Button]:
+    buttons = [widget] if isinstance(widget, toga.Button) else []
+    for child in getattr(widget, "children", []):
+        buttons.extend(_collect_buttons(child))
+    return buttons
+
+
+def test_close_all_button_sits_next_to_open_all(toga_app, tmp_path):
+    service = _close_all_service(tmp_path)
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._running_clones = {"ZCode-phone1"}
+    view._render()
+
+    card = view._cards["phone1"]
+    assert card.close_button.text == t("environment_btn_close_all")
+    assert card.close_button.enabled is True
+
+    labels = [button.text for button in _collect_buttons(card.card)]
+    open_index = labels.index(t("environment_btn_open_all"))
+    assert labels[open_index + 1] == t("environment_btn_close_all")
+
+    view._running_clones = set()
+    view._update_card(card, view._environments[0])
+    assert card.close_button.enabled is False
+
+
+def test_close_all_quits_every_app_in_the_environment(toga_app, tmp_path):
+    service = _close_all_service(tmp_path)
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._running_clones = {"Chrome-phone1", "ZCode-phone1"}
+    view._render()
+    calls = []
+    service.quit_environment = lambda name, keys=None: calls.append((name, keys)) or []
+    view._schedule = lambda awaitable: awaitable.close()
+
+    asyncio.run(view._close_all("phone1"))
+
+    assert calls == [("phone1", None)]
+    assert view._is_running("Chrome-phone1") is False
+    assert view._is_running("ZCode-phone1") is False
+
+
+def test_close_all_reports_apps_that_stayed_running(toga_app, tmp_path):
+    service = _close_all_service(tmp_path)
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.error_dialog = AsyncMock()
+    service.quit_environment = lambda name, keys=None: ["ZCode-phone1: still running"]
+
+    async def noop_refresh(**kwargs):
+        return None
+
+    view.refresh_environments = noop_refresh
+
+    asyncio.run(view._close_all("phone1"))
+
+    view.app_instance.main_window.error_dialog.assert_awaited()
+    message = view.app_instance.main_window.error_dialog.await_args.args[1]
+    assert "ZCode-phone1" in message

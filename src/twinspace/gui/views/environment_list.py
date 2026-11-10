@@ -75,6 +75,7 @@ class _EnvironmentCard:
         "update_button",
         "rebuild_button",
         "backup_button",
+        "close_button",
         "signature",
         "columns",
         "running",
@@ -92,6 +93,7 @@ class _EnvironmentCard:
         update_button: toga.Button,
         rebuild_button: toga.Button,
         backup_button: toga.Button,
+        close_button: toga.Button,
         columns: int,
         running: bool,
     ):
@@ -104,6 +106,7 @@ class _EnvironmentCard:
         self.update_button = update_button
         self.rebuild_button = rebuild_button
         self.backup_button = backup_button
+        self.close_button = close_button
         self.signature: tuple[Any, ...] = ()
         self.columns = columns
         self.running = running
@@ -570,6 +573,8 @@ class EnvironmentListView(toga.Box):
                 tile.set_last_opened(getattr(record, "last_opened_at", ""))
         if state.backup_button.enabled != (not env_running):
             state.backup_button.enabled = not env_running
+        if state.close_button.enabled != env_running:
+            state.close_button.enabled = env_running
         # Meanwhile updates and rebuilds stay available: running apps are
         # skipped one by one instead of blocking the whole action.
         if not state.rebuild_button.enabled:
@@ -679,7 +684,7 @@ class EnvironmentListView(toga.Box):
         self._update_card(state, env)
 
     def _mark_environment_running(self, env_name: str, running: bool) -> None:
-        """Flip every tile of an environment (Open All)."""
+        """Flip every tile of an environment (Open All / Close All)."""
         state = self._cards.get(env_name)
         env = next((item for item in self._environments if item.name == env_name), None)
         if state is None or env is None:
@@ -857,6 +862,12 @@ class EnvironmentListView(toga.Box):
             on_press=lambda widget, name=env.name: self._schedule(self._open_all(name)),
             style=Pack(height=28, font_size=12.5, font_weight="bold", margin_right=8),
         )
+        btn_close = toga.Button(
+            t("environment_btn_close_all"),
+            on_press=lambda widget, name=env.name: self._schedule(self._close_all(name)),
+            enabled=env_running,
+            style=Pack(height=28, font_size=12.5, margin_right=8),
+        )
         btn_update = toga.Button(
             t("environment_btn_update_all"),
             on_press=lambda widget, name=env.name: self._schedule(self._update_all(name)),
@@ -881,6 +892,7 @@ class EnvironmentListView(toga.Box):
         )
         for button, symbol in (
             (btn_open, "play.fill"),
+            (btn_close, "stop.fill"),
             (btn_update, "arrow.clockwise"),
             (btn_rebuild, "arrow.triangle.2.circlepath"),
             (btn_backup, "externaldrive"),
@@ -889,6 +901,7 @@ class EnvironmentListView(toga.Box):
             cocoa_events.configure_button_icon(button, symbol)
         cocoa_events.style_primary_button(btn_open)
         actions.add(btn_open)
+        actions.add(btn_close)
         actions.add(btn_update)
         actions.add(btn_rebuild)
         actions.add(btn_backup)
@@ -913,6 +926,7 @@ class EnvironmentListView(toga.Box):
             update_button=btn_update,
             rebuild_button=btn_rebuild,
             backup_button=btn_backup,
+            close_button=btn_close,
             columns=columns,
             running=env_running,
         )
@@ -1494,6 +1508,26 @@ class EnvironmentListView(toga.Box):
         self._mark_environment_running(name, True)
         env = next((item for item in self._environments if item.name == name), None)
         await self._record_opened([record.clone_name for record in env.records] if env else [])
+        self._schedule(self._verify_running_later())
+
+    @_exclusive("close")
+    async def _close_all(self, name: str) -> None:
+        """Stop every app in one environment (Close All)."""
+        loop = asyncio.get_running_loop()
+        try:
+            errors = await loop.run_in_executor(
+                None, self.environment_service.quit_environment, name
+            )
+        except Exception as exc:
+            errors = [str(exc)]
+        if errors and self.app_instance:
+            await self.app_instance.main_window.error_dialog(
+                t("environment_quit_error_title"),
+                t("environment_quit_error", apps=self._failed_app_names(errors)),
+            )
+            await self.refresh_environments(show_loading=False)
+            return
+        self._mark_environment_running(name, False)
         self._schedule(self._verify_running_later())
 
     async def _toggle_app(self, name: str, app_key: str, running: bool) -> None:

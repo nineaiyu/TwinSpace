@@ -1,8 +1,13 @@
+import ctypes
+import functools
 import os
+import plistlib
+import subprocess
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -69,40 +74,61 @@ def _normalise_bundle_path(value: str | Path | None) -> str:
         return text
 
 
-def is_any_clone_running(dest_paths: Iterable[str | Path]) -> bool:
-    """Return True when any process command line references one of the clone paths."""
-    import subprocess
+_PROC_PIDPATHINFO_MAXSIZE = 4096
 
-    needles = [str(path) for path in dest_paths if str(path).endswith(".app")]
-    if not needles:
-        return False
+
+@functools.lru_cache(maxsize=1)
+def _proc_pidpath() -> Any | None:
+    """Resolve ``libproc.proc_pidpath`` once; ``None`` off macOS."""
+    for name in ("libproc.dylib", "/usr/lib/libproc.dylib"):
+        try:
+            lib = ctypes.CDLL(name)
+            fn = lib.proc_pidpath
+        except (OSError, AttributeError):
+            continue
+        fn.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        fn.restype = ctypes.c_int
+        return fn
+    return None
+
+
+def _process_executable_path(pid: str) -> str:
+    """Kernel-resolved executable path of a process (empty when unavailable)."""
+    fn = _proc_pidpath()
+    if fn is None:
+        return ""
+    buffer = ctypes.create_string_buffer(_PROC_PIDPATHINFO_MAXSIZE)
     try:
-        result = subprocess.run(
-            ["ps", "-axo", "command="],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    if result.returncode != 0:
-        return False
-    lines = result.stdout.splitlines()
-    return any(needle in line for needle in needles for line in lines)
+        length = fn(int(pid), ctypes.cast(buffer, ctypes.c_void_p), len(buffer))
+    except (ValueError, OSError):
+        return ""
+    if length <= 0:
+        return ""
+    return os.fsdecode(buffer.value)
 
 
-def is_clone_running(dest_path: str | Path) -> bool:
-    """Return True when a process command line references the clone bundle path."""
-    return is_any_clone_running([dest_path])
+def _bundle_executable_names(needle: str) -> frozenset[str]:
+    """Names the clone's main executable can show up as in ``ps``.
+
+    Apps like ZCode call ``app.setName()`` and rewrite ``argv[0]``, so the main
+    process only shows a bare name (``ZCode-b1``) while helpers still carry the
+    full bundle path in their command lines.
+    """
+    names = {Path(needle).stem}
+    for relative in ("Contents/Info.plist", "Info.plist"):
+        try:
+            with open(Path(needle) / relative, "rb") as handle:
+                metadata = plistlib.load(handle)
+        except Exception:  # best effort: a missing or broken plist is not fatal
+            continue
+        executable = metadata.get("CFBundleExecutable") if isinstance(metadata, dict) else None
+        if isinstance(executable, str) and executable:
+            names.add(executable)
+    return frozenset(names)
 
 
-def clone_pids(dest_path: str | Path) -> list[str]:
-    """Return the PIDs whose command line references the clone bundle path."""
-    import subprocess
-
-    needle = str(dest_path)
-    if not needle.endswith(".app"):
-        return []
+def _process_rows() -> list[tuple[str, str]]:
+    """Snapshot ``(pid, command)`` for every process, once per check."""
     try:
         result = subprocess.run(
             ["ps", "-axo", "pid=,command="],
@@ -114,21 +140,171 @@ def clone_pids(dest_path: str | Path) -> list[str]:
         return []
     if result.returncode != 0:
         return []
-    pids: list[str] = []
+    rows: list[tuple[str, str]] = []
     for line in result.stdout.splitlines():
         parts = line.strip().split(None, 1)
-        if len(parts) != 2:
+        if len(parts) == 2:
+            rows.append((parts[0], parts[1]))
+    return rows
+
+
+def _clone_process_pids(needle: str, rows: list[tuple[str, str]]) -> list[str]:
+    """PIDs of a clone: helpers by bundle path, main process by executable path."""
+    if not needle.endswith(".app"):
+        return []
+    names = _bundle_executable_names(needle)
+    bundle = os.path.realpath(needle)
+    needles = tuple(dict.fromkeys((needle, bundle)))
+    pids: list[str] = []
+    for pid, command in rows:
+        # Helpers start with their own path inside the bundle. A shell/grep/open
+        # command that merely *mentions* the path is not a running clone.
+        if command.startswith(needles):
+            pids.append(pid)
             continue
-        pid, command = parts
-        if needle in command:
+        first = command.split(None, 1)[0]
+        if os.path.basename(first) not in names:
+            continue
+        executable = os.path.realpath(_process_executable_path(pid))
+        if executable.startswith(bundle + os.sep):
             pids.append(pid)
     return pids
 
 
+_AE_CORE_EVENT_CLASS = 0x61657674  # 'aevt'
+_AE_QUIT_APPLICATION = 0x71756974  # 'quit'
+_AE_TYPE_KERNEL_PROCESS_ID = 0x6B706964  # 'kpid'
+_AE_NO_REPLY = 0x00000001
+_AE_DEFAULT_TIMEOUT = -1
+
+
+class _AEDesc(ctypes.Structure):
+    _fields_ = [("descriptorType", ctypes.c_uint32), ("dataHandle", ctypes.c_void_p)]
+
+
+@functools.lru_cache(maxsize=1)
+def _apple_event_library() -> Any | None:
+    """Resolve the Apple Event Manager once; ``None`` when it is unavailable."""
+    for name in (
+        "/System/Library/Frameworks/CoreServices.framework/CoreServices",
+        "/System/Library/Frameworks/CoreServices.framework/Frameworks/AE.framework/Versions/A/AE",
+    ):
+        try:
+            lib = ctypes.CDLL(name)
+            create_desc = lib.AECreateDesc
+            create_event = lib.AECreateAppleEvent
+            send = lib.AESendMessage
+            dispose = lib.AEDisposeDesc
+        except (OSError, AttributeError):
+            continue
+        desc_ptr = ctypes.POINTER(_AEDesc)
+        create_desc.argtypes = [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_ulong, desc_ptr]
+        create_desc.restype = ctypes.c_int32
+        create_event.argtypes = [
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            desc_ptr,
+            ctypes.c_int16,
+            ctypes.c_uint32,
+            desc_ptr,
+        ]
+        create_event.restype = ctypes.c_int32
+        send.argtypes = [desc_ptr, ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32]
+        send.restype = ctypes.c_int32
+        dispose.argtypes = [desc_ptr]
+        dispose.restype = ctypes.c_int32
+        return lib
+    return None
+
+
+def _send_quit_apple_event(pid: str) -> bool:
+    """Deliver a Quit Apple Event to one PID, just like the app's ⌘Q menu item."""
+    lib = _apple_event_library()
+    if lib is None:
+        return False
+    pid_value = ctypes.c_int32(int(pid))
+    target = _AEDesc()
+    event = _AEDesc()
+    target_ready = event_ready = False
+    try:
+        if lib.AECreateDesc(
+            _AE_TYPE_KERNEL_PROCESS_ID,
+            ctypes.byref(pid_value),
+            ctypes.sizeof(pid_value),
+            ctypes.byref(target),
+        ) != 0:
+            return False
+        target_ready = True
+        if lib.AECreateAppleEvent(
+            _AE_CORE_EVENT_CLASS,
+            _AE_QUIT_APPLICATION,
+            ctypes.byref(target),
+            -1,  # kAutoGenerateReturnID
+            0,  # kAnyTransactionID
+            ctypes.byref(event),
+        ) != 0:
+            return False
+        event_ready = True
+        return lib.AESendMessage(
+            ctypes.byref(event), None, _AE_NO_REPLY, _AE_DEFAULT_TIMEOUT
+        ) == 0
+    except (ValueError, OSError):
+        return False
+    finally:
+        if event_ready:
+            lib.AEDisposeDesc(ctypes.byref(event))
+        if target_ready:
+            lib.AEDisposeDesc(ctypes.byref(target))
+
+
+def _clone_main_pids(needle: str, rows: list[tuple[str, str]]) -> list[str]:
+    """Main app PIDs (under Contents/MacOS), excluding Electron helpers."""
+    macos = os.path.join(os.path.realpath(needle), "Contents", "MacOS") + os.sep
+    return [
+        pid
+        for pid in _clone_process_pids(needle, rows)
+        if os.path.realpath(_process_executable_path(pid)).startswith(macos)
+    ]
+
+
+def _request_graceful_quit(needle: str) -> bool:
+    """Ask the clone's main process(es) to quit via Quit Apple Events."""
+    pids = _clone_main_pids(needle, _process_rows())
+    if not pids:
+        return False
+    sent = False
+    for pid in pids:
+        if _send_quit_apple_event(pid):
+            sent = True
+        else:
+            logger.warning("Quit Apple Event could not be delivered to pid %s (%s)", pid, needle)
+    return sent
+
+
+def is_any_clone_running(dest_paths: Iterable[str | Path]) -> bool:
+    """Return True when any process belonging to one of the clones is alive."""
+    needles = [str(path) for path in dest_paths if str(path).endswith(".app")]
+    if not needles:
+        return False
+    rows = _process_rows()
+    return any(_clone_process_pids(needle, rows) for needle in needles)
+
+
+def is_clone_running(dest_path: str | Path) -> bool:
+    """Return True when a process belonging to the clone bundle is alive."""
+    return is_any_clone_running([dest_path])
+
+
+def clone_pids(dest_path: str | Path) -> list[str]:
+    """Return every PID to signal, including a renamed main process."""
+    needle = str(dest_path)
+    if not needle.endswith(".app"):
+        return []
+    return _clone_process_pids(needle, _process_rows())
+
+
 def running_clone_names(records: Iterable[CloneRecord]) -> set[str]:
     """Return the clone names that currently have a process running."""
-    import subprocess
-
     mapping = {
         str(record.dest_path): record.clone_name
         for record in records
@@ -136,36 +312,37 @@ def running_clone_names(records: Iterable[CloneRecord]) -> set[str]:
     }
     if not mapping:
         return set()
-    try:
-        result = subprocess.run(
-            ["ps", "-axo", "command="],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return set()
-    if result.returncode != 0:
-        return set()
-    lines = result.stdout.splitlines()
+    rows = _process_rows()
     return {
         name
-        for path, name in mapping.items()
-        if any(path in line for line in lines)
+        for needle, name in mapping.items()
+        if _clone_process_pids(needle, rows)
     }
 
 
 def _signal_clone(needle: str, signal_name: str) -> None:
-    """Send ``signal_name`` to every process whose command line mentions ``needle``."""
-    import subprocess
-
+    """Fallback for non-GUI hosts: request termination via a signal, never SIGKILL."""
     pids = clone_pids(needle)
     if not pids:
         return
     try:
-        subprocess.run(["kill", signal_name, *pids], capture_output=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        pass
+        result = subprocess.run(
+            ["kill", signal_name, *pids],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Could not send %s to %s: %s", signal_name, needle, exc)
+        return
+    if result.returncode != 0:
+        logger.warning(
+            "kill %s failed for %s (pids %s): %s",
+            signal_name,
+            needle,
+            ", ".join(pids),
+            result.stderr.strip(),
+        )
 
 
 def _wait_until_stopped(needle: str, timeout: float) -> bool:
@@ -180,25 +357,25 @@ def _wait_until_stopped(needle: str, timeout: float) -> bool:
     return not is_clone_running(needle)
 
 
-def quit_clone(dest_path: str | Path, timeout: float = 4.0) -> bool:
-    """Stop every process of a clone, escalating when it ignores SIGTERM.
+def quit_clone(dest_path: str | Path, timeout: float = 8.0) -> bool:
+    """Ask a clone to quit the way its own Quit (⌘Q) menu item does.
 
-    Electron apps (WorkBuddy, Qoder, Trae…) install a SIGTERM handler that can
-    keep them alive, so a plain TERM leaves the clone "still running" and the
-    stop action appears to fail. After ``timeout`` seconds the remaining
-    processes get SIGKILL — the data directory is separate from the bundle, so
-    nothing but unsaved window state is lost.
+    A Quit Apple Event goes to the app's main process, so Electron runs its
+    normal shutdown (before-quit / will-quit, window state, helper cleanup).
+    SIGKILL is never used: if the app needs to ask about unsaved work or refuses
+    to quit, the caller reports "still running" instead of forcing it down.
+    Only when the Apple Event Manager is unavailable do we fall back to a plain
+    SIGTERM request.
     """
     needle = str(dest_path)
     if not needle.endswith(".app"):
         return True
     if not is_clone_running(needle):
         return True
-    _signal_clone(needle, "-TERM")
-    if _wait_until_stopped(needle, timeout):
-        return True
-    _signal_clone(needle, "-KILL")
-    return _wait_until_stopped(needle, 2.0)
+    if not _request_graceful_quit(needle):
+        logger.warning("Quit Apple Event unavailable for %s; falling back to SIGTERM", needle)
+        _signal_clone(needle, "-TERM")
+    return _wait_until_stopped(needle, timeout)
 
 
 class StateManager:

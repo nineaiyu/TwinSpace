@@ -407,6 +407,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Open All",
         "zh": "全部打开",
     },
+    "environment_btn_close_all": {
+        "en": "Close All",
+        "zh": "全部关闭",
+    },
     "environment_app_open": {
         "en": "Open",
         "zh": "打开",
