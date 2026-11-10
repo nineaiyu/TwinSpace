@@ -2,6 +2,16 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.7.1] - 2026-11-10
+
+### ✨ Features
+- **Close All button**: every environment card now has a "Close All" action right next to "Open All". It stops every app in that environment at once and is greyed out when nothing is running; clones that refused to quit are listed in the existing "Could Not Stop the Apps" dialog.
+
+### 🩹 Fixes
+- **Closing a clone now quits the app instead of force-killing it**: the old stop path sent `SIGTERM` to every matching process and escalated to `SIGKILL` after 4 seconds. Close actions now deliver a Quit Apple Event (`kAEQuitApplication`) to the clone's main process — the same request as the app's own Quit ⌘Q menu item — so Electron runs its normal shutdown (window state, helper cleanup). `SIGKILL` is gone: if an app asks about unsaved work or refuses to quit, TwinSpace reports it as still running instead of forcing it down. Only hosts without the Apple Event Manager fall back to a plain `SIGTERM` request.
+- **ZCode clones can be closed again**: ZCode calls `app.setName()`, which rewrites `argv[0]` so the main process no longer carries the bundle path in `ps`. Detection used to match only helpers, which the surviving main process immediately respawned, leaving the clone "still running" forever. A renamed main process is now resolved through `proc_pidpath` and verified to live inside the bundle, and running-state checks share the same logic.
+- **Commands that merely mention a clone path no longer count as a running clone**: process matching now requires the command line to start with the bundle path, so an `open`/`grep`/shell command referencing a `.app` path cannot make a close action report failure.
+
 ## [v1.7.0] - 2026-11-06
 
 ### ✨ Features
