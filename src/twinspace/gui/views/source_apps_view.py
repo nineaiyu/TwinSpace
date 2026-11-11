@@ -195,7 +195,7 @@ class SourceAppCard(toga.Box):
             MenuEntry("open_all", t("environment_btn_open_all")),
             MenuEntry("close_all", t("environment_btn_close_all")),
             MenuEntry("update_all", t("environment_btn_update_all"), separator=True),
-            MenuEntry("reveal", t("sources_menu_reveal_source")),
+            MenuEntry("reveal", t("sources_menu_reveal_source"), separator=True),
         )
 
     def _handle_menu(self, key: str) -> None:
@@ -302,6 +302,8 @@ class SourceAppsView(toga.Box):
             self._pending_refresh = True
             return
         self._busy = True
+        if self._mounted is None:
+            self._show_loading()
         try:
             loop = asyncio.get_running_loop()
             self._records = await self.clone_service.list_clones()
@@ -328,6 +330,7 @@ class SourceAppsView(toga.Box):
             self._sync_cards()
         finally:
             self._busy = False
+        self._hide_loading()
         self._schedule_size_fill()
         if self._pending_refresh:
             self._pending_refresh = False
@@ -498,6 +501,11 @@ class SourceAppsView(toga.Box):
     # -- actions ---------------------------------------------------------------
 
     def dispatch_action(self, key: str, group: _SourceGroup) -> None:
+        if key in ("open_all", "close_all", "update_all"):
+            # Heavy group actions get a full-page spinner so the wait reads as
+            # intentional work (update_all can take minutes).
+            self._dispatch_async(self._run_with_loading(key, group))
+            return
         handler = {
             "open_all": self._open_all,
             "close_all": self._close_all,
@@ -506,6 +514,49 @@ class SourceAppsView(toga.Box):
         }.get(key)
         if handler is not None:
             self._dispatch_async(handler(group))
+
+    async def _run_with_loading(self, key: str, group: _SourceGroup) -> None:
+        self._show_loading()
+        try:
+            if key == "open_all":
+                await self._open_all(group)
+            elif key == "close_all":
+                await self._close_all(group)
+            elif key == "update_all":
+                await self._update_all(group)
+        finally:
+            self._hide_loading()
+
+    def _show_loading(self) -> None:
+        self._mounted = "loading"
+        while len(self.content_container.children) > 0:
+            self.content_container.remove(self.content_container.children[0])
+        wrapper = toga.Box(
+            style=Pack(direction=COLUMN, align_items=CENTER, margin=(70, 0, 0, 0))
+        )
+        indicator = toga.ActivityIndicator(style=Pack(width=28, height=28))
+        self._loading_indicator = indicator
+        wrapper.add(indicator)
+        wrapper.add(
+            toga.Label(
+                t("sources_loading"),
+                style=Pack(font_size=12.5, color=Theme.TEXT_MUTED, margin_top=12),
+            )
+        )
+        self.content_container.add(wrapper)
+        try:
+            indicator.start()
+        except Exception:
+            pass
+
+    def _hide_loading(self) -> None:
+        if getattr(self, "_loading_indicator", None) is not None:
+            try:
+                self._loading_indicator.stop()
+            except Exception:
+                pass
+            self._loading_indicator = None
+        self._sync_cards()
 
     def dispatch_launch(self, record: CloneRecord) -> None:
         self._dispatch_async(self._launch(record))

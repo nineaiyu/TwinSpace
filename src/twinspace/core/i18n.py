@@ -966,7 +966,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     "nav_sources": {
         "en": "Source Apps",
-        "zh": "源应用",
+        "zh": "来源应用",
     },
     "sources_search_placeholder": {
         "en": "Filter source apps or clones",
@@ -975,6 +975,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "sources_no_results": {
         "en": "No source apps match your filter",
         "zh": "没有匹配的源应用",
+    },
+    "sources_loading": {
+        "en": "Working…",
+        "zh": "处理中…",
     },
     "sources_missing_warning": {
         "en": "Source app is missing from disk",
