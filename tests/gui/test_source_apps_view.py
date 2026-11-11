@@ -135,6 +135,73 @@ def test_search_filters_groups():
     asyncio.run(_test())
 
 
+def test_chips_wrap_into_rows_of_four():
+    async def _test():
+        from unittest.mock import AsyncMock, MagicMock
+
+        service = MagicMock()
+        records = [
+            _record(f"WeChat-{i}", "WeChat", "/Applications/WeChat.app")
+            for i in range(6)
+        ]
+        service.list_clones = AsyncMock(return_value=records)
+        view = SourceAppsView(clone_service=service)
+        view._records = records
+        view._rebuild_groups()
+        view._sync_cards()
+
+        card = view._cards[view._groups[0].source_path][0]
+        rows = card.chips_box.children
+        assert len(rows) == 2
+        assert len(rows[0].children) == 4
+        assert len(rows[1].children) == 2
+
+    asyncio.run(_test())
+
+
+def test_set_stats_shows_update_count_on_button():
+    async def _test():
+        from unittest.mock import AsyncMock, MagicMock
+
+        service = MagicMock()
+        records = [_record("WeChat-b2", "WeChat", "/Applications/WeChat.app")]
+        service.list_clones = AsyncMock(return_value=records)
+        view = SourceAppsView(clone_service=service)
+        view._records = records
+        view._rebuild_groups()
+        view._sync_cards()
+
+        card = view._cards[view._groups[0].source_path][0]
+        card.set_stats(1024 * 1024 * 500, 2)
+        assert "(2)" in card.btn_update.text
+        assert "500.0 MB" in card.label_stats.text
+        card.set_stats(1024, 0)
+        assert "(" not in card.btn_update.text
+
+    asyncio.run(_test())
+
+
+def test_source_missing_warning_shown():
+    async def _test():
+        from unittest.mock import AsyncMock, MagicMock
+
+        service = MagicMock()
+        records = [
+            _record("Ghost-1", "Ghost", "/Applications/GhostApp.app")  # 不存在
+        ]
+        service.list_clones = AsyncMock(return_value=records)
+        view = SourceAppsView(clone_service=service)
+        view._records = records
+        view._rebuild_groups()
+        view._sync_cards()
+
+        card = view._cards[view._groups[0].source_path][0]
+        assert card._source_missing is True
+        assert card.label_warning is not None
+
+    asyncio.run(_test())
+
+
 def test_source_group_helper():
     group = _SourceGroup("/Applications/WeChat.app", "WeChat")
     assert group.clone_names() == []

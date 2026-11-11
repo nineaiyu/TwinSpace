@@ -976,6 +976,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "No source apps match your filter",
         "zh": "没有匹配的源应用",
     },
+    "sources_missing_warning": {
+        "en": "Source app is missing from disk",
+        "zh": "源程序已不在磁盘上",
+    },
     "sources_title": {
         "en": "Source Apps ({count})",
         "zh": "源应用 ({count})",

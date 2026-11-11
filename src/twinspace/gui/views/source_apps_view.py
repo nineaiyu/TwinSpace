@@ -11,6 +11,7 @@ import asyncio
 import os
 import subprocess
 import threading
+from pathlib import Path
 from typing import Any, Optional
 
 import toga
@@ -29,6 +30,9 @@ from twinspace.gui.services.data_size import compute_data_sizes, format_size
 from twinspace.gui.theme import Theme
 
 logger = get_logger("gui.source_apps")
+
+# Clone chips per row inside a source app card.
+_CHIPS_PER_ROW = 4
 
 
 def _normalise_path(raw: Any) -> str:
@@ -89,6 +93,19 @@ class SourceAppCard(toga.Box):
                 style=Pack(font_size=11, color=Theme.TEXT_TERTIARY, margin_top=1),
             )
         )
+        self._source_missing = not Path(group.source_path).exists()
+        self.label_warning: toga.Label | None = None
+        if self._source_missing:
+            self.label_warning = toga.Label(
+                "⚠ " + t("sources_missing_warning"),
+                style=Pack(
+                    font_size=11,
+                    font_weight="bold",
+                    color=Theme.BTN_WARNING,
+                    margin_top=2,
+                ),
+            )
+            title_box.add(self.label_warning)
         header.add(title_box)
         self.label_pill = toga.Label(
             "",
@@ -125,21 +142,27 @@ class SourceAppCard(toga.Box):
             style=Pack(height=28, font_size=12),
         )
         cocoa_events.configure_button_icon(btn_update, "arrow.clockwise")
+        self.btn_update = btn_update
         actions.add(btn_open)
         actions.add(btn_close)
         actions.add(btn_update)
         self.add(actions)
 
-        self.chips_box = toga.Box(style=Pack(direction=ROW, margin=(0, 14, 12, 14)))
+        # Clone chips: wrapped rows (4 per row) so large groups never clip.
+        self.chips_box = toga.Box(style=Pack(direction=COLUMN, margin=(0, 14, 12, 14)))
         self.chip_buttons: dict[str, toga.Button] = {}
-        for record in group.records:
+        row_box: toga.Box | None = None
+        for index, record in enumerate(group.records):
+            if index % _CHIPS_PER_ROW == 0:
+                row_box = toga.Box(style=Pack(direction=ROW, margin_bottom=6))
+                self.chips_box.add(row_box)
             chip = toga.Button(
                 record.clone_name,
                 on_press=lambda w, r=record: view.dispatch_launch(r),
                 style=Pack(height=26, font_size=11.5, margin_right=6),
             )
             self.chip_buttons[record.clone_name] = chip
-            self.chips_box.add(chip)
+            row_box.add(chip)
         self.add(self.chips_box)
 
         cocoa_events.attach_tile_interactions(
@@ -148,6 +171,22 @@ class SourceAppCard(toga.Box):
             menu_entries=self._menu_entries(),
             menu_handler=self._handle_menu,
         )
+
+        # Per-clone menus on the chips themselves: right-clicking a chip is
+        # about that clone, not the whole group. Installed after the card
+        # interactions so they override the group menu on the chip views.
+        for record in group.records:
+            chip = self.chip_buttons[record.clone_name]
+            cocoa_events.update_tile_menu(
+                chip,
+                (
+                    MenuEntry("launch", t("btn_launch")),
+                    MenuEntry("close", t("btn_close")),
+                    MenuEntry("reveal_data", t("btn_open_clone_dir"), separator=True),
+                    MenuEntry("detail", t("btn_detail_short")),
+                ),
+                lambda key, r=record: view.dispatch_chip_action(key, r),
+            )
 
     # -- menu ----------------------------------------------------------------
 
@@ -181,6 +220,10 @@ class SourceAppCard(toga.Box):
         if updates:
             parts.append(t("sources_stat_updates", count=updates))
         self.label_stats.text = " · ".join(parts)
+        label = t("environment_btn_update_all")
+        if updates:
+            label = f"{label} ({updates})"
+        self.btn_update.text = label
 
 
 class SourceAppsView(toga.Box):
@@ -466,6 +509,37 @@ class SourceAppsView(toga.Box):
 
     def dispatch_launch(self, record: CloneRecord) -> None:
         self._dispatch_async(self._launch(record))
+
+    def dispatch_chip_action(self, key: str, record: CloneRecord) -> None:
+        """Handle one per-clone chip menu entry."""
+        handler = {
+            "launch": self._launch,
+            "close": self._close_one,
+            "reveal_data": self._reveal_data,
+            "detail": self._detail,
+        }.get(key)
+        if handler is not None:
+            self._dispatch_async(handler(record))
+
+    async def _close_one(self, record: CloneRecord) -> None:
+        loop = asyncio.get_running_loop()
+        results = await loop.run_in_executor(None, quit_clones, [record.dest_path])
+        if results.get(record.dest_path, True):
+            self._running.discard(record.clone_name)
+            self._patch_running()
+            self._update_title()
+        else:
+            await self._report_errors([f"{record.clone_name}: still running"])
+
+    async def _reveal_data(self, record: CloneRecord) -> None:
+        await asyncio.get_running_loop().run_in_executor(
+            None, lambda: subprocess.Popen(["open", "-R", str(record.data_dir)])
+        )
+
+    async def _detail(self, record: CloneRecord) -> None:
+        clone_view = getattr(self.app_instance, "clone_view", None)
+        if clone_view is not None:
+            await clone_view.on_detail_clone(record)
 
     def _dispatch_async(self, coro) -> None:
         try:
