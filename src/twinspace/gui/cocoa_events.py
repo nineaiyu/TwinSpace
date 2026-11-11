@@ -298,6 +298,12 @@ def configure_button_icon(
     point_size: float = 14.0,
 ) -> None:
     """Attach an SF Symbol to a Toga Button while keeping its title."""
+    # Remember the symbol so tests can assert state-dependent icons without
+    # poking at native AppKit objects.
+    try:
+        button._twinspace_symbol = symbol_name
+    except Exception:
+        pass
     native = native_of(button)
     image = system_symbol_image(symbol_name, point_size)
     if native is None or image is None:
@@ -336,19 +342,28 @@ def fade_in(widget: Any, duration: float = 0.18) -> None:
         logger.debug("Could not animate widget", exc_info=True)
 
 
-def style_primary_button(button: Any) -> None:
-    """Tint a primary action button with the system accent color."""
+def _tint_button(button: Any, color_name: str) -> None:
     native = native_of(button)
     if native is None:
         return
     try:
         from rubicon.objc import ObjCClass
 
-        accent = ObjCClass("NSColor").controlAccentColor
+        color = getattr(ObjCClass("NSColor"), color_name)
         if hasattr(native, "setContentTintColor_"):
-            native.setContentTintColor_(accent)
+            native.setContentTintColor_(color)
     except Exception:
-        logger.debug("Could not style primary button", exc_info=True)
+        logger.debug("Could not tint button with %s", color_name, exc_info=True)
+
+
+def style_primary_button(button: Any) -> None:
+    """Tint a primary action button with the system accent color.
+
+    NOTE: only ever tint with the accent color. On macOS 26 (Tahoe) glass
+    buttons, setting any other color (e.g. systemGreenColor) switches the
+    button into the tinted-glass filled style, which renders as a dark pill.
+    """
+    _tint_button(button, "controlAccentColor")
 
 
 def set_hover_background(

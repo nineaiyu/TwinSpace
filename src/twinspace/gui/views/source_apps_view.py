@@ -127,9 +127,11 @@ class SourceAppCard(toga.Box):
         btn_open = toga.Button(
             t("environment_btn_open_all"),
             on_press=lambda w: view.dispatch_action("open_all", group),
-            style=Pack(height=28, font_size=12, font_weight="bold", margin_right=6),
+            style=Pack(height=28, font_size=12.5, font_weight="bold", margin_right=6),
         )
         cocoa_events.configure_button_icon(btn_open, "play.fill")
+        # Same primary-action treatment as the environment page's 全部打开.
+        cocoa_events.style_primary_button(btn_open)
         btn_close = toga.Button(
             t("environment_btn_close_all"),
             on_press=lambda w: view.dispatch_action("close_all", group),
@@ -149,20 +151,42 @@ class SourceAppCard(toga.Box):
         self.add(actions)
 
         # Clone chips: wrapped rows (4 per row) so large groups never clip.
+        # Running state uses a standalone green dot label (the exact pattern of
+        # the environment page's app tiles) — a dot inside the button title
+        # can only render in the button's own label colour.
         self.chips_box = toga.Box(style=Pack(direction=COLUMN, margin=(0, 14, 12, 14)))
         self.chip_buttons: dict[str, toga.Button] = {}
+        self.chip_dots: dict[str, toga.Label] = {}
         row_box: toga.Box | None = None
         for index, record in enumerate(group.records):
             if index % _CHIPS_PER_ROW == 0:
                 row_box = toga.Box(style=Pack(direction=ROW, margin_bottom=6))
                 self.chips_box.add(row_box)
+            dot = toga.Label(
+                "●",
+                style=Pack(
+                    font_size=9,
+                    color=Theme.BTN_SUCCESS,
+                    margin_right=4,
+                    visibility="hidden",
+                ),
+            )
             chip = toga.Button(
                 record.clone_name,
                 on_press=lambda w, r=record: view.dispatch_launch(r),
-                style=Pack(height=26, font_size=11.5, margin_right=6),
+                style=Pack(height=26, font_size=11.5),
             )
+            # macOS 26 glass buttons flip into a dark filled style when a
+            # content tint is set WITHOUT a template image, so the chip keeps
+            # a ▶ symbol for the tint to colour, matching the 全部打开 look.
+            cocoa_events.configure_button_icon(chip, "play.fill", point_size=11.0)
+            cocoa_events.style_primary_button(chip)
             self.chip_buttons[record.clone_name] = chip
-            row_box.add(chip)
+            self.chip_dots[record.clone_name] = dot
+            wrap = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_right=6))
+            wrap.add(dot)
+            wrap.add(chip)
+            row_box.add(wrap)
         self.add(self.chips_box)
 
         cocoa_events.attach_tile_interactions(
@@ -212,8 +236,11 @@ class SourceAppCard(toga.Box):
         self.label_pill.text = t("sources_running_pill", count=count)
         self.label_pill.style.color = Theme.BTN_SUCCESS if count else Theme.TEXT_MUTED
         for clone_name, chip in self.chip_buttons.items():
-            prefix = "● " if clone_name in running else ""
-            chip.text = f"{prefix}{clone_name}"
+            chip.text = clone_name
+            # Green dot beside the chip (environment-page app-tile pattern):
+            # visible while the clone is running, hidden otherwise.
+            dot = self.chip_dots[clone_name]
+            dot.style.visibility = "visible" if clone_name in running else "hidden"
 
     def set_stats(self, size: int | None, updates: int) -> None:
         parts = [t("sources_stat_clones", count=len(self.group.records))]
@@ -511,11 +538,9 @@ class SourceAppsView(toga.Box):
     # -- actions ---------------------------------------------------------------
 
     def dispatch_action(self, key: str, group: _SourceGroup) -> None:
-        if key in ("open_all", "close_all", "update_all"):
-            # Heavy group actions get a full-page spinner so the wait reads as
-            # intentional work (update_all can take minutes).
-            self._dispatch_async(self._run_with_loading(key, group))
-            return
+        # Same convention as the environment page: batch actions show no
+        # loading UI — quitting/launching takes a couple of seconds and the
+        # chips/pill repaint in place the moment it finishes.
         handler = {
             "open_all": self._open_all,
             "close_all": self._close_all,
@@ -525,19 +550,8 @@ class SourceAppsView(toga.Box):
         if handler is not None:
             self._dispatch_async(handler(group))
 
-    async def _run_with_loading(self, key: str, group: _SourceGroup) -> None:
-        self._show_loading()
-        try:
-            if key == "open_all":
-                await self._open_all(group)
-            elif key == "close_all":
-                await self._close_all(group)
-            elif key == "update_all":
-                await self._update_all(group)
-        finally:
-            self._hide_loading()
-
     def _show_loading(self) -> None:
+        """Full-page spinner for the very first load (nothing mounted yet)."""
         self._mounted = "loading"
         while len(self.content_container.children) > 0:
             self.content_container.remove(self.content_container.children[0])

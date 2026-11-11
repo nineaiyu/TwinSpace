@@ -98,8 +98,13 @@ def test_running_pill_patch_counts():
         card = view._cards[view._groups[0].source_path][0]
         view._running = {"WeChat-b2"}
         card.set_running(view._running)
-        assert "● " in card.chip_buttons["WeChat-b2"].text
-        assert "● " not in card.chip_buttons["WeChat-work"].text
+        # Running marker is a standalone green dot label beside the chip
+        # (environment-page app-tile pattern), not part of the button title.
+        assert card.chip_buttons["WeChat-b2"].text == "WeChat-b2"
+        assert card.chip_dots["WeChat-b2"].style.visibility == "visible"
+        # toga normalises the hex theme color; rgb(52 199 89) == #34C759
+        assert str(card.chip_dots["WeChat-b2"].style.color) == "rgb(52 199 89 / 1.0)"
+        assert card.chip_dots["WeChat-work"].style.visibility == "hidden"
         assert "1" in card.label_pill.text
 
     asyncio.run(_test())
@@ -234,3 +239,81 @@ def test_divider_lines_between_cards():
 def test_source_group_helper():
     group = _SourceGroup("/Applications/WeChat.app", "WeChat")
     assert group.clone_names() == []
+
+
+def test_close_all_keeps_cards_mounted():
+    """Regression: 「全部关闭」used to tear the page down to a full-page spinner,
+    forcing every card to remount — it looked like a whole-page refresh and
+    reset the scroll position. Cards must survive in place now."""
+
+    async def _test():
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        service = MagicMock()
+        records = [_record("WeChat-b2", "WeChat", "/Applications/WeChat.app")]
+        service.list_clones = AsyncMock(return_value=records)
+        view = SourceAppsView(clone_service=service)
+        view._records = records
+        view._rebuild_groups()
+        view._sync_cards()
+        view._running = {"WeChat-b2"}
+
+        card_before = view._cards[view._groups[0].source_path][0]
+        assert view._mounted == "sources"
+
+        with patch(
+            "twinspace.gui.views.source_apps_view.quit_clones",
+            return_value={records[0].dest_path: True},
+        ):
+            await view._close_all(view._groups[0])
+
+        card_after = view._cards[view._groups[0].source_path][0]
+        assert card_after is card_before  # same widget instance, not remounted
+        assert view._mounted == "sources"  # page never torn down
+        assert "WeChat-b2" not in view._running  # chip state patched in place
+
+    asyncio.run(_test())
+
+
+def test_batch_actions_show_no_loading_ui():
+    """Batch open/close/update must not show any loading UI (environment-page
+    convention): the mounted page stays untouched and no status strip exists."""
+
+    async def _test():
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        service = MagicMock()
+        records = [_record("WeChat-b2", "WeChat", "/Applications/WeChat.app")]
+        service.list_clones = AsyncMock(return_value=records)
+        view = SourceAppsView(clone_service=service)
+        view._records = records
+        view._rebuild_groups()
+        view._sync_cards()
+        assert view.scroll in view.content_container.children
+        children_before = list(view.content_container.children)
+
+        with patch(
+            "twinspace.gui.views.source_apps_view.quit_clones",
+            return_value={records[0].dest_path: True},
+        ):
+            await view._close_all(view._groups[0])
+
+        assert not hasattr(view, "_busy_strip")
+        assert view.content_container.children == children_before
+        assert view._mounted == "sources"
+
+    asyncio.run(_test())
+
+
+def test_show_loading_full_page_only_before_first_mount():
+    async def _test():
+        from unittest.mock import AsyncMock, MagicMock
+
+        service = MagicMock()
+        service.list_clones = AsyncMock(return_value=[])
+        view = SourceAppsView(clone_service=service)
+        view._show_loading()
+        assert view._mounted == "loading"
+        view._hide_loading()
+
+    asyncio.run(_test())
