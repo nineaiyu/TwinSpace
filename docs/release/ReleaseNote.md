@@ -2,6 +2,20 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.8.0] - 2026-11-11
+
+### ✨ Features
+- **Environment self-check now shares one registry and checks disk space**: the Doctor page and `twinspace doctor` run the same check registry (new `core/doctor.py`), so the two surfaces can no longer drift. A new "Disk Free Space" check fails below 1 GiB free — cloning and backups are gigabyte-scale operations — and every check runs with a 10-second timeout; a crashing check degrades to a single failed row instead of killing the whole pass. The Doctor page renders results as grouped status cards with details and repair hints, shows a spinner while checking, blocks stacked re-checks, and distinguishes "Missing" from "Failed" wording.
+- **The probe page is finally interactive**: probing shows a spinner and ignores repeated clicks, pre-validates the path with a localized error dialog, renders results as aligned form rows, warns inline for iOS/iPadOS apps and disables "Save as Recipe" for them (they cannot be cloned — the wizard and CLI already refused, the probe page silently didn't), supports Enter to start the probe, and after saving offers a "View Recipes" jump to the recipes page.
+- **Proxy credentials are editable in the recipe editor**: the editor gains username, password and NO_PROXY fields. Previously a hand-written recipe with proxy credentials lost them silently after one open→save cycle in the GUI (the engine consumes them verbatim in generated `export` lines). A non-numeric port is reported instead of silently falling back to 1080, and a failed save now shows an error dialog instead of dropping the edit.
+
+### 🩹 Fixes
+- **A broken recipe file can no longer take down the clone flow**: a rule file with bad YAML syntax, an invalid enum value or a misspelled field used to raise straight through `RecipeLoader.get()` into the wizard's next-step, the clone flow and the CLI. Broken files are now logged and skipped, falling back to the built-in recipe, then to probing, then to the safe default. `Recipe`/`ProxyConfig` also reject unknown fields now, so a `strip_sandboxes` typo surfaces immediately instead of silently changing clone behaviour; the GUI recipe list and `recipe list` log broken files instead of hiding them.
+- **App-type detection no longer misreads bundle IDs**: short keywords matched anywhere in a bundle id — `com.apple.archiveutility` contains "arc" — used to classify native apps as Chromium with a wrong soft-clone strategy. Matching is now segment-bounded (dot/dash/underscore separated), so Arc (`company.thebrowser.arc`), Slack (`slackmacgap`), Lark and Chrome Canary still detect correctly while archive-style ids no longer match.
+- **Probe analysis notes follow the app language**: six hard-coded English reason strings are localized in the GUI, the CLI and JSON output via a `reason_key` on the probe result.
+- **Source-app batch actions follow the environment-page convention**: Open All / Close All / Update All show no loading UI at all — previously Close All tore the whole page down to a spinner and remounted every card, which read as a full-page refresh and reset the scroll position. Chips and the running pill now update in place, and only errors pop a dialog.
+- **The per-clone running dot is green like the environment page**: the dot was part of the chip's button title, so it could only render in the button label colour (black). It is now a standalone green `●` label beside the chip, hidden when idle. Chips also carry an accent-tinted `▶` symbol: on macOS 26 a content tint on a glass button *without* a template image switches it into a dark filled style, which is what made the chip render black.
+
 ## [v1.7.1] - 2026-11-10
 
 ### ✨ Features
