@@ -2,6 +2,13 @@
 
 # TwinSpace 更新日志 (Release Notes)
 
+## [v1.8.1] - 2026-11-11
+
+### ✨ 新增
+- **宿主资源映射：分身可共享宿主的单例服务、包管理缓存、镜像源与 Shell 工具链**：分身的 `$HOME` 重定向曾把一切隔断——环境终端连不上宿主正在运行的 OrbStack（`orb`/`docker` CLI 按 `$HOME/.orbstack/run/*.sock` 探测，找不到就去启动一个与之冲突的第二实例，宿主不退出就一直失败）；每个分身各自重复下载 pip/npm/HuggingFace 缓存；镜像源与 nvm/pyenv/rust 工具链留在宿主 HOME 里用不上。现在按同相对路径把宿主资源软链进分身 HOME，目录表共 24 项、分四组：单例服务（orbstack/docker/colima）、包管理缓存（pip/npm/pnpm/yarn/uv/go/maven/gradle/huggingface/ollama）、镜像源与凭据（npmrc/pip-config/git/ssh/netrc/kube）、Shell 工具链（shell-rc/oh-my-zsh/nvm/pyenv/rust）。链接的是目录（而非单个套接字），套接字与配置在宿主目录内的出现/变化透过链接天然可见——零守护进程、零轮询。启动器每次启动重读 `~/TwinSpace/HostResources.list`，全局开关对已构建分身重启即生效；清理只移除本机制创建的软链（分身内的真实目录永不触碰），宿主侧不存在的条目自动跳过，未安装工具的预设是无害空操作。
+- **首次保存前按推荐集预选**：除 `.ssh`/`.netrc`/`.kube` 外全部资源默认选中（缓存、服务、镜像源、shell 工具链），清单文件在 GUI 启动与克隆创建时自动落盘；手动保存后以你的选择为准。通过设置页新增的「宿主资源映射」卡或 `twinspace resources list|enable|disable|sync` 管理（资源 key 自动归组，组名如 `cache` 可整组启停）。
+- **分身级追加**：规则新增 `host_resources` 字段（组名/资源 key/相对路径混用），构建时烘焙进启动器，不受全局开关影响——适合必须始终映射某资源的分身。
+
 ## [v1.8.0] - 2026-11-11
 
 ### ✨ 新增

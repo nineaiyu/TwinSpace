@@ -2,6 +2,13 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.8.1] - 2026-11-11
+
+### ✨ Features
+- **Host resource mapping: clones share the host's singleton services, package caches, mirror sources and shell toolchains**: a clone's redirected `$HOME` used to wall everything off. The in-clone terminal could not reach the host's running OrbStack — the `orb`/`docker` CLI probes `$HOME/.orbstack/run/*.sock`, finds nothing, and tries to start a conflicting second instance, which fails until the host quits. Every clone re-downloaded its own pip/npm/HuggingFace caches, and mirror sources plus nvm/pyenv/rust toolchains stayed behind in the host HOME. Host resources are now mapped into the clone HOME via same-relative-path symlinks from a catalog of 24 entries in four groups: singleton services (orbstack/docker/colima), package caches (pip/npm/pnpm/yarn/uv/go/maven/gradle/huggingface/ollama), mirror & credential configs (npmrc/pip-config/git/ssh/netrc/kube) and shell toolchains (shell-rc/oh-my-zsh/nvm/pyenv/rust). Links target directories rather than single sockets, so sockets and configs appearing or changing inside the host directory stay visible through the link — no daemon, no polling. The compiled launcher re-reads `~/TwinSpace/HostResources.list` on every launch, so toggles reach already-built clones on their next restart; cleanup only removes links TwinSpace itself created (real directories inside a clone are never touched), and entries missing on the host are skipped, so presets for uninstalled tools are harmless no-ops.
+- **Recommended defaults before the first save**: everything except `.ssh`/`.netrc`/`.kube` comes pre-selected (caches, services, mirror configs, shell toolchains), the list file is materialised automatically at GUI startup and clone creation, and after a manual save the explicit choice always wins. Manage it from the new "Host Resource Mapping" settings card or the new `twinspace resources list|enable|disable|sync` command (resource keys auto-group; group names like `cache` toggle a whole group).
+- **Per-clone overrides**: recipes gain `host_resources` (group names, resource keys or HOME-relative paths) baked into the launcher at build time and applied regardless of the global switch — for clones that must always bridge a resource.
+
 ## [v1.8.0] - 2026-11-11
 
 ### ✨ Features
