@@ -169,6 +169,8 @@ class CloneListView(toga.Box):
             action_label=t("btn_new_clone"),
             on_action=self.on_action_new_clone,
             action_symbol="plus",
+            secondary_action_label=t("btn_compute_sizes"),
+            on_secondary_action=self.on_compute_sizes,
             refresh_symbol="arrow.clockwise",
             search_placeholder=t("view_clones_search_placeholder"),
             on_search=self.on_search_query_changed,
@@ -1046,23 +1048,18 @@ class CloneListView(toga.Box):
         if self._pending_refresh:
             self._pending_refresh = False
             await self.refresh_clones()
-        self._schedule_size_fill()
 
-    def _schedule_size_fill(self) -> None:
-        """Measure data dirs in a worker, then patch the size column in place."""
+    def on_compute_sizes(self, widget: Any = None) -> None:
+        """Measure every clone's data dir on demand (77GB-class trees are far
+        too expensive to walk on every refresh)."""
         if not self._raw_clones:
             return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self._sizes = compute_data_sizes(self._raw_clones)
-            self._refresh_size_cells()
-            return
-        loop.run_in_executor(None, self._apply_sizes, loop)
+        self._dispatch_async(self._compute_sizes())
 
-    def _apply_sizes(self, loop: asyncio.AbstractEventLoop) -> None:
-        sizes = compute_data_sizes(self._raw_clones)
-        loop.call_soon_threadsafe(self._set_sizes, sizes)
+    async def _compute_sizes(self) -> None:
+        loop = asyncio.get_running_loop()
+        sizes = await loop.run_in_executor(None, compute_data_sizes, self._raw_clones)
+        self._set_sizes(sizes)
 
     def _set_sizes(self, sizes: dict[str, int]) -> None:
         self._sizes = sizes

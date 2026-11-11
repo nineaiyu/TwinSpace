@@ -14,7 +14,7 @@ from typing import Any, Iterable
 
 # data_dir -> (computed_at monotonic, size in bytes)
 _SIZE_CACHE: dict[str, tuple[float, int]] = {}
-_SIZE_TTL = 600.0
+_SIZE_TTL = 1800.0
 
 
 def dir_size(path: Path | str) -> int:

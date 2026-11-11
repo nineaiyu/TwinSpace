@@ -976,6 +976,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "No source apps match your filter",
         "zh": "没有匹配的源应用",
     },
+    "btn_compute_sizes": {
+        "en": "Compute Sizes",
+        "zh": "计算体积",
+    },
     "sources_loading": {
         "en": "Working…",
         "zh": "处理中…",

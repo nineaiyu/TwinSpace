@@ -414,7 +414,14 @@ def quit_clones(
     remaining = list(pending)
     while remaining and time.monotonic() < deadline:
         time.sleep(0.2)
-        remaining = [needle for needle in remaining if is_clone_running(needle)]
+        # One process-table snapshot per cycle covers every pending clone;
+        # forking `ps` per needle would multiply the cost by the batch size.
+        rows = _process_rows()
+        remaining = [
+            needle
+            for needle in remaining
+            if _clone_process_pids(needle, rows)
+        ]
 
     return {needle: needle not in remaining for needle in needles}
 

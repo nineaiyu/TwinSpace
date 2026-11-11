@@ -215,8 +215,10 @@ class SourceAppCard(toga.Box):
             prefix = "● " if clone_name in running else ""
             chip.text = f"{prefix}{clone_name}"
 
-    def set_stats(self, size: int, updates: int) -> None:
-        parts = [t("sources_stat_clones", count=len(self.group.records)), format_size(size)]
+    def set_stats(self, size: int | None, updates: int) -> None:
+        parts = [t("sources_stat_clones", count=len(self.group.records))]
+        if size is not None:
+            parts.append(format_size(size))
         if updates:
             parts.append(t("sources_stat_updates", count=updates))
         self.label_stats.text = " · ".join(parts)
@@ -241,6 +243,8 @@ class SourceAppsView(toga.Box):
             title=t("sources_title", count=0),
             search_placeholder=t("sources_search_placeholder"),
             on_search=self.on_search_changed,
+            secondary_action_label=t("btn_compute_sizes"),
+            on_secondary_action=self.on_compute_sizes,
             refresh_symbol="arrow.clockwise",
             on_refresh=self.on_refresh_sources,
         )
@@ -264,6 +268,7 @@ class SourceAppsView(toga.Box):
         self._cards: dict[str, tuple[SourceAppCard, tuple]] = {}
         self._running: set[str] = set()
         self._sizes: dict[str, int] = {}
+        self._sizes_computed = False
         self._updates: dict[str, bool] = {}
         self._busy = False
         self._pending_refresh = False
@@ -331,7 +336,6 @@ class SourceAppsView(toga.Box):
         finally:
             self._busy = False
         self._hide_loading()
-        self._schedule_size_fill()
         if self._pending_refresh:
             self._pending_refresh = False
             await self.refresh_sources()
@@ -448,7 +452,8 @@ class SourceAppsView(toga.Box):
                     parent.remove(card)
                 self.list_box.add(card)
             card.set_running(self._running)
-            card.set_stats(self._group_size(group), self._group_updates(group))
+            size = self._group_size(group) if self._sizes_computed else None
+            card.set_stats(size, self._group_updates(group))
 
     def _group_signature(self, group: _SourceGroup) -> tuple:
         return (group.source_app, group.bundle_id, tuple(group.clone_names()))
@@ -471,32 +476,25 @@ class SourceAppsView(toga.Box):
         if label is None or label.text != title:
             self.top_bar.update_title(title)
 
-    def _schedule_size_fill(self) -> None:
+    def on_compute_sizes(self, widget: Any = None) -> None:
+        """Measure every clone's data dir on demand (trees can be 10s of GB)."""
         if not self._records:
             return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self._sizes = compute_data_sizes(self._records)
-            self._patch_stats()
-            return
-        loop.run_in_executor(None, self._apply_sizes, loop)
+        self._dispatch_async(self._compute_sizes())
 
-    def _apply_sizes(self, loop: asyncio.AbstractEventLoop) -> None:
-        sizes = compute_data_sizes(self._records)
-        loop.call_soon_threadsafe(self._set_sizes, sizes)
-
-    def _set_sizes(self, sizes: dict[str, int]) -> None:
+    async def _compute_sizes(self) -> None:
+        loop = asyncio.get_running_loop()
+        sizes = await loop.run_in_executor(None, compute_data_sizes, self._records)
         self._sizes = sizes
+        self._sizes_computed = True
         self._patch_stats()
 
     def _patch_stats(self) -> None:
         for group in self._groups:
             entry = self._cards.get(group.source_path)
             if entry is not None:
-                entry[0].set_stats(
-                    self._group_size(group), self._group_updates(group)
-                )
+                size = self._group_size(group) if self._sizes_computed else None
+                entry[0].set_stats(size, self._group_updates(group))
 
     # -- actions ---------------------------------------------------------------
 
