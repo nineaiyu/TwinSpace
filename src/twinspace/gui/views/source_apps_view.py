@@ -261,17 +261,15 @@ class SourceAppsView(toga.Box):
         self._busy = True
         try:
             loop = asyncio.get_running_loop()
-            self._records = await loop.run_in_executor(
-                None, self.clone_service.list_clones
-            )
+            self._records = await self.clone_service.list_clones()
             self._rebuild_groups()
             try:
                 statuses = await loop.run_in_executor(
                     None, update_statuses, self._records
                 )
                 self._updates = {
-                    record.clone_name: bool(status.needs_update)
-                    for record, status in zip(self._records, statuses)
+                    clone_name: bool(status.needs_update)
+                    for clone_name, status in statuses.items()
                 }
             except Exception:
                 self._updates = {}

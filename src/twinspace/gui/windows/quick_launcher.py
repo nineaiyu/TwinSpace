@@ -124,9 +124,7 @@ class QuickLauncherWindow(toga.Window):
 
     async def _load_records(self) -> None:
         try:
-            self._records = await asyncio.get_running_loop().run_in_executor(
-                None, self._clone_service.list_clones
-            )
+            self._records = await self._clone_service.list_clones()
         except Exception:
             logger.debug("Quick launcher failed to list clones", exc_info=True)
             self._records = []
