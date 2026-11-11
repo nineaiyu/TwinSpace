@@ -202,6 +202,35 @@ def test_source_missing_warning_shown():
     asyncio.run(_test())
 
 
+def test_divider_lines_between_cards():
+    async def _test():
+        from unittest.mock import AsyncMock, MagicMock
+
+        service = MagicMock()
+        service.list_clones = AsyncMock(
+            return_value=[
+                _record("WeChat-b2", "WeChat", "/Applications/WeChat.app"),
+                _record("Chrome-b2", "Chrome", "/Applications/Chrome.app"),
+                _record("Qoder-b2", "Qoder", "/Applications/Qoder.app"),
+            ]
+        )
+        view = SourceAppsView(clone_service=service)
+        view._records = await service.list_clones()
+        view._rebuild_groups()
+        view._sync_cards()
+
+        # 3 张卡片 + 2 条分隔线
+        assert len(view.list_box.children) == 5
+        dividers = [
+            child
+            for child in view.list_box.children
+            if child.style.height == 1
+        ]
+        assert len(dividers) == 2
+
+    asyncio.run(_test())
+
+
 def test_source_group_helper():
     group = _SourceGroup("/Applications/WeChat.app", "WeChat")
     assert group.clone_names() == []

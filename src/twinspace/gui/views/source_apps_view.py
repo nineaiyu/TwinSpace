@@ -255,7 +255,9 @@ class SourceAppsView(toga.Box):
         )
         self.add(self.content_container)
 
-        self.list_box = toga.Box(style=Pack(direction=COLUMN, flex=1))
+        self.list_box = toga.Box(
+            style=Pack(direction=COLUMN, flex=1, background_color=Theme.BG_WINDOW)
+        )
         self.scroll = toga.ScrollContainer(
             content=self.list_box, horizontal=False, style=Pack(flex=1)
         )
@@ -437,7 +439,17 @@ class SourceAppsView(toga.Box):
             if child not in mounted_cards:
                 self.list_box.remove(child)
 
-        for group in groups:
+        for index, group in enumerate(groups):
+            if index > 0:
+                self.list_box.add(
+                    toga.Box(
+                        style=Pack(
+                            height=1,
+                            margin=(4, 14),
+                            background_color=Theme.BORDER_CARD,
+                        )
+                    )
+                )
             signature = self._group_signature(group)
             entry = self._cards.get(group.source_path)
             if entry is None or entry[1] != signature:
