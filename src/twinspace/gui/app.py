@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -118,6 +119,7 @@ class TwinSpaceApp(toga.App):
         # Guard flag to prevent _on_window_close from blocking a deliberate exit
         self._is_exiting: bool = False
         self._quick_launcher: Any | None = None
+        self._last_auto_refresh: dict[str, float] = {}
         super().__init__(
             formal_name=formal_name,
             app_id=app_id,
@@ -605,6 +607,20 @@ class TwinSpaceApp(toga.App):
             setattr(self, attr, view)
         return view
 
+    # Rapid sidebar clicking stacks duplicate on-entry refresh tasks (each
+    # runs list + status work in executors); throttle auto-refreshes so the
+    # same page is not re-fetched within a few seconds. Manual refresh and
+    # post-operation refreshes bypass this.
+    _AUTO_REFRESH_MIN_INTERVAL = 2.5
+
+    def _auto_refresh(self, view_name: str, factory) -> None:
+        now = time.monotonic()
+        last = self._last_auto_refresh.get(view_name, 0.0)
+        if now - last < self._AUTO_REFRESH_MIN_INTERVAL:
+            return
+        self._last_auto_refresh[view_name] = now
+        self.safe_create_task(factory())
+
     def switch_view(self, view_name: str):
         """Switch right content area between feature views."""
         if self._maybe_refresh_appearance():
@@ -622,17 +638,17 @@ class TwinSpaceApp(toga.App):
         self.content_container.add(view)
 
         if view_name == "clones":
-            self.safe_create_task(view.refresh_clones())
+            self._auto_refresh(view_name, view.refresh_clones)
         elif view_name == "sources":
-            self.safe_create_task(view.refresh_sources())
+            self._auto_refresh(view_name, view.refresh_sources)
         elif view_name == "environments":
-            self.safe_create_task(view.refresh_environments())
+            self._auto_refresh(view_name, view.refresh_environments)
         elif view_name == "recipes":
-            self.safe_create_task(view.refresh_recipes())
+            self._auto_refresh(view_name, view.refresh_recipes)
         elif view_name == "logs":
             view.reload_from_disk()
         elif view_name == "doctor":
-            self.safe_create_task(view.run_checks())
+            self._auto_refresh(view_name, view.run_checks)
 
         # Subtle cross-fade when the page content changes.
         children = self.content_container.children
