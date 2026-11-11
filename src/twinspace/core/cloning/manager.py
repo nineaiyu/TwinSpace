@@ -75,6 +75,13 @@ class CloneManager:
                 pass
 
             needs_admin = not dest_path.is_relative_to(Path.home())
+            # Refresh the launcher-readable bridge list so a freshly created
+            # clone picks up the current host service bridge configuration.
+            try:
+                from twinspace.core.host_resources import sync_resources_list
+                sync_resources_list()
+            except Exception as exc:
+                logger.warning("Failed to sync host resource list: %s", exc)
             try:
                 if task.recipe.strategy == "soft_clone":
                     SoftCloneEngine.execute(task, needs_admin)

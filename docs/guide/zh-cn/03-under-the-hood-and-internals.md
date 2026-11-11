@@ -21,7 +21,9 @@
   - [2. `environment_injection`（环境变量劫持）](#2-environment_injection环境变量劫持)
   - [3. `launch_args`（自定义启动参数注入）](#3-launch_args自定义启动参数注入)
   - [4. `symlink_whitelist`（智能软链接白名单）](#4-symlink_whitelist智能软链接白名单)
-  - [5. 动态路径宏变量](#5-动态路径宏变量)
+  - [5. `host_resources`（宿主资源映射追加链接）](#5-host_resources宿主资源映射追加链接)
+  - [6. 动态路径宏变量](#6-动态路径宏变量)
+- [宿主资源映射：共享服务、缓存、镜像源与工具链环境](#宿主资源映射共享服务缓存镜像源与工具链环境)
 - [高级规则 YAML 配置完整示例](#高级规则-yaml-配置完整示例)
 - [下一步指引](#下一步指引)
 
@@ -232,7 +234,20 @@ symlink_whitelist:
 
 ---
 
-### 5. 动态路径宏变量
+### 5. `host_resources`（宿主资源映射追加链接）
+* **类型**：`list<string>`
+* **说明**：为该分身**始终启用**的宿主资源映射条目（独立于全局资源映射开关）。支持分组名（`service` / `cache` / `config` / `shell`）、资源 key（`orbstack` / `npm` / `shell-rc` / ...）或相对真实家目录的路径。适用于无论全局开关如何都必须映射某资源的分身。
+
+```yaml
+host_resources:
+  - "orbstack"   # 展开为 .orbstack + .docker
+  - "npm"        # 展开为 .npm（共享 npm 缓存）
+  - ".kube"      # 自定义相对路径
+```
+
+---
+
+### 6. 动态路径宏变量
 在 `environment_injection` 和 `launch_args` 中，支持使用动态模板变量，引擎在克隆时会自动解析并替换：
 
 | 宏变量 | 含义说明 | 示例解析结果 |
@@ -241,6 +256,138 @@ symlink_whitelist:
 | `{{CLONE_NAME}}` | 当前分身的应用代号 | `WeChat2` |
 | `{{BUNDLE_ID}}` | 母体应用的原始 Bundle Identifier | `com.tencent.xinWeChat` |
 | `{{ORIGINAL_BIN}}` | 母体应用的可执行文件绝对路径 | `/Applications/WeChat.app/Contents/MacOS/WeChat` |
+
+---
+
+## 🔗 宿主资源映射：共享服务、缓存、镜像源与工具链环境
+
+### 问题背景
+
+环境分身的 `$HOME` 被重定向后，HOME 下的资源都被隔离到分身各自的目录里，由此产生三类问题：
+
+1. **单例服务冲突**：`orb` / `docker` 等工具在伪 HOME 下找不到服务套接字（如 `~/.orbstack/run/docker.sock`），误判"服务未运行"而去启动第二个实例——而 OrbStack 等虚拟机工具是整机单例，与宿主已运行实例互斥。
+2. **缓存重复**：pip / npm / pnpm / HuggingFace 等缓存在每个分身里各存一份，磁盘翻倍、安装变慢。
+3. **环境不一致**：镜像源配置（`.npmrc`、`pip.conf`）、shell 工具链（nvm / pyenv / rust）留在宿主 HOME，分身终端用不上。
+
+### 工作原理
+
+资源映射把宿主真实 `$HOME` 下的目录或文件**软链接**进分身伪 HOME 的相同相对路径：
+
+```text
+~/TwinSpace/Data/Environments/<env>/<clone>/Home/.npm
+        └──(symlink)──>  ~/.npm          # 宿主真实缓存目录
+```
+
+三个关键设计：
+
+1. **链接目录（或文件）而不是链接单个套接字**：套接字、缓存条目、配置修改都发生在宿主目录内，透过目录链接天然可见——宿主后启动 OrbStack、`npm config set registry` 换源，分身终端都能立即跟上，无需任何守护进程或轮询。
+2. **每次启动动态生效**：分身的 C 启动器 / 注入 dylib 在每次启动时读取 `~/TwinSpace/HostResources.list`（由配置自动生成的纯文本清单）并按需建立/清理链接，因此**全局开关对已构建的老分身同样即时生效，无需重建**。
+3. **只清理自己创建的链接**：关闭开关后仅移除"指向真实 HOME 同相对路径的软链接"；分身内的真实目录与无关软链接永远不会被触碰。若分身内已存在同名**真实路径**，映射会跳过。
+
+### 资源目录
+
+四组资源。**首次使用（未保存过该设置）时自动启用除 `.ssh`/`.netrc`/`.kube` 外的全部资源**（含 shell 配置与 rust/nvm/pyenv 工具链）；手动保存后以你的选择为准（含显式关闭）。三个高敏凭据项始终需要显式开启：
+
+**单例服务（service）** —— 分身 CLI 直连宿主正在运行的实例：
+
+| 资源 | 链接路径 | 说明 |
+| :--- | :--- | :--- |
+| `orbstack` | `.orbstack` + `.docker` | OrbStack 全部数据（VM、容器、CLI 套接字）+ docker CLI |
+| `docker` | `.docker` | docker CLI 配置与 `~/.docker/run/docker.sock` |
+| `colima` | `.colima` + `.docker` | colima VM 数据 + docker CLI |
+
+**共享缓存（cache）** —— 省磁盘、免重复下载，多分身共用一份：
+
+| 资源 | 链接路径 | 说明 |
+| :--- | :--- | :--- |
+| `pip` | `Library/Caches/pip` + `.cache/pip` | pip 下载/构建缓存 |
+| `npm` | `.npm` | npm 缓存（_cacache） |
+| `pnpm` | `Library/pnpm` + `.config/pnpm` + `.local/share/pnpm` | pnpm store 与配置 |
+| `yarn` | `Library/Caches/Yarn` | yarn 缓存 |
+| `uv` | `Library/Caches/uv` | uv 缓存 |
+| `go` | `go` + `Library/Caches/go-build` | GOPATH 与 go 构建缓存 |
+| `maven` | `.m2` | Maven 本地仓库 |
+| `gradle` | `.gradle` | Gradle 缓存 |
+| `huggingface` | `.cache/huggingface` | HF 模型缓存（动辄数十 GB，价值最高） |
+| `ollama` | `.ollama` | Ollama 模型与身份（服务本身监听 TCP 端口，分身天然可达） |
+
+**配置与凭据（config，默认关）** —— 镜像源、registry 登录态、开发凭据：
+
+| 资源 | 链接路径 | 说明 |
+| :--- | :--- | :--- |
+| `npmrc` | `.npmrc` | npm 镜像源 + auth token |
+| `pip-config` | `.config/pip` | pip 镜像源（pip.conf） |
+| `git` | `.gitconfig` | git 身份与代理配置 |
+| `ssh` | `.ssh` | SSH 密钥与 known_hosts（git ssh 拉取） |
+| `netrc` | `.netrc` | 机器登录凭据 |
+| `kube` | `.kube` | kubectl 集群配置 |
+
+**Shell 环境与工具链（shell，默认关）** —— 分身终端获得宿主同款环境：
+
+| 资源 | 链接路径 | 说明 |
+| :--- | :--- | :--- |
+| `shell-rc` | `.zshrc` + `.zprofile` + `.zshenv` + `.config/zsh` | 宿主 shell 配置（PATH、别名、代理） |
+| `oh-my-zsh` | `.oh-my-zsh` | oh-my-zsh 框架本体 |
+| `nvm` | `.nvm` | nvm 与全部 node 版本（GB 级） |
+| `pyenv` | `.pyenv` | pyenv 与全部 python 版本 |
+| `rust` | `.cargo` + `.rustup` | cargo/rustup 工具链（镜像配置含在 `.cargo/config.toml`） |
+
+> 注：Homebrew 等位于 HOME 之外的全局路径（`/opt/homebrew`、`/usr/local`）分身本就可访问，无需映射。
+
+### 使用方式
+
+* **GUI**：设置页 →「宿主资源映射」卡 → 打开总开关并勾选资源，点击右上角保存。
+* **CLI**（资源 key 自动归组，组名可整组启用/停用；未配置时展示推荐集的生效状态）：
+
+```bash
+twinspace resources list                     # 分组展示目录与启用状态
+twinspace resources enable orbstack          # 单例服务
+twinspace resources enable npm pip           # 缓存
+twinspace resources enable npmrc pip-config  # 镜像源配置
+twinspace resources enable shell-rc nvm      # shell 环境
+twinspace resources enable cache             # 整组启用
+twinspace resources disable npm              # 停用单项
+twinspace resources sync                     # 按当前配置重写清单文件
+```
+
+* **配置文件**（`~/TwinSpace/config.yaml`）：
+
+```yaml
+host_resources:
+  enabled: true
+  selections:
+    service: [orbstack]
+    cache: [npm, pip]
+    config: [npmrc]
+    shell: []
+```
+
+* **分身级追加**（规则 YAML 中，不受全局开关影响）：
+
+```yaml
+host_resources:
+  - "orbstack"
+  - ".kube"
+```
+
+### 行为速查
+
+| 场景 | 结果 |
+| :--- | :--- |
+| 宿主 OrbStack 运行中 | 分身终端 `docker ps` / `orb status` 直接连宿主实例 |
+| 宿主未运行，分身终端执行 `orb start` | 经 LaunchServices 拉起宿主 `/Applications/OrbStack.app`（真实 HOME、同一数据目录）→ 自动汇成同一实例 |
+| 宿主 `npm config set registry <源>` | 开启 `npmrc` 后分身 npm 立即跟随新源 |
+| 开启 `npm` + `pip` | 多个分身共用一份下载缓存，二次安装近乎秒装 |
+| 开启 `shell-rc` + `nvm` | 分身终端 `node -v` 与宿主一致 |
+| 开关关闭 | 分身重启后本机制创建的软链接被自动清理，恢复完全独立 |
+
+### 注意事项
+
+* **缓存并发**：pip/npm/pnpm/cargo/go 等缓存均为内容寻址 + 文件锁设计，支持同用户多进程并发；极端竞态损坏时删除缓存即可重建。
+* **凭据面**：「配置与凭据」组开启即意味着分身可读取宿主对应凭据（token / 密钥），请只在可信分身开启。
+* **shell 环境**：rc 文件中的宿主假设（代理、别名、启动逻辑）会作用于分身终端；nvm / pyenv 建议与 `shell-rc` 一同开启。
+* 修改工作区根目录（base_dir）后，旧分身内烘焙的清单路径会失效，重建分身即可恢复。
+* 新增资源只需在 `HOST_RESOURCE_GROUPS`（`core/host_resources.py`）中扩展目录表。
 
 ---
 

@@ -93,10 +93,34 @@ class Recipe(BaseModel):
                     f"'..' path components are not allowed."
                 )
         return v
+
+    @field_validator("host_resources")
+    @classmethod
+    def _check_host_resources(cls, v: list[str]) -> list[str]:
+        for item in v:
+            raw = (item or "").strip()
+            if not raw:
+                continue
+            if raw.startswith("/") or raw.startswith("~"):
+                raise ValueError(
+                    f"Invalid host_resources entry: {item!r}. "
+                    f"Entries must be relative to the user HOME."
+                )
+            if any(part == ".." for part in raw.strip("/").split("/")):
+                raise ValueError(
+                    f"Invalid host_resources entry: {item!r}. "
+                    f"'..' path components are not allowed."
+                )
+        return v
     strip_sandbox: bool = False
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     environment_injection: dict[str, str] = Field(default_factory=dict)
     symlink_whitelist: list[str] = Field(default_factory=list)
+    # Host resource entries always applied for this clone, on top of the global
+    # resource mapping switch: group keys ("service"/"cache"/...), resource keys
+    # ("orbstack"/"npm"/"shell-rc"/...) or HOME-relative paths. Baked into the
+    # launcher at build time.
+    host_resources: list[str] = Field(default_factory=list)
     launch_args: list[str] = Field(default_factory=list)
     language: str = "system"
     app_type: AppType | None = None

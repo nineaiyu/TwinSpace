@@ -123,8 +123,8 @@ def test_settings_view_cards_share_form_card_shell():
     scroll = next(child for child in view.children if isinstance(child, toga.ScrollContainer))
     cards = [child for child in scroll.content.children if isinstance(child, FormCard)]
 
-    # 语言 / 存储目录 / 代理 / 托盘 / 环境启动 / 备份 / 关于
-    assert len(cards) == 7
+    # 语言 / 存储目录 / 代理 / 托盘 / 环境启动 / 备份 / 宿主服务桥接 / 关于
+    assert len(cards) == 8
     assert all(card.title_label is not None for card in cards)
     assert all(card.title_label.style.font_size == Theme.FONT_CARD_TITLE for card in cards)
 

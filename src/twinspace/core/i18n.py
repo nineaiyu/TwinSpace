@@ -708,6 +708,82 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Launch interval must be a number between 0 and 30.",
         "zh": "启动间隔必须是 0 到 30 之间的数字。",
     },
+    "settings_card_host_resources": {
+        "en": "Host Resource Mapping",
+        "zh": "宿主资源映射",
+    },
+    "settings_switch_host_resources": {
+        "en": "Share host resources with clones",
+        "zh": "分身共享宿主资源",
+    },
+    "settings_hint_host_resources": {
+        "en": "Link host-side resources into clone HOMEs so in-clone terminals reuse the host's running services, caches, mirror sources and toolchains. Before your first save, everything is pre-selected except .ssh/.netrc/.kube; after you save, your explicit choice applies. Takes effect when the clone app restarts; paths that already exist inside a clone HOME are skipped. Note: shell rc files apply the host's shell environment (aliases, PATH, proxies) inside clone terminals, and the excluded trio carries the widest-impact host credentials.",
+        "zh": "将宿主侧资源软链接进分身 HOME，使分身终端复用宿主正在运行的服务、缓存、镜像源与工具链。首次保存前默认预选除 .ssh/.netrc/.kube 外的全部资源，手动保存后以你的选择为准。分身应用重启后生效；分身内已存在的同名路径会被自动跳过。注意：shell 配置会让分身终端应用宿主的 shell 环境（别名、PATH、代理）；被排除的三项凭据暴露面最大，请按需开启。",
+    },
+    "resources_group_service": {
+        "en": "Singleton services",
+        "zh": "单例服务",
+    },
+    "resources_group_cache": {
+        "en": "Shared caches",
+        "zh": "共享缓存",
+    },
+    "resources_group_config": {
+        "en": "Configs & credentials",
+        "zh": "配置与凭据",
+    },
+    "resources_group_shell": {
+        "en": "Shell & toolchains",
+        "zh": "Shell 环境与工具链",
+    },
+    "resources_list_header": {
+        "en": "[bold]Host resource mapping:[/bold]",
+        "zh": "[bold]宿主资源映射:[/bold]",
+    },
+    "resources_status_on": {
+        "en": "enabled",
+        "zh": "已启用",
+    },
+    "resources_status_off": {
+        "en": "off",
+        "zh": "未启用",
+    },
+    "resources_none_enabled": {
+        "en": "[yellow]No resource is enabled. Clones keep everything in their own HOME.[/yellow]",
+        "zh": "[yellow]未启用任何资源映射，分身完全使用各自 HOME。[/yellow]",
+    },
+    "resources_enable_done": {
+        "en": "[green]Enabled:[/green] {resource} ({paths})",
+        "zh": "[green]已启用:[/green] {resource}（{paths}）",
+    },
+    "resources_disable_done": {
+        "en": "[green]Disabled:[/green] {resource}",
+        "zh": "[green]已停用:[/green] {resource}",
+    },
+    "resources_sync_done": {
+        "en": "[green]Resource list written:[/green] {path}",
+        "zh": "[green]资源清单已写入:[/green] {path}",
+    },
+    "resources_err_unknown": {
+        "en": "Unknown resource '{resource}'. Available: {available}",
+        "zh": "未知资源 '{resource}'。可用: {available}",
+    },
+    "resources_err_already_enabled": {
+        "en": "Resource '{resource}' is already enabled.",
+        "zh": "资源 '{resource}' 已处于启用状态。",
+    },
+    "resources_err_not_enabled": {
+        "en": "Resource '{resource}' is not enabled.",
+        "zh": "资源 '{resource}' 未启用。",
+    },
+    "resources_list_file": {
+        "en": "List file: {path}",
+        "zh": "清单文件: {path}",
+    },
+    "resources_hint_restart": {
+        "en": "Clone apps pick this up on their next launch.",
+        "zh": "分身应用下次启动时自动应用。",
+    },
     "tray_menu_environments": {
         "en": "Environments",
         "zh": "环境",

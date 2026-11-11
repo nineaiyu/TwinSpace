@@ -159,6 +159,14 @@ class TwinSpaceApp(toga.App):
         self.probe_service = ProbeService()
         self.doctor_service = DoctorService()
 
+        # Keep the launcher-readable host service bridge list in sync with
+        # config.yaml (covers hand-edited configs and first runs after upgrade).
+        try:
+            from twinspace.core.host_resources import sync_resources_list
+            sync_resources_list()
+        except Exception as e:
+            logger.warning(f"Failed to sync host resource list: {e}")
+
         # Initialize views lazily: the clone page (landing) and the logs page
         # (its global listener must exist from the start) build now; every
         # other view builds on first visit, which keeps startup fast.

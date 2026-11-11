@@ -339,6 +339,148 @@ class CloneEngine:
         return "\n".join(lines)
 
     @staticmethod
+    def _render_host_resource_c_code(
+        baked_extra: list[str],
+        managed_union: list[str],
+        base_dir: str,
+    ) -> tuple[str, str]:
+        """Return (C helper source, call statement) for host resource mapping.
+
+        Emitted into clone launchers / env dylibs. The helpers link host-side
+        resources (singleton service directories, package caches, mirror and
+        credential configs, shell toolchains — e.g. ``.orbstack``, ``.npm``,
+        ``.zshrc``) into the clone's fake HOME so tools inside transparently
+        reuse the host's state. Enabled entries come from
+        ``<base_dir>/HostResources.list`` which is re-read on every launch, so
+        the global switch also affects already-built clones. ``baked_extra``
+        are recipe-level entries applied regardless of the switch;
+        ``managed_union`` is everything the feature may manage, used to unlink
+        stale links when an entry is no longer enabled.
+        """
+        def c_array(items: list[str]) -> tuple[str, int]:
+            escaped = ", ".join(f'"{_escape_c_string(item)}"' for item in items)
+            return escaped or "NULL", len(items)
+
+        baked_arr, baked_count = c_array(baked_extra)
+        managed_arr, managed_count = c_array(managed_union)
+        base_c = _escape_c_string(base_dir)
+
+        template = """
+#define TS_BRIDGE_MAX_ENTRIES 64
+
+static void twinspace_resource_ensure_one(const char *fake_home, const char *real_home, const char *rel) {
+    char lp[PATH_MAX], tp[PATH_MAX];
+    if (snprintf(lp, sizeof(lp), "%s/%s", fake_home, rel) >= (int)sizeof(lp)) return;
+    if (snprintf(tp, sizeof(tp), "%s/%s", real_home, rel) >= (int)sizeof(tp)) return;
+    struct stat st;
+    if (lstat(lp, &st) == 0) return;  /* clone-side entry exists (real dir or prior link) */
+    if (stat(tp, &st) != 0) return;   /* host side missing */
+    char parent[PATH_MAX];
+    if (snprintf(parent, sizeof(parent), "%s", lp) >= (int)sizeof(parent)) return;
+    for (char *p = parent + 1; *p; p++) {
+        if (*p == '/') { *p = '\\0'; mkdir(parent, 0755); *p = '/'; }
+    }
+    symlink(tp, lp);
+}
+
+static void twinspace_ensure_host_resources(void) {
+    const char *real_home = getenv("REAL_USER_HOME");
+    const char *fake_home = getenv("HOME");
+    if (!real_home || !real_home[0] || !fake_home || !fake_home[0]) return;
+    if (strcmp(real_home, fake_home) == 0) return;  /* not isolated */
+
+    static const char *ts_managed[] = {__TS_MANAGED_ARR__};
+    const int ts_managed_count = __TS_MANAGED_CNT__;
+    static const char *ts_baked[] = {__TS_BAKED_ARR__};
+    const int ts_baked_count = __TS_BAKED_CNT__;
+
+    const char *ts_base = getenv("TWINSPACE_HOME");
+    if (!ts_base || !ts_base[0]) ts_base = "__TS_BASE_DIR__";
+    char list_path[PATH_MAX];
+    if (snprintf(list_path, sizeof(list_path), "%s/HostResources.list", ts_base) >= (int)sizeof(list_path)) return;
+
+    char ts_enabled[TS_BRIDGE_MAX_ENTRIES][PATH_MAX];
+    int ts_enabled_count = 0;
+    FILE *ts_list = fopen(list_path, "r");
+    if (ts_list) {
+        char ts_line[PATH_MAX];
+        while (fgets(ts_line, sizeof(ts_line), ts_list) && ts_enabled_count < TS_BRIDGE_MAX_ENTRIES) {
+            size_t ts_len = strlen(ts_line);
+            while (ts_len > 0 && (ts_line[ts_len - 1] == '\\n' || ts_line[ts_len - 1] == '\\r' || ts_line[ts_len - 1] == ' ' || ts_line[ts_len - 1] == '\\t')) ts_line[--ts_len] = '\\0';
+            if (ts_len == 0 || ts_line[0] == '#') continue;
+            snprintf(ts_enabled[ts_enabled_count], PATH_MAX, "%s", ts_line);
+            ts_enabled_count++;
+        }
+        fclose(ts_list);
+    }
+
+    /* Unlink resource links created earlier for entries no longer enabled.
+       Only symlinks pointing into the real HOME at the same relative path
+       are removed; real directories and foreign links are never touched. */
+    for (int i = 0; i < ts_managed_count; i++) {
+        const char *rel = ts_managed[i];
+        int keep = 0;
+        for (int j = 0; j < ts_baked_count; j++) {
+            if (strcmp(rel, ts_baked[j]) == 0) { keep = 1; break; }
+        }
+        if (!keep) {
+            for (int j = 0; j < ts_enabled_count; j++) {
+                if (strcmp(rel, ts_enabled[j]) == 0) { keep = 1; break; }
+            }
+        }
+        if (keep) continue;
+        char lp[PATH_MAX], target[PATH_MAX];
+        if (snprintf(lp, sizeof(lp), "%s/%s", fake_home, rel) >= (int)sizeof(lp)) continue;
+        struct stat lst;
+        if (lstat(lp, &lst) != 0 || !S_ISLNK(lst.st_mode)) continue;
+        ssize_t rl = readlink(lp, target, sizeof(target) - 1);
+        if (rl <= 0) continue;
+        target[rl] = '\\0';
+        size_t rh_len = strlen(real_home);
+        if (strncmp(target, real_home, rh_len) != 0) continue;
+        if (target[rh_len] != '/' || strcmp(target + rh_len + 1, rel) != 0) continue;
+        unlink(lp);
+    }
+
+    /* Ensure links: recipe-level extras first, then runtime-enabled entries. */
+    for (int i = 0; i < ts_baked_count; i++) {
+        twinspace_resource_ensure_one(fake_home, real_home, ts_baked[i]);
+    }
+    for (int i = 0; i < ts_enabled_count; i++) {
+        twinspace_resource_ensure_one(fake_home, real_home, ts_enabled[i]);
+    }
+}
+"""
+        source = (
+            template.replace("__TS_MANAGED_ARR__", managed_arr)
+            .replace("__TS_MANAGED_CNT__", str(managed_count))
+            .replace("__TS_BAKED_ARR__", baked_arr)
+            .replace("__TS_BAKED_CNT__", str(baked_count))
+            .replace("__TS_BASE_DIR__", base_c)
+        )
+        return source, "    twinspace_ensure_host_resources();"
+
+    @classmethod
+    def _build_host_resource_code(cls, task: CloneTask) -> tuple[str, str]:
+        """Compute the host resource C code for a clone from its recipe and the global config."""
+        from twinspace.core.config import get_base_dir
+        from twinspace.core.host_resources import all_managed_paths, expand_entries
+
+        try:
+            baked = expand_entries(getattr(task.recipe, "host_resources", []) or [])
+        except ValueError as e:
+            raise CloneError(f"Invalid host_resources: {e}")
+        managed = list(all_managed_paths())
+        for path in baked:
+            if path not in managed:
+                managed.append(path)
+        return cls._render_host_resource_c_code(
+            baked_extra=baked,
+            managed_union=managed,
+            base_dir=str(get_base_dir()),
+        )
+
+    @staticmethod
     def _build_preference_seeding_snippet(task: CloneTask) -> str:
         """Return a shell snippet that seeds initial preferences from the original app into the clone's HOME."""
         if not getattr(task.recipe, "seed_preferences", True):
@@ -404,6 +546,7 @@ class CloneEngine:
         data_dir: Path,
         hook_dylib_rel_path: str = "",
         extra_hook_dylib_rel_paths: list[str] | None = None,
+        host_resource_code: tuple[str, str] | None = None,
     ) -> str:
         """Return a shell snippet that uses clang to compile a native Mach-O C launcher."""
         setenv_c_lines = [
@@ -514,18 +657,24 @@ class CloneEngine:
     }}
 """
 
+        resource_def, resource_call = host_resource_code or ("", "")
         c_source = f"""#include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <libgen.h>
 #include <limits.h>
+#include <sys/stat.h>
 #include <mach-o/dyld.h>
+
+{resource_def}
 
 int main(int argc, char *argv[]) {{
 {target_bin_statement}
 
 {setenv_block}
+
+{resource_call}
 
 {args_block}
 {hook_block}
@@ -549,6 +698,7 @@ chmod +x {dst_wrapper}
         lang_env: str,
         data_dir: Path,
         bin_orig: str,
+        host_resource_code: tuple[str, str] | None = None,
     ) -> str:
         """Compile a lightweight environment injection dylib and insert LC_LOAD_DYLIB into bin_orig."""
         # Clean quotes around paths before inserting into python script template
@@ -603,11 +753,20 @@ chmod +x {dst_wrapper}
 
         setenv_block = "\n".join(setenv_c_lines)
 
+        resource_def, resource_call = host_resource_code or ("", "")
         c_source = f"""#include <stdlib.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <string.h>
+#include <limits.h>
+#include <sys/stat.h>
+
+{resource_def}
 
 __attribute__((constructor))
 static void twinspace_env_init(void) {{
 {setenv_block}
+{resource_call}
 }}
 """
         py_insert_dylib = f"""TWINSPACE_INJECT_BIN={shlex.quote(clean_bin)} python3 -c "
@@ -1478,6 +1637,7 @@ class SoftCloneEngine(CloneEngine):
             lang_env=lang_env,
             args_list=args_list,
             data_dir=task.data_dir,
+            host_resource_code=cls._build_host_resource_code(task),
         )
 
         src_resources = shlex.quote(str(task.source.path / "Contents" / "Resources"))
@@ -2263,6 +2423,7 @@ CHATGPT_HOOK_EOF
                 lang_env=lang_env,
                 data_dir=task.data_dir,
                 bin_orig=bin_orig,
+                host_resource_code=cls._build_host_resource_code(task),
             )
         else:
             orig_bin_c = _escape_c_string(orig_bin_name).replace("%", "%%")
@@ -2304,6 +2465,7 @@ CHATGPT_HOOK_EOF
                 data_dir=task.data_dir,
                 hook_dylib_rel_path=hook_dylib_rel_path,
                 extra_hook_dylib_rel_paths=extra_hook_paths,
+                host_resource_code=cls._build_host_resource_code(task),
             )
             exec_prep_cmd = f"mv {bin_orig} {bin_bak}\n{c_launcher_cmd}"
 

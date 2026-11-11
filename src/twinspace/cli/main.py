@@ -3,6 +3,7 @@ from rich.console import Console
 
 from twinspace import __version__
 
+from .cmd_resources import resources
 from .cmd_clone import clone
 from .cmd_doctor import doctor
 from .cmd_env import env
@@ -30,6 +31,7 @@ def cli():
     set_language(detect_system_language())
 
 
+cli.add_command(resources)
 cli.add_command(clone)
 cli.add_command(doctor)
 cli.add_command(env)

@@ -16,6 +16,12 @@ from twinspace.core.config import (
     get_config_value,
     set_config_value,
 )
+from twinspace.core.host_resources import (
+    HOST_RESOURCE_GROUPS,
+    RESOURCE_GROUP_ORDER,
+    default_selections,
+    normalize_selections,
+)
 from twinspace.core.i18n import (
     SUPPORTED_LANGUAGES_MAP,
     detect_system_language,
@@ -258,6 +264,46 @@ class SettingsView(toga.Box):
         card_backup.add_hint(t("settings_hint_backup"), margin_top=2, margin_bottom=0)
         content_box.add(card_backup)
 
+        # ── Card 4.7: Host Resource Mapping ────────────────────────────────── #
+        card_resources = FormCard(t("settings_card_host_resources"))
+        # Before the user has ever saved this card, show the recommended
+        # defaults pre-selected (master switch on). After a manual save the
+        # stored selection is shown exactly as saved.
+        resource_cfg = get_config_value("host_resources", None)
+        if isinstance(resource_cfg, dict):
+            configured_master = bool(resource_cfg.get("enabled", False))
+            saved_selections = normalize_selections(resource_cfg.get("selections"))
+        else:
+            configured_master = True
+            saved_selections = default_selections()
+        self.switch_host_resources = toga.Switch(
+            t("settings_switch_host_resources"),
+            value=configured_master,
+            on_change=self._on_host_resources_toggle,
+            style=Pack(margin_bottom=4, font_size=13),
+        )
+        card_resources.add(self.switch_host_resources)
+        # One switch per catalog resource; labels are generated from the catalog
+        # (key + linked paths) so new catalog entries need no extra i18n keys.
+        self.resource_switches: dict[str, dict[str, toga.Switch]] = {}
+        for group in RESOURCE_GROUP_ORDER:
+            group_header = toga.Label(
+                t(f"resources_group_{group}"),
+                style=Pack(font_size=12.5, font_weight="bold", color=Theme.TEXT_MUTED, margin_top=8, margin_bottom=2),
+            )
+            card_resources.add(group_header)
+            self.resource_switches[group] = {}
+            for key, paths in HOST_RESOURCE_GROUPS[group].items():
+                resource_switch = toga.Switch(
+                    f"{key}  ·  {', '.join(paths)}",
+                    value=key in saved_selections.get(group, []),
+                    style=Pack(margin_bottom=5, font_size=12.5),
+                )
+                self.resource_switches[group][key] = resource_switch
+                card_resources.add(resource_switch)
+        card_resources.add_hint(t("settings_hint_host_resources"), margin_top=6, margin_bottom=0)
+        content_box.add(card_resources)
+
         # ── Card 5: System Info ────────────────────────────────────────────── #
         card_info = FormCard(t("settings_card_about"))
         for info_text in (
@@ -277,6 +323,13 @@ class SettingsView(toga.Box):
 
         self.release_notes_window: ReleaseNotesWindow | None = None
         self._on_proxy_toggle(self.switch_proxy)
+        self._on_host_resources_toggle(self.switch_host_resources)
+
+    def _on_host_resources_toggle(self, widget: toga.Switch) -> None:
+        master_on = bool(widget.value)
+        for group_switches in self.resource_switches.values():
+            for resource_switch in group_switches.values():
+                resource_switch.enabled = master_on
 
     def _on_proxy_toggle(self, widget: toga.Switch) -> None:
         enabled = bool(widget.value)
@@ -469,7 +522,26 @@ class SettingsView(toga.Box):
                 )
             return
         set_config_value("backup_retention", retention)
-        logger.info(f"Settings saved: base_dir='{base_dir}', proxy_enabled={proxy_enabled}, minimize_to_tray={minimize_to_tray}")
+
+        # Host resource mapping: persist config and regenerate the launcher list file.
+        resources_enabled = bool(self.switch_host_resources.value)
+        resource_selections = {
+            group: [key for key, sw in self.resource_switches[group].items() if sw.value]
+            for group in RESOURCE_GROUP_ORDER
+        }
+        resources_effective = resources_enabled and any(resource_selections.values())
+        set_config_value(
+            "host_resources",
+            {"enabled": resources_effective, "selections": resource_selections},
+        )
+        try:
+            from twinspace.core.host_resources import sync_resources_list
+            sync_resources_list()
+        except Exception as e:
+            logger.warning(f"Failed to sync host resource list: {e}")
+
+        enabled_resources = [k for keys in resource_selections.values() for k in keys] if resources_effective else []
+        logger.info(f"Settings saved: base_dir='{base_dir}', proxy_enabled={proxy_enabled}, minimize_to_tray={minimize_to_tray}, host_resources={enabled_resources or 'off'}")
         if self.app_instance and hasattr(self.app_instance, "main_window"):
             await self.app_instance.main_window.info_dialog(
                 t("dialog_settings_saved_title"),
