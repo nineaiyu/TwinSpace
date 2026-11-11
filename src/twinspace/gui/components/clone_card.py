@@ -11,6 +11,7 @@ from twinspace.core.i18n import t
 from twinspace.core.state import CloneRecord
 from twinspace.core.timestamps import format_last_opened
 from twinspace.gui import cocoa_events
+from twinspace.gui.cocoa_events import MenuEntry
 from twinspace.gui.patch_cocoa import configure_cocoa_danger_button
 from twinspace.gui.theme import Theme
 from twinspace.validation import redact_url_credentials
@@ -36,6 +37,7 @@ class CloneCard(toga.Box):
         super().__init__(style=Pack(direction=COLUMN, margin=(6, 8, 8, 8), flex=1, background_color=Theme.BG_CARD))
         self.record = record
         self.selected = False
+        self.running = False
         self.update_available = bool(update_available)
         self.downgrade_available = bool(downgrade_available) and not update_available
         self.current_version = current_version
@@ -61,6 +63,16 @@ class CloneCard(toga.Box):
         )
         self.label_env = None
         header.add(self.label_name)
+        self.label_running = toga.Label(
+            "",
+            style=Pack(
+                font_size=11.5,
+                font_weight="bold",
+                color=Theme.BTN_SUCCESS,
+                margin_right=8,
+            ),
+        )
+        header.add(self.label_running)
         if getattr(record, "env_group", ""):
             self.label_env = toga.Label(
                 t("card_env_badge", name=record.env_group),
@@ -141,16 +153,18 @@ class CloneCard(toga.Box):
         actions = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin=(0, 10, 12, 10)))
 
         # 1-Click Direct Launch Button (flex=2: takes proportionally more space)
+        # Callbacks read ``self.record`` at press time so a card can be reused
+        # across renders while always acting on the record it currently shows.
         btn_launch = toga.Button(
             t("btn_launch"),
-            on_press=lambda w: on_launch(record) if on_launch else None,
+            on_press=lambda w: on_launch(self.record) if on_launch else None,
             style=Pack(font_weight="bold", font_size=12, height=30, margin_right=4, flex=2),
         )
-        btn_open_dir = toga.Button(t("btn_open_dir_short"), on_press=lambda w: on_open_dir(record) if on_open_dir else None, style=Pack(margin_right=4, height=30, font_size=11, flex=1))
-        btn_update = toga.Button(t("btn_update_short"), on_press=lambda w: on_update(record) if on_update else None, style=Pack(margin_right=4, height=30, font_size=11, flex=1))
-        btn_edit = toga.Button(t("btn_edit_short"), on_press=lambda w: on_edit(record) if on_edit else None, style=Pack(margin_right=4, height=30, font_size=11, flex=1))
-        btn_detail = toga.Button(t("btn_detail_short"), on_press=lambda w: on_detail(record) if on_detail else None, style=Pack(margin_right=4, height=30, font_size=11, flex=1))
-        btn_delete = toga.Button(t("btn_delete_short"), on_press=lambda w: on_delete(record) if on_delete else None, style=Pack(height=30, font_size=11))
+        btn_open_dir = toga.Button(t("btn_open_dir_short"), on_press=lambda w: on_open_dir(self.record) if on_open_dir else None, style=Pack(margin_right=4, height=30, font_size=11, flex=1))
+        btn_update = toga.Button(t("btn_update_short"), on_press=lambda w: on_update(self.record) if on_update else None, style=Pack(margin_right=4, height=30, font_size=11, flex=1))
+        btn_edit = toga.Button(t("btn_edit_short"), on_press=lambda w: on_edit(self.record) if on_edit else None, style=Pack(margin_right=4, height=30, font_size=11, flex=1))
+        btn_detail = toga.Button(t("btn_detail_short"), on_press=lambda w: on_detail(self.record) if on_detail else None, style=Pack(height=30, font_size=11, flex=1))
+        btn_delete = toga.Button(t("btn_delete_short"), on_press=lambda w: on_delete(self.record) if on_delete else None, style=Pack(height=30, font_size=11))
         configure_cocoa_danger_button(btn_delete)
 
         actions.add(btn_launch)
@@ -161,6 +175,74 @@ class CloneCard(toga.Box):
         actions.add(toga.Box(style=Pack(flex=1)))
         actions.add(btn_delete)
         self.add(actions)
+
+        # Action table for the context menu; buttons keep their own closures.
+        self._actions = {
+            "launch": on_launch,
+            "open_dir": on_open_dir,
+            "update": on_update,
+            "edit": on_edit,
+            "detail": on_detail,
+            "delete": on_delete,
+        }
+        # Pointer feedback, double-click launch and the right-click menu across
+        # the whole card surface (no click handling here — selection recognizers
+        # live on the header).
+        cocoa_events.attach_tile_interactions(
+            self,
+            on_double_click=self._handle_double_click,
+            on_hover=self._handle_hover,
+            menu_entries=self._menu_entries(),
+            menu_handler=self._on_menu_action,
+        )
+
+    def _menu_entries(self) -> tuple[MenuEntry, ...]:
+        return (
+            MenuEntry("launch", t("btn_launch")),
+            MenuEntry("open_dir", t("btn_open_dir_short")),
+            MenuEntry("update", t("btn_update_short"), separator=True),
+            MenuEntry("edit", t("btn_edit_short")),
+            MenuEntry("detail", t("btn_detail_short")),
+            MenuEntry("delete", t("btn_delete_short"), separator=True),
+        )
+
+    def _on_menu_action(self, key: str) -> None:
+        """Dispatch one right-click menu entry against the displayed record."""
+        callback = self._actions.get(key)
+        if callback is not None:
+            callback(self.record)
+
+    def set_running(self, running: bool) -> None:
+        """Repaint the running dot in place (no widget rebuild)."""
+        running = bool(running)
+        if running == self.running:
+            return
+        self.running = running
+        self.label_running.text = ("● " + t("environment_running")) if running else ""
+
+    def _handle_double_click(self) -> None:
+        """Finder-style double-click opens the clone.
+
+        ``open`` activates a running clone and launches an idle one, so the
+        action is always valid — this is the fastest way to switch to a clone.
+        """
+        callback = self._actions.get("launch")
+        if callback is not None:
+            callback(self.record)
+
+    def _paint_surface(self, color: str) -> None:
+        """Repaint the card surface with an explicit color.
+
+        Always paint, never clear: wiping the layer would also wipe the card's
+        own background, so every state names its color explicitly.
+        """
+        cocoa_events.set_hover_background(self, True, color, radius=14.0)
+
+    def _handle_hover(self, active: bool) -> None:
+        if self.selected:
+            # Keep the selection surface visible while the pointer moves across it.
+            return
+        self._paint_surface(Theme.BG_HOVER if active else Theme.BG_CARD)
 
     def set_last_opened(self, value: str) -> None:
         """Repaint the last-opened line in place (no widget rebuild)."""
@@ -173,12 +255,7 @@ class CloneCard(toga.Box):
         if selected == self.selected:
             return
         self.selected = selected
-        cocoa_events.set_hover_background(
-            self,
-            True,
-            Theme.BG_SELECTION if selected else Theme.BG_CARD,
-            radius=14.0,
-        )
+        self._paint_surface(Theme.BG_SELECTION if selected else Theme.BG_CARD)
 
 
 

@@ -16,6 +16,7 @@ from toga.style import Pack
 from toga.style.pack import CENTER, COLUMN, ROW, START
 
 from twinspace.core.app_version import AppUpdate, update_statuses
+from twinspace.core.config import get_config_value
 from twinspace.core.device_identity import identity_for_environment
 from twinspace.core.environments import EnvironmentSpec
 from twinspace.core.i18n import t
@@ -227,6 +228,10 @@ class EnvironmentListView(toga.Box):
             self, self._blank_menu_entries_at, self._handle_blank_menu
         )
 
+    def focus_search(self) -> None:
+        """Focus the toolbar search field (menu / keyboard driven)."""
+        self.top_bar.focus_search()
+
     async def refresh_environments(self, *, show_loading: bool | None = None) -> None:
         """Reload environment data and repaint the page in place.
 
@@ -269,6 +274,12 @@ class EnvironmentListView(toga.Box):
                 except Exception as exc:
                     logger.error("Failed to detect running environments: %s", exc)
                     running = set()
+            else:
+                # Confirming a missed clone forks `ps` (50-300ms): keep it off
+                # the UI thread so a refresh never stalls event handling.
+                running = await loop.run_in_executor(
+                    None, self._confirm_believed_running, running
+                )
             self._running_clones = running
             self._prune_optimistic()
             await self._sync_cards(animate=show_loading)
@@ -1381,6 +1392,7 @@ class EnvironmentListView(toga.Box):
     def _env_menu_entries(self, running: bool) -> tuple[cocoa_events.MenuEntry, ...]:
         return (
             cocoa_events.MenuEntry("open_all", t("environment_btn_open_all")),
+            cocoa_events.MenuEntry("switch_to", t("environment_btn_switch")),
             cocoa_events.MenuEntry(
                 "update_all",
                 t("environment_btn_update_all"),
@@ -1392,6 +1404,8 @@ class EnvironmentListView(toga.Box):
             ),
             cocoa_events.MenuEntry("export", t("env_btn_export"), separator=True),
             cocoa_events.MenuEntry("restore", t("env_btn_restore")),
+            cocoa_events.MenuEntry("clone_env", t("env_menu_clone"), separator=True),
+            cocoa_events.MenuEntry("backups", t("env_menu_backups")),
             cocoa_events.MenuEntry("device", t("env_menu_device"), separator=True),
             cocoa_events.MenuEntry("reveal", t("env_menu_reveal_dir"), separator=True),
             cocoa_events.MenuEntry(
@@ -1421,6 +1435,8 @@ class EnvironmentListView(toga.Box):
     def _handle_env_menu(self, env: EnvironmentInfo, key: str) -> None:
         if key == "open_all":
             self._schedule(self._open_all(env.name))
+        elif key == "switch_to":
+            self._schedule(self._switch_to(env.name))
         elif key == "update_all":
             self._schedule(self._update_all(env.name))
         elif key == "rebuild_all":
@@ -1431,6 +1447,10 @@ class EnvironmentListView(toga.Box):
             self._schedule(self._export_template(env.name))
         elif key == "restore":
             self._schedule(self._restore_backup(env.name))
+        elif key == "clone_env":
+            self._open_clone_env_window(env)
+        elif key == "backups":
+            self._open_backup_manager(env)
         elif key == "device":
             self._show_device_identity(env)
         elif key == "reveal":
@@ -1494,8 +1514,12 @@ class EnvironmentListView(toga.Box):
     async def _open_all(self, name: str) -> None:
         loop = asyncio.get_running_loop()
         try:
+            interval = float(get_config_value("launch_interval", 2.0) or 0)
             errors = await loop.run_in_executor(
-                None, self.environment_service.open_environment, name
+                None,
+                lambda: self.environment_service.open_environment(
+                    name, interval=max(0.0, min(interval, 30.0))
+                ),
             )
         except Exception as exc:
             errors = [str(exc)]
@@ -1509,6 +1533,78 @@ class EnvironmentListView(toga.Box):
         env = next((item for item in self._environments if item.name == name), None)
         await self._record_opened([record.clone_name for record in env.records] if env else [])
         self._schedule(self._verify_running_later())
+
+    async def _switch_to(self, name: str) -> None:
+        """One-action workspace change: quit everything else, then open ``name``."""
+        env = next((item for item in self._environments if item.name == name), None)
+        target_names = {r.clone_name for r in env.records} if env else set()
+        outside_running = len(self._running_clones - target_names)
+        if self.app_instance and outside_running:
+            confirmed = await self.app_instance.main_window.confirm_dialog(
+                t("environment_switch_confirm_title"),
+                t(
+                    "environment_switch_confirm",
+                    name=name,
+                    count=outside_running,
+                ),
+            )
+            if not confirmed:
+                return
+
+        loop = asyncio.get_running_loop()
+        # The switch waits for the other apps to quit; show the spinner so the
+        # wait reads as intentional work, then reconcile the page afterwards.
+        self._show_loading()
+        try:
+            interval = float(get_config_value("launch_interval", 2.0) or 0)
+            open_errors, quit_errors = await loop.run_in_executor(
+                None,
+                lambda: self.environment_service.switch_environment(
+                    name, interval=max(0.0, min(interval, 30.0))
+                ),
+            )
+        except Exception as exc:
+            open_errors, quit_errors = [str(exc)], []
+        if (open_errors or quit_errors) and self.app_instance:
+            await self.app_instance.main_window.error_dialog(
+                t("environment_quit_error_title"),
+                "\n".join(quit_errors + open_errors),
+            )
+        self._mark_environment_running(name, True)
+        if env:
+            await self._record_opened([r.clone_name for r in env.records])
+        # Refresh also stops the spinner and repaints the cards in place.
+        await self.refresh_environments(show_loading=False)
+        self._schedule(self._verify_running_later())
+
+    def _open_clone_env_window(self, env: EnvironmentInfo) -> None:
+        """Open the copy-environment dialog for ``env``."""
+        if self.app_instance is None:
+            return
+        from twinspace.gui.windows.environment_clone import EnvironmentCloneWindow
+
+        window = EnvironmentCloneWindow(
+            self.app_instance,
+            self.environment_service,
+            env.name,
+            len(env.records),
+            on_complete=lambda: self._schedule(self._on_environment_changed()),
+        )
+        window.show()
+
+    def _open_backup_manager(self, env: EnvironmentInfo) -> None:
+        """Open the snapshot backup manager for ``env``."""
+        if self.app_instance is None:
+            return
+        from twinspace.gui.windows.backup_manager import BackupManagerWindow
+
+        window = BackupManagerWindow(
+            self.app_instance,
+            self.environment_service,
+            env.name,
+            on_changed=lambda: self._schedule(self._on_environment_changed()),
+        )
+        window.show()
 
     @_exclusive("close")
     async def _close_all(self, name: str) -> None:
@@ -2139,7 +2235,7 @@ class EnvironmentListView(toga.Box):
             await window.error_dialog(t("environment_error_title"), str(exc))
             return
         await window.info_dialog(
-            t("dialog_success_title") if False else t("environment_done_title"),
+            t("environment_done_title"),
             t("env_export_done", path=str(target)),
         )
 

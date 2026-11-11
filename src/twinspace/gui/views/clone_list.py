@@ -1,7 +1,10 @@
 """Cloned Applications Dual-View (Card Grid & Table) View."""
 
 import asyncio
+import os
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -11,15 +14,18 @@ from toga.style import Pack
 from toga.style.pack import CENTER, COLUMN, ROW
 
 from twinspace.core.app_version import AppUpdate, parse_version, update_statuses
+from twinspace.core.config import get_config_value, set_config_value
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
 from twinspace.core.state import CloneRecord, quit_clone, running_clone_names
-from twinspace.core.timestamps import format_last_opened
+from twinspace.core.timestamps import format_last_opened, parse_iso_timestamp
 from twinspace.gui import cocoa_events
 from twinspace.gui.components.clone_card import CloneCard
 from twinspace.gui.components.top_bar import TopHeaderBar
 from twinspace.gui.patch_cocoa import TABLE_ICON_SIZE, configure_cocoa_danger_button
+from twinspace.gui.services.app_monitor import AppLifecycleMonitor, enclosing_bundle
 from twinspace.gui.services.clone_service import CloneService
+from twinspace.gui.services.data_size import compute_data_sizes, format_size
 from twinspace.gui.services.launch_history import launch_history_for
 from twinspace.gui.theme import Theme
 from twinspace.gui.windows.clone_detail import CloneDetailWindow
@@ -34,6 +40,28 @@ _GRID_MARQUEE_THRESHOLD = 4.0
 _GRID_AUTOSCROLL_EDGE = 42.0
 _GRID_AUTOSCROLL_STEP = 16.0
 _GRID_AUTOSCROLL_INTERVAL = 0.05
+
+
+def _normalise_bundle_path(raw: Any) -> str:
+    """Resolve a bundle path so NSWorkspace and the state file can be compared."""
+    text = str(raw or "")
+    if not text:
+        return ""
+    try:
+        return os.path.realpath(text)
+    except OSError:  # pragma: no cover - realpath is tolerant in practice
+        return text
+
+
+def _recent_sort_key(record: CloneRecord) -> tuple[int, float]:
+    """Sort by last-opened recency; never-opened clones sink to the bottom."""
+    stamp = parse_iso_timestamp(getattr(record, "last_opened_at", ""))
+    if stamp is None:
+        return (0, 0.0)
+    try:
+        return (1, stamp.timestamp())
+    except (OSError, OverflowError, ValueError):
+        return (1, 0.0)
 
 
 class CloneNameColumn(AccessorColumn):
@@ -59,10 +87,19 @@ class CloneListView(toga.Box):
         self.app_instance = app
         self.launch_history = launch_history_for(self.clone_service.state_manager)
         self.launch_history.subscribe(self)
+        # Live running state: NSWorkspace notifications patch card dots and the
+        # title in place; a full refresh re-snapshots from the monitor.
+        self._monitor = AppLifecycleMonitor.shared()
+        self._monitor.subscribe(self)
+        self._running_clones: set[str] = set()
+        self._clone_by_path: dict[str, str] = {}
         self._raw_clones: list[CloneRecord] = []
         self._filtered_clones: list[CloneRecord] = []
         self._busy_clones: set[str] = set()
         self._icon_by_clone: dict[str, Any] = {}
+        # Data-dir sizes for the table column; computed in a worker with a
+        # shared TTL cache and patched into rows in place.
+        self._sizes: dict[str, int] = {}
         self._records_by_name: dict[str, CloneRecord] = {}
         # Clone/source version comparison, refreshed together with the list.
         self._update_status: dict[str, AppUpdate] = {}
@@ -70,6 +107,21 @@ class CloneListView(toga.Box):
         self._selected_names: set[str] = set()
         self._selection_anchor: str | None = None
         self._grid_cards: list[CloneCard] = []
+        # Pool of mounted cards keyed by clone name; re-parenting an existing
+        # card is far cheaper than rebuilding its ~20 native views, so renders
+        # reuse cards and only rebuild the ones whose data actually changed.
+        self._card_pool: dict[str, tuple[CloneCard, tuple]] = {}
+        # Persistent row boxes plus the clone names they currently hold: the
+        # grid is diffed row by row, so rows whose cards did not move and did
+        # not change cost zero native work on a refresh.
+        self._grid_rows: list[toga.Box] = []
+        self._grid_layout: list[list[str]] = []
+        self._mounted: str | None = None
+        self._render_signature: tuple | None = None
+        self._rendered = False
+        self._loading_indicator: Any | None = None
+        self._refreshing = False
+        self._pending_refresh = False
         self._drag_active = False
         self._drag_moved = False
         self._click_suppressed = False
@@ -78,6 +130,11 @@ class CloneListView(toga.Box):
         self._marquee_location: tuple[float, float] | None = None
         self._marquee_base: set[str] = set()
         self.view_mode: str = "list"  # "grid" or "list"
+        # Restore the mode the user left the page in last time; unknown saved
+        # values fall back to the list view.
+        saved_mode = str(get_config_value("clones_view_mode", "list") or "list")
+        if saved_mode in ("list", "grid"):
+            self.view_mode = saved_mode
         self.search_query: str = ""
         self._search_debounce = None
         self._grid_columns = 2
@@ -89,11 +146,21 @@ class CloneListView(toga.Box):
         self.filter_proxy = t("view_clones_filter_proxy")
 
         self.sort_newest = t("view_clones_sort_newest")
+        self.sort_recent = t("view_clones_sort_recent")
         self.sort_name = t("view_clones_sort_name")
         self.sort_oldest = t("view_clones_sort_oldest")
 
         self.selected_filter: str = self.filter_all
         self.selected_sort: str = self.sort_newest
+        self._sort_key_by_label = {
+            self.sort_recent: "recent",
+            self.sort_newest: "newest",
+            self.sort_name: "name",
+            self.sort_oldest: "oldest",
+        }
+        saved_sort = str(get_config_value("clones_sort", "newest") or "newest")
+        sort_label_by_key = {key: label for label, key in self._sort_key_by_label.items()}
+        self.selected_sort = sort_label_by_key.get(saved_sort, self.sort_newest)
         self._env_filter_labels: dict[str, str] = {}
 
         # Top Header Bar with big section title and compact pinned toolbar
@@ -107,13 +174,15 @@ class CloneListView(toga.Box):
             on_search=self.on_search_query_changed,
             filter_items=[self.filter_all, self.filter_hard, self.filter_soft, self.filter_proxy],
             on_filter_change=self.on_filter_changed,
-            sort_items=[self.sort_newest, self.sort_name, self.sort_oldest],
+            sort_items=[self.sort_recent, self.sort_newest, self.sort_name, self.sort_oldest],
             on_sort_change=self.on_sort_changed,
             view_modes=[t("topbar_view_list"), t("topbar_view_grid")],
             on_view_change=self.on_view_mode_changed,
             on_refresh=lambda w: asyncio.create_task(self.refresh_clones()),
         )
         self.add(self.top_bar)
+        # Reflect the restored view mode; the sort dropdown value is applied at
+        # the end of init (see below) once all render state exists.
 
         # Content container pinned right below header
         self.content_container = toga.Box(style=Pack(direction=COLUMN, flex=1, margin=(0, 24, 20, 24)))
@@ -156,6 +225,7 @@ class CloneListView(toga.Box):
                 t("list_col_created_at"),
                 t("list_col_last_opened"),
                 t("list_col_version"),
+                t("list_col_data_size"),
             ],
             multiple_select=True,
             on_select=self.on_table_select,
@@ -232,10 +302,41 @@ class CloneListView(toga.Box):
         self._empty_box.add(empty_actions)
         self._empty_box.add(toga.Box(style=Pack(flex=2)))  # bottom spacer (2x = shift slightly above center)
 
+        # No-results state — distinct from the "no clones at all" empty state,
+        # so a search miss does not advertise creating the first clone.
+        self._no_results_box = toga.Box(style=Pack(direction=COLUMN, flex=1, align_items=CENTER))
+        self._no_results_box.add(toga.Box(style=Pack(flex=1)))  # top spacer
+        no_results_symbol = cocoa_events.system_symbol_toga_image("magnifyingglass", 40)
+        if no_results_symbol is not None:
+            self._no_results_box.add(
+                toga.ImageView(
+                    no_results_symbol,
+                    style=Pack(width=40, height=40, margin_bottom=12),
+                )
+            )
+        self._no_results_box.add(toga.Label(
+            t("view_clones_no_results"),
+            style=Pack(font_size=15, font_weight="bold", color=Theme.TEXT_MUTED, margin_bottom=14),
+        ))
+        self.btn_clear_filters = toga.Button(
+            t("view_clones_clear_filters"),
+            on_press=self.on_clear_filters,
+            style=Pack(height=32, font_size=13),
+        )
+        self._no_results_box.add(self.btn_clear_filters)
+        self._no_results_box.add(toga.Box(style=Pack(flex=2)))  # bottom spacer
+
+        # Apply the restored sort now that every render target exists: setting
+        # a Selection value fires its on_change, which calls on_sort_changed.
+        select_sort = getattr(self.top_bar, "select_sort", None)
+        if select_sort is not None and select_sort.value != self.selected_sort:
+            select_sort.value = self.selected_sort
+
         self._render_current_view()
 
     def on_view_mode_changed(self, mode: str):
         self.view_mode = mode
+        self._persist_view_pref("clones_view_mode", mode)
         self._render_current_view()
 
     def on_window_resize(self, width: int):
@@ -269,8 +370,22 @@ class CloneListView(toga.Box):
         self._apply_filter()
 
     def on_sort_changed(self, sort_val: str):
+        if sort_val == self.selected_sort:
+            # Programmatic restores (and no-op user picks) must not rewrite
+            # the config or re-render.
+            return
         self.selected_sort = sort_val
+        self._persist_view_pref("clones_sort", self._sort_key_by_label.get(sort_val, "newest"))
         self._apply_filter()
+
+    def _persist_view_pref(self, key: str, value: str) -> None:
+        """Remember a view preference; skip when there is no real app (tests)."""
+        if self.app_instance is None:
+            return
+        try:
+            set_config_value(key, value)
+        except Exception:
+            logger.debug("Could not persist view preference %s", key, exc_info=True)
 
     def on_table_header_sort(self, col_index: int, column, ascending: bool):
         """Handle header click sorting for Table view and synchronize with toolbar."""
@@ -309,7 +424,15 @@ class CloneListView(toga.Box):
                 key=self._version_sort_key,
                 reverse=not ascending,
             )
+        elif col_index == 9:  # Data size (cached; 0 until the worker measures)
+            self._filtered_clones.sort(
+                key=lambda r: self._sizes.get(r.clone_name, 0),
+                reverse=not ascending,
+            )
 
+        self._persist_view_pref(
+            "clones_sort", self._sort_key_by_label.get(self.selected_sort, "newest")
+        )
         self._render_current_view()
 
     def on_action_new_clone(self, widget: toga.Button):
@@ -348,62 +471,152 @@ class CloneListView(toga.Box):
             items.sort(key=lambda r: r.clone_name.lower())
         elif "oldest" in selected_sort.lower() or "最早" in selected_sort:
             items.sort(key=lambda r: r.created_at)
+        elif "recent" in selected_sort.lower() or "最近" in selected_sort:
+            items.sort(key=_recent_sort_key, reverse=True)
         else:  # newest first
             items.sort(key=lambda r: r.created_at, reverse=True)
 
         self._filtered_clones = items
         self._render_current_view()
 
-    def _render_current_view(self):
+    def _record_signature(self, record: CloneRecord) -> tuple:
+        """Identity of one rendered row/card; a change forces a rebuild."""
+        status = self._update_status.get(record.clone_name)
+        return (
+            record.clone_name,
+            record.source_app,
+            record.dest_path,
+            record.strategy,
+            record.proxy_enabled,
+            record.proxy_summary,
+            getattr(record, "env_group", "") or "",
+            getattr(record, "notes", "") or "",
+            record.created_at,
+            getattr(record, "last_opened_at", "") or "",
+            (
+                (status.current, status.latest, status.needs_update, status.needs_downgrade)
+                if status
+                else None
+            ),
+        )
+
+    def _view_signature(self) -> tuple:
+        """Identity of everything the rendered view displays.
+
+        A refresh whose data is unchanged produces the same signature, and the
+        rebuild is skipped: tearing down and recreating every card means
+        hundreds of native views and Auto Layout constraints per refresh. The
+        search query matters only through the result set (the title shows
+        counts, not the query), so typing that does not change the matches
+        costs no rebuild at all.
+        """
+        return (
+            self.view_mode,
+            bool(self.search_query),
+            self.selected_filter,
+            self.selected_sort,
+            self._grid_columns,
+            tuple(self._record_signature(r) for r in self._filtered_clones),
+        )
+
+    def _mount_content(self, widget: toga.Widget) -> None:
+        """Swap the mounted content, skipping native work when already showing."""
+        children = self.content_container.children
+        if len(children) == 1 and children[0] is widget:
+            return
         while len(self.content_container.children) > 0:
             self.content_container.remove(self.content_container.children[0])
+        self.content_container.add(widget)
 
+    def _update_title(self) -> None:
         total_count = len(self._raw_clones)
         filter_count = len(self._filtered_clones)
         if self.search_query or self.selected_filter != self.filter_all:
-            self.top_bar.update_title(t("view_clones_title_filtered", filter_count=filter_count, total_count=total_count))
+            title = t("view_clones_title_filtered", filter_count=filter_count, total_count=total_count)
         else:
-            self.top_bar.update_title(t("view_clones_title", count=total_count))
+            title = t("view_clones_title", count=total_count)
+        running = len(self._running_clones)
+        if running:
+            title += t("title_running_suffix", running=running)
+        label = getattr(self.top_bar, "label_title", None)
+        if label is None or label.text != title:
+            self.top_bar.update_title(title)
+
+    def _rebuild_path_index(self) -> None:
+        """Index clone records by bundle path for O(1) launch-event lookups."""
+        self._clone_by_path = {}
+        for record in self._raw_clones:
+            path = _normalise_bundle_path(record.dest_path)
+            if path:
+                self._clone_by_path[path] = record.clone_name
+
+    def _snapshot_running_clones(self) -> set[str] | None:
+        """Running clones from NSWorkspace; None means fall back to `ps`."""
+        monitor = self._monitor
+        if monitor is None or not monitor.available:
+            return None
+        paths = monitor.running_paths()
+        if paths is None:
+            return None
+        running: set[str] = set()
+        for path in paths:
+            clone_name = self._clone_by_path.get(path)
+            if clone_name is None:
+                clone_name = self._clone_by_path.get(_normalise_bundle_path(path))
+            if clone_name is None:
+                # Launchers show up as executables / helper bundles.
+                clone_name = self._clone_by_path.get(enclosing_bundle(path))
+            if clone_name is not None:
+                running.add(clone_name)
+        return running
+
+    def handle_app_state_change(self, bundle_path: str, running: bool) -> None:
+        """NSWorkspace reported a clone bundle launching or terminating."""
+        clone_name = self._clone_by_path.get(bundle_path)
+        if clone_name is None:
+            clone_name = self._clone_by_path.get(_normalise_bundle_path(bundle_path))
+        if clone_name is None:
+            return
+        if threading.current_thread() is not threading.main_thread():
+            loop = getattr(self.app_instance, "loop", None) if self.app_instance else None
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(self._apply_running_state, clone_name, running)
+            return
+        self._apply_running_state(clone_name, running)
+
+    def _apply_running_state(self, clone_name: str, running: bool) -> None:
+        """Repaint one card's running dot and the title, without a rebuild."""
+        if running:
+            self._running_clones.add(clone_name)
+        else:
+            self._running_clones.discard(clone_name)
+        for card in self._grid_cards:
+            if card.record.clone_name == clone_name:
+                card.set_running(running)
+        self._update_title()
+
+    def _render_current_view(self):
+        signature = self._view_signature()
+        if signature == self._render_signature:
+            return
+        self._render_signature = signature
+
+        self._update_title()
 
         if not self._filtered_clones:
-            self.content_container.add(self._empty_box)
+            if self.search_query or self.selected_filter != self.filter_all:
+                self._mount_content(self._no_results_box)
+                self._mounted = "no_results"
+            else:
+                self._mount_content(self._empty_box)
+                self._mounted = "empty"
             return
 
         if self.view_mode == "grid":
-            while len(self.grid_box.children) > 0:
-                self.grid_box.remove(self.grid_box.children[0])
-            self._grid_cards = []
-
-            # Chunk into rows sized to the current window width
-            ROW_SIZE = max(1, self._grid_columns)
-            for i in range(0, len(self._filtered_clones), ROW_SIZE):
-                chunk = self._filtered_clones[i:i + ROW_SIZE]
-                row_box = toga.Box(style=Pack(direction=ROW, margin_bottom=12))
-                for record in chunk:
-                    status = self._update_status.get(record.clone_name)
-                    card = CloneCard(
-                        record=record,
-                        on_launch=lambda r: asyncio.create_task(self.on_launch_clone(r)),
-                        on_open_dir=lambda r: asyncio.create_task(self.on_open_clone_dir(r)),
-                        on_update=lambda r: asyncio.create_task(self.on_update_clone(r)),
-                        on_edit=lambda r: asyncio.create_task(self.on_edit_clone(r)),
-                        on_detail=lambda r: asyncio.create_task(self.on_detail_clone(r)),
-                        on_delete=lambda r: asyncio.create_task(self.on_delete_clone(r)),
-                        current_version=status.current if status else "",
-                        latest_version=status.latest if status else "",
-                        update_available=bool(status and status.needs_update),
-                        downgrade_available=bool(status and status.needs_downgrade),
-                    )
-                    self._attach_card_selection(card)
-                    self._grid_cards.append(card)
-                    row_box.add(card)
-                self.grid_box.add(row_box)
-                cocoa_events.fade_in(row_box)
-
-            self.content_container.add(self.grid_hint_label)
-            self.content_container.add(self.grid_scroll)
-            self._sync_card_selection()
+            self._render_grid()
         else:
+            self._mount_content(self.table_box)
+            self._mounted = "table"
             self._grid_cards = []
             prev_sel_names = set(self._selected_names) or {
                 r.clone_name for r in self.get_selected_records()
@@ -411,7 +624,6 @@ class CloneListView(toga.Box):
 
             table_data = [self._table_row(r) for r in self._filtered_clones]
             self.table.data = table_data
-            self.content_container.add(self.table_box)
 
             if prev_sel_names:
                 try:
@@ -428,6 +640,137 @@ class CloneListView(toga.Box):
                     pass
 
             self.on_table_select(self.table)
+
+    def _acquire_card(self, record: CloneRecord, signature: tuple) -> tuple[CloneCard, bool]:
+        """Return the card for ``record``, reusing a mounted one when unchanged.
+
+        Rebuilding a card means creating ~20 native views, their Auto Layout
+        constraints and selection recognizers; re-parenting an existing widget
+        is an order of magnitude cheaper, which is what keeps page entry and
+        search keystrokes responsive.
+        """
+        entry = self._card_pool.get(record.clone_name)
+        if entry is not None and entry[1] == signature:
+            card = entry[0]
+            card.record = record  # callbacks act on the record being displayed
+            return card, False
+        status = self._update_status.get(record.clone_name)
+        card = CloneCard(
+            record=record,
+            on_launch=lambda r: asyncio.create_task(self.on_launch_clone(r)),
+            on_open_dir=lambda r: asyncio.create_task(self.on_open_clone_dir(r)),
+            on_update=lambda r: asyncio.create_task(self.on_update_clone(r)),
+            on_edit=lambda r: asyncio.create_task(self.on_edit_clone(r)),
+            on_detail=lambda r: asyncio.create_task(self.on_detail_clone(r)),
+            on_delete=lambda r: asyncio.create_task(self.on_delete_clone(r)),
+            current_version=status.current if status else "",
+            latest_version=status.latest if status else "",
+            update_available=bool(status and status.needs_update),
+            downgrade_available=bool(status and status.needs_downgrade),
+        )
+        self._attach_card_selection(card)
+        return card, True
+
+    def _render_grid(self) -> None:
+        started = time.perf_counter()
+
+        # Mount the grid containers only when something else is showing; the
+        # scroll container and its rows stay alive across renders, so entering
+        # the page or typing a search does not re-parent the whole tree.
+        children = self.content_container.children
+        if (
+            len(children) != 2
+            or children[0] is not self.grid_hint_label
+            or children[1] is not self.grid_scroll
+        ):
+            while len(self.content_container.children) > 0:
+                self.content_container.remove(self.content_container.children[0])
+            self.content_container.add(self.grid_hint_label)
+            self.content_container.add(self.grid_scroll)
+        self._mounted = "grid"
+
+        # Evict cards of clones that no longer exist.
+        known = {record.clone_name for record in self._raw_clones}
+        for name in [name for name in self._card_pool if name not in known]:
+            del self._card_pool[name]
+
+        # Chunk into rows sized to the current window width
+        ROW_SIZE = max(1, self._grid_columns)
+        chunks = [
+            self._filtered_clones[i : i + ROW_SIZE]
+            for i in range(0, len(self._filtered_clones), ROW_SIZE)
+        ]
+
+        # Align the persistent row boxes with the desired row count.
+        while len(self._grid_rows) > len(chunks):
+            self.grid_box.remove(self._grid_rows.pop())
+        while len(self._grid_rows) < len(chunks):
+            row_box = toga.Box(style=Pack(direction=ROW, margin_bottom=12))
+            self._grid_rows.append(row_box)
+            self.grid_box.add(row_box)
+
+        # Diff row by row: untouched rows cost no native work at all.
+        touched_rows = 0
+        for index, chunk in enumerate(chunks):
+            row_box = self._grid_rows[index]
+            desired_names = [record.clone_name for record in chunk]
+            layout = self._grid_layout[index] if index < len(self._grid_layout) else None
+            if layout == desired_names and self._row_is_current(row_box, chunk):
+                continue
+            touched_rows += 1
+            if self._fill_grid_row(row_box, chunk):
+                # Only fresh content fades in; re-placed cards must not flicker.
+                cocoa_events.fade_in(row_box)
+        self._grid_layout = [[record.clone_name for record in chunk] for chunk in chunks]
+        self._grid_cards = [
+            child
+            for row_box in self._grid_rows
+            for child in row_box.children
+            if isinstance(child, CloneCard)
+        ]
+        for card in self._grid_cards:
+            card.set_running(card.record.clone_name in self._running_clones)
+        self._sync_card_selection()
+
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        if elapsed_ms > 100:
+            logger.info(
+                "Slow grid render: %.0f ms for %d cards (%d/%d rows touched)",
+                elapsed_ms,
+                len(self._filtered_clones),
+                touched_rows,
+                len(chunks),
+            )
+
+    def _row_is_current(self, row_box: toga.Box, chunk: list[CloneRecord]) -> bool:
+        """True when every mounted card of the row already shows ``chunk``."""
+        if len(row_box.children) != len(chunk):
+            return False
+        for card, record in zip(row_box.children, chunk):
+            if not isinstance(card, CloneCard):
+                return False
+            entry = self._card_pool.get(record.clone_name)
+            if entry is None or entry[0] is not card:
+                return False
+            if entry[1] != self._record_signature(record):
+                return False
+        return True
+
+    def _fill_grid_row(self, row_box: toga.Box, chunk: list[CloneRecord]) -> bool:
+        """Replace the cards of one row; returns True when any card was rebuilt."""
+        built_any = False
+        while len(row_box.children) > 0:
+            row_box.remove(row_box.children[0])
+        for record in chunk:
+            signature = self._record_signature(record)
+            card, is_new = self._acquire_card(record, signature)
+            parent = getattr(card, "parent", None)
+            if parent is not None:
+                parent.remove(card)
+            self._card_pool[record.clone_name] = (card, signature)
+            row_box.add(card)
+            built_any = built_any or is_new
+        return built_any
 
     def _table_row(self, record: CloneRecord) -> tuple[Any, ...]:
         """Build one table row; keep the column order in sync with the headers."""
@@ -448,7 +791,13 @@ class CloneListView(toga.Box):
             record.created_at[:19] if len(record.created_at) >= 19 else record.created_at,
             format_last_opened(getattr(record, "last_opened_at", ""), compact=True),
             self._version_cell(record),
+            self._size_cell(record),
         )
+
+    def _size_cell(self, record: CloneRecord) -> str:
+        """Data-dir size cell; "—" until the async measurement lands."""
+        size = self._sizes.get(record.clone_name)
+        return format_size(size) if size is not None else "—"
 
     def _version_sort_key(self, record: CloneRecord) -> tuple[int, ...]:
         """Sort the version column by the source app version, numerically."""
@@ -608,21 +957,127 @@ class CloneListView(toga.Box):
         records = self.get_selected_records()
         return records[0] if len(records) == 1 else None
 
-    async def refresh_clones(self):
-        loop = asyncio.get_running_loop()
-        self._raw_clones = await self.clone_service.list_clones()
-        self._records_by_name = {
-            record.clone_name: record for record in self._raw_clones
-        }
-        self._update_status = await loop.run_in_executor(
-            None, update_statuses, self._raw_clones
+    def _show_loading(self) -> None:
+        """Replace the content with a centered spinner while the first load runs."""
+        # The post-load render must run even when the data turns out empty.
+        self._render_signature = None
+        self._mounted = "loading"
+        while len(self.content_container.children) > 0:
+            self.content_container.remove(self.content_container.children[0])
+        wrapper = toga.Box(
+            style=Pack(direction=COLUMN, align_items=CENTER, margin=(70, 0, 0, 0))
         )
-        self._selected_names &= set(self._records_by_name)
-        if self._selection_anchor not in self._selected_names:
-            self._selection_anchor = None
-        self._icon_by_clone.clear()
-        self._sync_env_filters()
-        self._apply_filter()
+        indicator = toga.ActivityIndicator(style=Pack(width=28, height=28))
+        self._loading_indicator = indicator
+        wrapper.add(indicator)
+        wrapper.add(
+            toga.Label(
+                t("clones_loading"),
+                style=Pack(font_size=12.5, color=Theme.TEXT_MUTED, margin_top=12),
+            )
+        )
+        self.content_container.add(wrapper)
+        try:
+            indicator.start()
+        except Exception:
+            pass
+
+    def _set_refresh_busy(self, busy: bool) -> None:
+        """Disable the toolbar refresh button while a reload is in flight."""
+        button = getattr(self.top_bar, "btn_refresh", None)
+        if button is None:
+            return
+        try:
+            button.enabled = not busy
+        except Exception:
+            pass
+
+    async def refresh_clones(self):
+        if self._refreshing:
+            # An in-flight refresh already covers this request; run one more
+            # pass afterwards if something changed while it was running.
+            self._pending_refresh = True
+            return
+        self._refreshing = True
+        started = time.perf_counter()
+        loop = asyncio.get_running_loop()
+        try:
+            if not self._rendered:
+                self._show_loading()
+            self._set_refresh_busy(True)
+            # Let the spinner / toolbar state paint before doing executor work.
+            await asyncio.sleep(0)
+            self._raw_clones = await self.clone_service.list_clones()
+            self._records_by_name = {
+                record.clone_name: record for record in self._raw_clones
+            }
+            self._update_status = await loop.run_in_executor(
+                None, update_statuses, self._raw_clones
+            )
+            self._rebuild_path_index()
+            running = self._snapshot_running_clones()
+            if running is None:
+                # No NSWorkspace monitor: fall back to a `ps` scan (worker thread).
+                running = await loop.run_in_executor(
+                    None, running_clone_names, self._raw_clones
+                )
+            self._running_clones = running
+            self._selected_names &= set(self._records_by_name)
+            if self._selection_anchor not in self._selected_names:
+                self._selection_anchor = None
+            self._icon_by_clone.clear()
+            self._sync_env_filters()
+            self._apply_filter()
+        finally:
+            self._rendered = True
+            if self._loading_indicator is not None:
+                try:
+                    self._loading_indicator.stop()
+                except Exception:
+                    pass
+            self._loading_indicator = None
+            self._set_refresh_busy(False)
+            self._refreshing = False
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        if elapsed_ms > 150:
+            logger.info(
+                "Slow clones refresh: %.0f ms for %d clones", elapsed_ms, len(self._raw_clones)
+            )
+        if self._pending_refresh:
+            self._pending_refresh = False
+            await self.refresh_clones()
+        self._schedule_size_fill()
+
+    def _schedule_size_fill(self) -> None:
+        """Measure data dirs in a worker, then patch the size column in place."""
+        if not self._raw_clones:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._sizes = compute_data_sizes(self._raw_clones)
+            self._refresh_size_cells()
+            return
+        loop.run_in_executor(None, self._apply_sizes, loop)
+
+    def _apply_sizes(self, loop: asyncio.AbstractEventLoop) -> None:
+        sizes = compute_data_sizes(self._raw_clones)
+        loop.call_soon_threadsafe(self._set_sizes, sizes)
+
+    def _set_sizes(self, sizes: dict[str, int]) -> None:
+        self._sizes = sizes
+        self._refresh_size_cells()
+
+    def _refresh_size_cells(self) -> None:
+        """Repaint only the size cells of the mounted table rows."""
+        if self.view_mode != "list":
+            return
+        for index, record in enumerate(self._filtered_clones):
+            try:
+                self.table.data[index] = self._table_row(record)
+            except Exception:
+                logger.debug("Could not refresh size cell for %s", record.clone_name)
+                continue
 
     # ------------------------------------------------------------------
     # Multi-selection shared by the table and the card grid
@@ -637,6 +1092,39 @@ class CloneListView(toga.Box):
                 if record.clone_name in self._selected_names
             ]
         return self.get_selected_records()
+
+    def select_all(self) -> None:
+        """Select every clone in the current view (menu / keyboard driven)."""
+        if self.view_mode == "grid":
+            self._selected_names = {
+                record.clone_name for record in self._filtered_clones
+            }
+            self._selection_anchor = (
+                self._filtered_clones[0].clone_name if self._filtered_clones else None
+            )
+            self._sync_card_selection()
+            self.on_table_select(self.table)
+        else:
+            native = getattr(getattr(self.table, "_impl", None), "native_table", None)
+            if native is not None:
+                # The native selection change fires on_table_select by itself.
+                native.selectAll_(None)
+
+    def focus_search(self) -> None:
+        """Focus the toolbar search field (menu / keyboard driven)."""
+        self.top_bar.focus_search()
+
+    def on_clear_filters(self, widget: Any = None) -> None:
+        """Reset the search query and filter dropdown (no-results CTA)."""
+        self.search_query = ""
+        search_input = getattr(self.top_bar, "input_search", None)
+        if search_input is not None and search_input.value:
+            search_input.value = ""
+        self.selected_filter = self.filter_all
+        select_filter = getattr(self.top_bar, "select_filter", None)
+        if select_filter is not None and select_filter.value != self.filter_all:
+            select_filter.value = self.filter_all
+        self._apply_filter()
 
     def clear_selection(self, widget: Any = None) -> None:
         """Drop the whole selection."""
@@ -954,7 +1442,11 @@ class CloneListView(toga.Box):
             label = t("view_clones_filter_env", name=env_name)
             self._env_filter_labels[label] = env_name
             labels.append(label)
-        self.top_bar.update_filter_items(labels)
+        # Rebuilding the NSPopUpButton menu on every refresh resets interactions
+        # for no reason when the entries did not change.
+        if labels != getattr(self, "_filter_labels_cache", None):
+            self._filter_labels_cache = list(labels)
+            self.top_bar.update_filter_items(labels)
         if self.selected_filter not in labels:
             self.selected_filter = self.filter_all
             if getattr(self.top_bar, "select_filter", None) is not None:

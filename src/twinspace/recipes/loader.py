@@ -1,3 +1,4 @@
+import copy
 from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
@@ -10,6 +11,11 @@ from .models import Recipe
 class RecipeLoader:
     BUILTIN_DIR = Path(__file__).parent / "builtin"
     LOCAL_DIR: Path | None = None
+
+    # Parsed recipe files keyed by (path, mtime_ns, size): every ``match`` used
+    # to re-read and re-parse YAML from disk. File edits invalidate via mtime,
+    # and callers receive a deep copy so cached data can never be mutated.
+    _FILE_CACHE: dict[tuple[str, int, int], dict] = {}
 
     @classmethod
     def get_local_dir(cls) -> Path:
@@ -61,6 +67,18 @@ class RecipeLoader:
 
     @staticmethod
     def _load_file(path: Path) -> Recipe:
+        key = None
+        try:
+            stat = path.stat()
+            key = (str(path), stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            pass
+        if key is not None:
+            cached = RecipeLoader._FILE_CACHE.get(key)
+            if cached is not None:
+                return Recipe(**copy.deepcopy(cached))
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
+        if key is not None:
+            RecipeLoader._FILE_CACHE[key] = copy.deepcopy(data)
         return Recipe(**data)

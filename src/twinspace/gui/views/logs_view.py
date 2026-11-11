@@ -19,6 +19,13 @@ from twinspace.gui.theme import Theme
 
 logger = get_logger("gui.logs_view")
 
+# Cap the in-memory buffer: every extra line costs text-store work on each
+# repaint, and the log file on disk remains the complete record anyway.
+_MAX_LOG_LINES = 2000
+# Coalesce bursts of log lines into one repaint instead of one per line; a
+# clone operation can emit dozens of lines per second.
+_FLUSH_DELAY = 0.3
+
 
 class LogsView(toga.Box):
     """View presenting persistent application logs and real-time task output."""
@@ -29,6 +36,8 @@ class LogsView(toga.Box):
         self._raw_log_lines: list[str] = []
         self._current_filter: str = ""
         self._current_level: str = ""
+        self._flush_scheduled = False
+        self._dirty = False
 
         # Top Header Bar
         self.top_bar = TopHeaderBar(
@@ -80,6 +89,10 @@ class LogsView(toga.Box):
         # Register live broadcast listener
         add_log_listener(self._on_live_log_entry)
 
+    def focus_search(self) -> None:
+        """Focus the toolbar search field (menu / keyboard driven)."""
+        self.top_bar.focus_search()
+
     def reload_from_disk(self):
         """Read all log entries from the persistent log file on disk (reversed, latest first)."""
         content = read_logs()
@@ -88,6 +101,7 @@ class LogsView(toga.Box):
             self._raw_log_lines = list(reversed(lines))
         else:
             self._raw_log_lines = []
+        self._dirty = False
         self._update_log_display()
 
     def cleanup(self):
@@ -101,10 +115,13 @@ class LogsView(toga.Box):
         """Listener callback for new log messages emitted anywhere in the app (inserted at top)."""
         if not entry.strip():
             return
+        entry = entry.strip()
 
         def _apply():
-            self._raw_log_lines.insert(0, entry.strip())
-            self._update_log_display()
+            self._raw_log_lines.insert(0, entry)
+            if len(self._raw_log_lines) > _MAX_LOG_LINES:
+                del self._raw_log_lines[_MAX_LOG_LINES:]
+            self._schedule_flush()
 
         import asyncio
 
@@ -130,6 +147,37 @@ class LogsView(toga.Box):
                 # Main thread with no running loop (e.g., sync tests or early startup)
                 _apply()
             # Background thread with no loop: silently drop — entry is on disk already.
+
+    def _schedule_flush(self):
+        """Repaint once per _FLUSH_DELAY window, however many lines arrived."""
+        if self._flush_scheduled:
+            return
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._flush_pending_logs()
+            return
+        self._flush_scheduled = True
+        loop.call_later(_FLUSH_DELAY, self._flush_pending_logs)
+
+    def _flush_pending_logs(self):
+        self._flush_scheduled = False
+        if not self._is_visible():
+            self._dirty = True
+            return
+        self._update_log_display()
+
+    def _is_visible(self) -> bool:
+        """True while the logs page is the one mounted in the main window.
+
+        Repainting a hidden NSTextView is pure waste; the pending update is
+        replayed when the view is shown again (switch_view reloads from disk).
+        """
+        app = self.app_instance
+        name = getattr(app, "current_view_name", None)
+        return name is None or name == "logs"
 
     def _update_log_display(self):
         try:

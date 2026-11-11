@@ -213,6 +213,51 @@ class SettingsView(toga.Box):
         card_tray.add_hint(t("settings_hint_minimize_to_tray"), margin_top=2, margin_bottom=0)
         content_box.add(card_tray)
 
+        # ── Card 4.5: Environment Launch ────────────────────────────────────── #
+        card_launch = FormCard(t("settings_card_launch"))
+        try:
+            saved_interval = float(get_config_value("launch_interval", 2.0) or 2.0)
+        except (TypeError, ValueError):
+            saved_interval = 2.0
+        self.input_launch_interval = toga.TextInput(
+            value=str(saved_interval),
+            style=Pack(width=90, height=28),
+        )
+        row_launch = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_bottom=4))
+        row_launch.add(toga.Label(t("settings_launch_interval"), style=Pack(font_size=13, margin_right=10)))
+        row_launch.add(self.input_launch_interval)
+        card_launch.add(row_launch)
+        card_launch.add_hint(t("settings_hint_launch_interval"), margin_top=2, margin_bottom=0)
+        content_box.add(card_launch)
+
+        # ── Card 4.6: Backups ──────────────────────────────────────────────── #
+        card_backup = FormCard(t("settings_card_backup"))
+        self.switch_auto_backup = toga.Switch(
+            t("settings_switch_auto_backup"),
+            value=bool(get_config_value("auto_backup", False)),
+            style=Pack(margin_bottom=4, font_size=13),
+        )
+        card_backup.add(self.switch_auto_backup)
+        try:
+            saved_retention = int(get_config_value("backup_retention", 5) or 5)
+        except (TypeError, ValueError):
+            saved_retention = 5
+        self.input_backup_retention = toga.TextInput(
+            value=str(saved_retention),
+            style=Pack(width=90, height=28),
+        )
+        row_backup = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_bottom=4))
+        row_backup.add(
+            toga.Label(
+                t("settings_backup_retention"),
+                style=Pack(font_size=13, margin_right=10),
+            )
+        )
+        row_backup.add(self.input_backup_retention)
+        card_backup.add(row_backup)
+        card_backup.add_hint(t("settings_hint_backup"), margin_top=2, margin_bottom=0)
+        content_box.add(card_backup)
+
         # ── Card 5: System Info ────────────────────────────────────────────── #
         card_info = FormCard(t("settings_card_about"))
         for info_text in (
@@ -395,6 +440,35 @@ class SettingsView(toga.Box):
 
         set_config_value("base_dir", base_dir or str(DEFAULT_TWINSPACE_DIR))
         set_config_value("default_proxy", proxy_dict)
+
+        interval_str = self.input_launch_interval.value.strip() or "2"
+        try:
+            interval = float(interval_str)
+        except ValueError:
+            interval = -1.0
+        if not 0 <= interval <= 30:
+            if self.app_instance and hasattr(self.app_instance, "main_window"):
+                await self.app_instance.main_window.error_dialog(
+                    t("dialog_validation_error_title"),
+                    t("settings_err_launch_interval"),
+                )
+            return
+        set_config_value("launch_interval", interval)
+
+        set_config_value("auto_backup", bool(self.switch_auto_backup.value))
+        retention_str = self.input_backup_retention.value.strip() or "5"
+        try:
+            retention = int(retention_str)
+        except ValueError:
+            retention = 0
+        if not 1 <= retention <= 50:
+            if self.app_instance and hasattr(self.app_instance, "main_window"):
+                await self.app_instance.main_window.error_dialog(
+                    t("dialog_validation_error_title"),
+                    t("settings_err_backup_retention"),
+                )
+            return
+        set_config_value("backup_retention", retention)
         logger.info(f"Settings saved: base_dir='{base_dir}', proxy_enabled={proxy_enabled}, minimize_to_tray={minimize_to_tray}")
         if self.app_instance and hasattr(self.app_instance, "main_window"):
             await self.app_instance.main_window.info_dialog(

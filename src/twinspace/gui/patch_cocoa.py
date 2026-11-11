@@ -3,9 +3,22 @@
 import sys
 import threading
 from collections import deque
+from functools import lru_cache
 from typing import Any
 
 from twinspace.gui.theme import Theme
+
+
+@lru_cache(maxsize=512)
+def _color_rgb(value: str) -> tuple[int, int, int] | None:
+    """Parse a toga color value once; Box backgrounds repeat the same strings."""
+    try:
+        from toga.colors import Color
+
+        parsed = Color.parse(value)
+        return parsed.r, parsed.g, parsed.b
+    except Exception:
+        return None
 
 _is_patched = False
 _dark_mode_cache: bool | None = None
@@ -124,9 +137,35 @@ def _install_main_thread_finalizer_patch() -> None:
         MainWindow.__del__ = _patched_main_window_del
 
 
-def _detect_dark_mode() -> bool:
+def _detect_dark_mode_appkit() -> bool | None:
+    """Dark-mode state from the running NSApplication, or None when unknown.
+
+    This is a pure in-process AppKit read — no subprocess — but the value is
+    only trustworthy once the application is up and has an effective appearance.
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        from toga_cocoa.libs.appkit import NSApplication
+        ns_app = NSApplication.sharedApplication
+        appearance = getattr(ns_app, "effectiveAppearance", None)
+        if appearance is None:
+            return None
+        name = str(getattr(appearance, "name", "") or "")
+        if not name:
+            return None
+        return "Dark" in name
+    except Exception:
+        return None
+
+
+def _detect_dark_mode(prefer_appkit: bool = False) -> bool:
     if sys.platform != "darwin":
         return False
+    if prefer_appkit:
+        appkit = _detect_dark_mode_appkit()
+        if appkit is not None:
+            return appkit
     try:
         import subprocess
 
@@ -141,16 +180,11 @@ def _detect_dark_mode() -> bool:
     except (OSError, subprocess.SubprocessError):
         pass
 
-    try:
-        from toga_cocoa.libs.appkit import NSApplication
-        ns_app = NSApplication.sharedApplication
-        appearance = getattr(ns_app, "effectiveAppearance", None)
-        if appearance is None:
-            return False
-        name = str(getattr(appearance, "name", "") or "")
-        return "Dark" in name
-    except Exception:
-        return False
+    if not prefer_appkit:
+        appkit = _detect_dark_mode_appkit()
+        if appkit is not None:
+            return appkit
+    return False
 
 
 def is_dark_mode() -> bool:
@@ -170,10 +204,12 @@ def refresh_dark_mode_cache() -> bool:
     """Re-detect the system appearance and update the cached value.
 
     Returns the freshly detected mode so callers can compare against the
-    previously applied palette and rebuild the UI when it changed.
+    previously applied palette and rebuild the UI when it changed. Runs on every
+    view switch, so the free in-process AppKit read is preferred and the
+    ``defaults`` subprocess is only used when AppKit cannot answer.
     """
     global _dark_mode_cache
-    _dark_mode_cache = _detect_dark_mode()
+    _dark_mode_cache = _detect_dark_mode(prefer_appkit=True)
     return _dark_mode_cache
 
 
@@ -862,15 +898,8 @@ def patch_cocoa_widgets() -> None:
                 if color is None:
                     return
                 try:
-                    from toga.colors import Color
-
-                    parsed = Color.parse(color)
-                    card = Color.parse(Theme.BG_CARD)
-                    is_card = (parsed.r, parsed.g, parsed.b) == (
-                        card.r,
-                        card.g,
-                        card.b,
-                    )
+                    rgb = _color_rgb(str(color))
+                    is_card = rgb is not None and rgb == _color_rgb(Theme.BG_CARD)
                 except Exception:
                     is_card = False
                 if is_card:
@@ -895,6 +924,24 @@ def patch_cocoa_widgets() -> None:
                 return True
 
             AppDelegate.applicationShouldHandleReopen_hasVisibleWindows_ = _applicationShouldHandleReopen_hasVisibleWindows_
+        except Exception:
+            pass
+
+        # 7.5 Dock menu patch (right-click the Dock icon for env/clone actions).
+        try:
+            import toga_cocoa.libs.appkit  # noqa: F401  (loads AppKit)
+            from rubicon.objc import objc_method
+            from toga_cocoa.app import AppDelegate
+
+            from twinspace.gui.services.dock_menu import build_dock_menu
+
+            if not getattr(AppDelegate, "_twinspace_dock_menu", False):
+                @objc_method
+                def _applicationDockMenu_(self, sender):
+                    return build_dock_menu()
+
+                AppDelegate.applicationDockMenu_ = _applicationDockMenu_
+                AppDelegate._twinspace_dock_menu = True
         except Exception:
             pass
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,9 +26,11 @@ from twinspace.gui import cocoa_events
 from twinspace.gui.components.wrapping_label import WrappingLabel
 from twinspace.gui.patch_cocoa import (
     configure_cocoa_card,
+    configure_cocoa_danger_button,
     configure_cocoa_multiline_text_view,
     configure_cocoa_window,
 )
+from twinspace.gui.services.data_size import dir_size, format_size, invalidate_size_cache
 from twinspace.gui.theme import Theme
 from twinspace.validation import redact_url_credentials
 
@@ -58,10 +61,16 @@ class CloneDetailWindow(toga.Window):
             record.new_bundle_id or record.bundle_id,
             record.env_group or "",
         )
-        self._running = self._detect_running()
+        # Detecting the running state forks `ps`; do not make the user wait for
+        # it while the window opens — the badge is patched in from a worker.
+        self._running = False
+        self._badges_box: Optional[toga.Box] = None
+        self._running_badge: Optional[toga.Label] = None
 
         self._build_labels()
         self.content = self._build_content()
+        self._schedule_running_check()
+        self._schedule_size_check()
 
     # ── data helpers ────────────────────────────────────────────────
 
@@ -70,6 +79,114 @@ class CloneDetailWindow(toga.Window):
             return is_clone_running(self.record.dest_path)
         except Exception:
             return False
+
+    def _schedule_running_check(self) -> None:
+        """Resolve the running state in a worker thread, then paint the badge."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No GUI loop (e.g., sync tests): keep the old synchronous behavior.
+            self._running = self._detect_running()
+            self._add_running_badge()
+            return
+        loop.run_in_executor(None, self._detect_and_paint, loop)
+
+    def _detect_and_paint(self, loop: asyncio.AbstractEventLoop) -> None:
+        if not self._detect_running():
+            return
+        loop.call_soon_threadsafe(self._mark_running)
+
+    def _mark_running(self) -> None:
+        self._running = True
+        self._add_running_badge()
+
+    def _add_running_badge(self) -> None:
+        if not self._running or self._running_badge is not None or self._badges_box is None:
+            return
+        self._running_badge = toga.Label(
+            "● " + t("environment_running"),
+            style=Pack(
+                font_size=11.5,
+                font_weight="bold",
+                color=Theme.BTN_SUCCESS,
+            ),
+        )
+        self._badges_box.add(self._running_badge)
+
+    # ── data size & cache cleanup ─────────────────────────────────────
+
+    # Only well-known cache folders are ever cleared; login data, profiles and
+    # user documents under the data dir are never touched.
+    _CACHE_DIR_NAMES = (
+        "Cache",
+        "Code Cache",
+        "GPUCache",
+        "ShaderCache",
+        "DawnCache",
+        "DawnGraphiteCache",
+        "DawnWebGPUCache",
+        "GrShaderCache",
+    )
+
+    def _schedule_size_check(self) -> None:
+        """Compute the data-dir size in a worker and repaint the row."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._set_size_text(
+                format_size(dir_size(Path(self.record.data_dir)))
+            )
+            return
+        loop.run_in_executor(None, self._apply_size, loop)
+
+    def _apply_size(self, loop: asyncio.AbstractEventLoop) -> None:
+        total = dir_size(Path(self.record.data_dir))
+        text = format_size(total)
+        loop.call_soon_threadsafe(self._set_size_text, text)
+
+    def _set_size_text(self, text: str) -> None:
+        try:
+            self.label_data_size.text = text
+        except Exception:
+            pass
+
+    def _scan_caches(self) -> list[tuple[Path, int]]:
+        """Sizes of the whitelisted cache folders that actually exist."""
+        base = Path(self.record.data_dir)
+        if not base.is_dir():
+            return []
+        candidates = [base / name for name in self._CACHE_DIR_NAMES]
+        candidates.append(base / "Library" / "Caches")
+        candidates.append(base / ".cache")
+        found: list[tuple[Path, int]] = []
+        for path in candidates:
+            size = dir_size(path)
+            if size > 0:
+                found.append((path, size))
+        return found
+
+    async def _on_cleanup_cache(self, widget: toga.Button) -> None:
+        loop = asyncio.get_running_loop()
+        found = await loop.run_in_executor(None, self._scan_caches)
+        if not found:
+            await self.info_dialog(t("dialog_cache_cleanup_title"), t("detail_cache_none"))
+            return
+        total = sum(size for _path, size in found)
+        confirmed = await self.confirm_dialog(
+            t("dialog_cache_cleanup_title"),
+            t("dialog_cache_cleanup_msg", size=format_size(total)),
+        )
+        if not confirmed:
+            return
+
+        def _delete() -> None:
+            for path, _size in found:
+                # Whitelist only: the scan already restricted paths to cache dirs.
+                shutil.rmtree(path, ignore_errors=True)
+
+        await loop.run_in_executor(None, _delete)
+        invalidate_size_cache(self.record.data_dir)
+        self._schedule_size_check()
 
     def _language_label(self) -> str:
         lang_key = SUPPORTED_LANGUAGES.get(self.record.language, {}).get(
@@ -127,6 +244,13 @@ class CloneDetailWindow(toga.Window):
         self.label_language = self._value_label(self._language_label())
         self.label_dest_path = self._value_label(record.dest_path)
         self.label_data_dir = self._value_label(record.data_dir)
+        self.label_data_size = self._value_label(t("detail_data_size_pending"))
+        self.btn_cache_cleanup = toga.Button(
+            t("detail_btn_cache_cleanup"),
+            on_press=lambda w: asyncio.create_task(self._on_cleanup_cache(w)),
+            style=Pack(height=26, font_size=11.5),
+        )
+        configure_cocoa_danger_button(self.btn_cache_cleanup)
         self.label_created_at = self._value_label(record.created_at)
         self.label_proxy = self._value_label(self._proxy_label())
 
@@ -237,17 +361,8 @@ class CloneDetailWindow(toga.Window):
                     ),
                 )
             )
-        if self._running:
-            badges.add(
-                toga.Label(
-                    "● " + t("environment_running"),
-                    style=Pack(
-                        font_size=11.5,
-                        font_weight="bold",
-                        color=Theme.BTN_SUCCESS,
-                    ),
-                )
-            )
+        self._badges_box = badges
+        self._add_running_badge()
         title_box.add(badges)
         header.add(title_box)
         return header
@@ -282,6 +397,8 @@ class CloneDetailWindow(toga.Window):
         env.add(self._row(t("detail_label_env_group"), self.label_env_group))
         env.add(self._row(t("detail_label_env_dir"), self.label_env_dir))
         env.add(self._row(t("detail_label_data_dir"), self.label_data_dir))
+        env.add(self._row(t("detail_label_data_size"), self.label_data_size))
+        env.add(self.btn_cache_cleanup)
         env.add(self._row(t("detail_label_dest_path"), self.label_dest_path))
         env.add(
             self._copy_row(

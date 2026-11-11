@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import shutil
 import tarfile
 import tempfile
@@ -23,11 +24,77 @@ logger = get_logger("core.environments.backup")
 MANIFEST_NAME = "manifest.json"
 BACKUP_VERSION = 1
 
+_BACKUP_NAME_RE = re.compile(r"^(?P<env>.+)-(?P<date>\d{8})-(?P<time>\d{6})\.tar\.gz$")
+
 
 def default_backup_path(environment: str, base_dir: Path | None = None) -> Path:
     root = Path(base_dir) if base_dir else DEFAULT_TWINSPACE_DIR
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return root / "Backups" / f"{environment}-{timestamp}.tar.gz"
+
+
+def list_backups(
+    environment: str | None = None,
+    base_dir: Path | None = None,
+) -> list[dict[str, object]]:
+    """List backup archives, newest first.
+
+    Each item carries ``path`` / ``name`` / ``environment`` / ``size`` /
+    ``mtime``. With ``environment`` set, only archives named
+    ``<environment>-<date>-<time>.tar.gz`` are returned. Listing never touches
+    the archive files.
+    """
+    root = (Path(base_dir) if base_dir else DEFAULT_TWINSPACE_DIR) / "Backups"
+    if not root.is_dir():
+        return []
+    prefix = f"{environment}-" if environment else ""
+    items: list[dict[str, object]] = []
+    for path in sorted(root.glob("*.tar.gz")):
+        match = _BACKUP_NAME_RE.match(path.name)
+        if match is None:
+            continue
+        if prefix and not path.name.startswith(prefix):
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        items.append(
+            {
+                "path": path,
+                "name": path.name,
+                "environment": match.group("env"),
+                "size": stat.st_size,
+                "mtime": stat.st_mtime,
+            }
+        )
+    items.sort(key=lambda item: float(item["mtime"]), reverse=True)
+    return items
+
+
+def prune_backups(
+    environment: str,
+    keep: int,
+    base_dir: Path | None = None,
+) -> list[Path]:
+    """Delete the oldest backups of one environment beyond ``keep``.
+
+    Only files matching the ``<environment>-<date>-<time>.tar.gz`` naming
+    pattern are considered, and the newest ``keep`` backups always survive.
+    Returns the deleted paths.
+    """
+    keep = max(0, int(keep))
+    backups = list_backups(environment, base_dir)
+    removed: list[Path] = []
+    for item in backups[keep:]:
+        path = Path(item["path"])
+        try:
+            path.unlink()
+            removed.append(path)
+            logger.info("Pruned old backup %s", path)
+        except OSError as exc:
+            logger.debug("Could not prune backup %s: %s", path, exc)
+    return removed
 
 
 def create_backup(
@@ -78,6 +145,52 @@ def create_backup(
 
     logger.info("Created environment backup at %s", destination)
     return destination
+
+
+def summarize_backup(archive_path: Path) -> dict:
+    """Per-app content summary of a backup without extracting anything.
+
+    Returns ``{"environment", "created_at", "apps": [{key, files, bytes}],
+    "total_bytes"}``. Reading the member list of a ``.tar.gz`` streams the
+    whole archive, so callers should run this in a worker thread and cache the
+    result per path.
+    """
+    path = Path(archive_path).expanduser()
+    result: dict[str, object] = {
+        "path": path,
+        "environment": "",
+        "created_at": "",
+        "apps": [],
+        "total_bytes": 0,
+    }
+    with tarfile.open(path, "r:gz") as archive:
+        try:
+            member = archive.getmember(MANIFEST_NAME)
+        except KeyError as exc:
+            raise ValueError(f"Not a TwinSpace environment backup: {path}") from exc
+        handle = archive.extractfile(member)
+        if handle is None:
+            raise ValueError(f"Backup manifest is unreadable: {path}")
+        data = json.loads(handle.read().decode("utf-8"))
+        result["environment"] = str(data.get("environment", ""))
+        result["created_at"] = str(data.get("created_at", ""))
+
+        per: dict[str, dict[str, object]] = {}
+        for entry in archive.getmembers():
+            if entry.name == MANIFEST_NAME or not entry.name.startswith("data/"):
+                continue
+            parts = entry.name.split("/", 2)
+            if len(parts) < 2 or not parts[1]:
+                continue
+            key = parts[1]
+            item = per.setdefault(key, {"key": key, "files": 0, "bytes": 0})
+            if entry.isfile():
+                item["files"] = int(item["files"]) + 1
+                item["bytes"] = int(item["bytes"]) + int(entry.size)
+        apps = sorted(per.values(), key=lambda item: -int(item["bytes"]))
+        result["apps"] = apps
+        result["total_bytes"] = sum(int(item["bytes"]) for item in apps)
+    return result
 
 
 def read_manifest(archive_path: Path) -> dict:

@@ -453,7 +453,11 @@ class WizardWindow(toga.Window):
                 await self.error_dialog(t("dialog_input_required_title"), t("dialog_input_required_app_path"))
                 return
             try:
-                self.app_info = AppInspector.inspect(path_str)
+                # inspect forks `codesign` (and `defaults` fallbacks): keep the
+                # blocking call off the UI thread or "Next" freezes the window.
+                self.app_info = await asyncio.get_running_loop().run_in_executor(
+                    None, AppInspector.inspect, path_str
+                )
             except Exception as e:
                 # Fallback probe or show error
                 await self.error_dialog(t("dialog_error_title"), t("wizard_err_inspect_failed", error=e))

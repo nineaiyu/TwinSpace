@@ -12,10 +12,12 @@ from toga.style.pack import COLUMN, ROW
 
 from twinspace import __version__
 from twinspace.core.config import get_config_value
+from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
 from twinspace.core.resources import get_app_icon_path
 
 logger = get_logger("gui.app")
+from twinspace.gui import cocoa_events
 from twinspace.gui.components.sidebar import SidebarNav
 from twinspace.gui.patch_cocoa import (
     apply_cocoa_appearance,
@@ -29,6 +31,7 @@ from twinspace.gui.patch_cocoa import (
     set_window_min_size,
     update_cocoa_sidebar_material,
 )
+from twinspace.gui.services.backup_scheduler import auto_backup_loop
 from twinspace.gui.services.clone_service import CloneService
 from twinspace.gui.services.doctor_service import DoctorService
 from twinspace.gui.services.environment_service import EnvironmentService
@@ -114,6 +117,7 @@ class TwinSpaceApp(toga.App):
             version = __version__
         # Guard flag to prevent _on_window_close from blocking a deliberate exit
         self._is_exiting: bool = False
+        self._quick_launcher: Any | None = None
         super().__init__(
             formal_name=formal_name,
             app_id=app_id,
@@ -153,17 +157,17 @@ class TwinSpaceApp(toga.App):
         self.probe_service = ProbeService()
         self.doctor_service = DoctorService()
 
-        # Initialize all views
+        # Initialize views lazily: the clone page (landing) and the logs page
+        # (its global listener must exist from the start) build now; every
+        # other view builds on first visit, which keeps startup fast.
         self.clone_view = CloneListView(clone_service=self.clone_service, app=self)
-        self.environment_view = EnvironmentListView(
-            environment_service=self.environment_service,
-            app=self,
-        )
-        self.recipe_view = RecipeListView(recipe_service=self.recipe_service, app=self)
-        self.probe_view = ProbeView(probe_service=self.probe_service, recipe_service=self.recipe_service, app=self)
-        self.doctor_view = DoctorView(doctor_service=self.doctor_service, app=self)
         self.logs_view = LogsView(app=self)
-        self.settings_view = SettingsView(app=self)
+        self.source_apps_view = None
+        self.environment_view = None
+        self.recipe_view = None
+        self.probe_view = None
+        self.doctor_view = None
+        self.settings_view = None
 
         self.current_view_name = "clones"
 
@@ -224,6 +228,113 @@ class TwinSpaceApp(toga.App):
         # Replay Cocoa teardown deferred by worker threads onto the main thread.
         self.safe_create_task(self._drain_deferred_cocoa_work())
 
+        # Daily automatic environment backups (opt-in via settings).
+        self.safe_create_task(
+            auto_backup_loop(self.environment_service, lambda: self._is_exiting)
+        )
+
+        # macOS menu bar commands with HIG daily-driver keyboard shortcuts.
+        self._register_commands()
+
+    def _register_commands(self) -> None:
+        """Install the app menu (File / View groups) and its keyboard shortcuts."""
+        from toga import Command, Group, Key
+
+        file_group = Group(t("menu_group_file"), order=20)
+        view_group = Group(t("menu_group_view"), order=25)
+        commands = [
+            Command(
+                self.action_new_clone,
+                t("menu_new_clone"),
+                shortcut=Key.MOD_1 + "n",
+                group=file_group,
+            ),
+            Command(
+                self.action_refresh_current,
+                t("menu_refresh"),
+                shortcut=Key.MOD_1 + "r",
+                group=view_group,
+                section=0,
+            ),
+            Command(
+                self.cmd_focus_search,
+                t("menu_focus_search"),
+                shortcut=Key.MOD_1 + "f",
+                group=view_group,
+                section=0,
+            ),
+            Command(
+                self.cmd_quick_launch,
+                t("menu_quick_launch"),
+                shortcut=Key.MOD_1 + "k",
+                group=view_group,
+                section=0,
+            ),
+        ]
+        pages = [
+            ("clones", "1"),
+            ("sources", "2"),
+            ("environments", "3"),
+            ("recipes", "4"),
+            ("probe", "5"),
+            ("doctor", "6"),
+            ("logs", "7"),
+            ("settings", "8"),
+        ]
+        for order, (page, digit) in enumerate(pages, start=1):
+            commands.append(
+                Command(
+                    lambda widget, name=page: self.sidebar.select_item(name),
+                    t(f"nav_{page}"),
+                    shortcut=Key.MOD_1 + digit,
+                    group=view_group,
+                    section=1,
+                    order=order,
+                )
+            )
+        for command in commands:
+            self.commands.add(command)
+        # Toga keeps its own registry; this list only guards against GC surprises.
+        self._commands = commands
+
+    def _active_view(self) -> Any:
+        """The view widget currently mounted in the content container."""
+        attr = self._VIEW_ATTRS.get(self.current_view_name)
+        return getattr(self, attr, None) if attr else None
+
+    def cmd_focus_search(self, widget: Any) -> None:
+        """⌘F: focus the search field of the visible view (when it has one)."""
+        focus = getattr(self._active_view(), "focus_search", None)
+        if focus is not None:
+            focus()
+
+    def cmd_quick_launch(self, widget: Any) -> None:
+        """⌘K: open the quick-launch palette (fuzzy filter, ⏎ to launch)."""
+        from twinspace.gui.windows.quick_launcher import QuickLauncherWindow
+
+        if self._quick_launcher is not None:
+            try:
+                self._quick_launcher.show()
+                self._quick_launcher.input_search.focus()
+                return
+            except Exception:
+                self._quick_launcher = None
+        window = QuickLauncherWindow(self, self.clone_service)
+        self._quick_launcher = window
+        window.show()
+        try:
+            native = getattr(getattr(window, "_impl", None), "native", None)
+            if native is not None:
+                native.center()
+        except Exception:
+            pass
+        try:
+            window.input_search.focus()
+        except Exception:
+            pass
+        if window._load_task is None:
+            self.safe_create_task(window._load_records())
+
     async def _drain_deferred_cocoa_work(self) -> None:
         """Flush queued AppKit cleanup from the main thread.
 
@@ -282,16 +393,7 @@ class TwinSpaceApp(toga.App):
 
     def _dispatch_window_resize(self):
         self._resize_debounce = None
-        view_names = {
-            "clones": "clone_view",
-            "environments": "environment_view",
-            "recipes": "recipe_view",
-            "probe": "probe_view",
-            "doctor": "doctor_view",
-            "logs": "logs_view",
-            "settings": "settings_view",
-        }
-        attr = view_names.get(self.current_view_name)
+        attr = self._VIEW_ATTRS.get(self.current_view_name)
         view = getattr(self, attr, None) if attr else None
         if view is None or not hasattr(view, "on_window_resize"):
             return
@@ -457,6 +559,52 @@ class TwinSpaceApp(toga.App):
         # events that block the exit. The Dock icon vanishes automatically on process end.
         self.exit()
 
+    _VIEW_ATTRS = {
+        "clones": "clone_view",
+        "sources": "source_apps_view",
+        "environments": "environment_view",
+        "recipes": "recipe_view",
+        "probe": "probe_view",
+        "doctor": "doctor_view",
+        "logs": "logs_view",
+        "settings": "settings_view",
+    }
+
+    def _build_view(self, view_name: str):
+        """Construct one feature view (lazy: only when it is first shown)."""
+        if view_name == "clones":
+            return CloneListView(clone_service=self.clone_service, app=self)
+        if view_name == "sources":
+            from twinspace.gui.views.source_apps_view import SourceAppsView
+
+            return SourceAppsView(clone_service=self.clone_service, app=self)
+        if view_name == "environments":
+            return EnvironmentListView(
+                environment_service=self.environment_service,
+                app=self,
+            )
+        if view_name == "recipes":
+            return RecipeListView(recipe_service=self.recipe_service, app=self)
+        if view_name == "probe":
+            return ProbeView(probe_service=self.probe_service, recipe_service=self.recipe_service, app=self)
+        if view_name == "doctor":
+            return DoctorView(doctor_service=self.doctor_service, app=self)
+        if view_name == "logs":
+            return LogsView(app=self)
+        if view_name == "settings":
+            return SettingsView(app=self)
+        return None
+
+    def _ensure_view(self, view_name: str):
+        attr = self._VIEW_ATTRS.get(view_name)
+        if attr is None:
+            return None
+        view = getattr(self, attr, None)
+        if view is None:
+            view = self._build_view(view_name)
+            setattr(self, attr, view)
+        return view
+
     def switch_view(self, view_name: str):
         """Switch right content area between feature views."""
         if self._maybe_refresh_appearance():
@@ -468,25 +616,28 @@ class TwinSpaceApp(toga.App):
         while len(self.content_container.children) > 0:
             self.content_container.remove(self.content_container.children[0])
 
+        view = self._ensure_view(view_name)
+        if view is None:
+            return
+        self.content_container.add(view)
+
         if view_name == "clones":
-            self.content_container.add(self.clone_view)
-            self.safe_create_task(self.clone_view.refresh_clones())
+            self.safe_create_task(view.refresh_clones())
+        elif view_name == "sources":
+            self.safe_create_task(view.refresh_sources())
         elif view_name == "environments":
-            self.content_container.add(self.environment_view)
-            self.safe_create_task(self.environment_view.refresh_environments())
+            self.safe_create_task(view.refresh_environments())
         elif view_name == "recipes":
-            self.content_container.add(self.recipe_view)
-            self.safe_create_task(self.recipe_view.refresh_recipes())
-        elif view_name == "probe":
-            self.content_container.add(self.probe_view)
-        elif view_name == "doctor":
-            self.content_container.add(self.doctor_view)
-            self.safe_create_task(self.doctor_view.run_checks())
+            self.safe_create_task(view.refresh_recipes())
         elif view_name == "logs":
-            self.content_container.add(self.logs_view)
-            self.logs_view.reload_from_disk()
-        elif view_name == "settings":
-            self.content_container.add(self.settings_view)
+            view.reload_from_disk()
+        elif view_name == "doctor":
+            self.safe_create_task(view.run_checks())
+
+        # Subtle cross-fade when the page content changes.
+        children = self.content_container.children
+        if children:
+            cocoa_events.fade_in(children[-1], duration=0.15)
 
     def action_new_clone(self, widget: Any):
         async def _on_complete():
@@ -522,17 +673,16 @@ class TwinSpaceApp(toga.App):
         if hasattr(self, "logs_view") and self.logs_view and hasattr(self.logs_view, "cleanup"):
             self.logs_view.cleanup()
 
-        # Re-initialize views with updated localized strings
+        # Re-initialize the mounted page with updated localized strings; the
+        # other pages drop back to lazy and rebuild on their next visit.
         self.clone_view = CloneListView(clone_service=self.clone_service, app=self)
-        self.environment_view = EnvironmentListView(
-            environment_service=self.environment_service,
-            app=self,
-        )
-        self.recipe_view = RecipeListView(recipe_service=self.recipe_service, app=self)
-        self.probe_view = ProbeView(probe_service=self.probe_service, recipe_service=self.recipe_service, app=self)
-        self.doctor_view = DoctorView(doctor_service=self.doctor_service, app=self)
         self.logs_view = LogsView(app=self)
-        self.settings_view = SettingsView(app=self)
+        self.source_apps_view = None
+        self.environment_view = None
+        self.recipe_view = None
+        self.probe_view = None
+        self.doctor_view = None
+        self.settings_view = None
 
         # Re-mount currently active view
         self.switch_view(self.current_view_name)

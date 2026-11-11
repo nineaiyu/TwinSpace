@@ -175,6 +175,39 @@ class RecipeEditWindow(toga.Window):
             t("win_recipe_advanced_warning"),
             style=Pack(margin_bottom=8, font_size=11.5, color=Theme.TEXT_MUTED),
         )
+
+        # Engine patch switches (advanced; previously YAML-only).
+        self.switch_patch_framework_singleton = toga.Switch(
+            t("win_recipe_patch_framework"),
+            value=bool(getattr(recipe, "patch_framework_singleton", False)),
+            style=Pack(font_size=12.5, margin_bottom=3),
+        )
+        self.switch_patch_cef = toga.Switch(
+            t("win_recipe_patch_cef"),
+            value=bool(getattr(recipe, "patch_cef", False)),
+            style=Pack(font_size=12.5, margin_bottom=3),
+        )
+        self.switch_patch_lark_isolation = toga.Switch(
+            t("win_recipe_patch_lark"),
+            value=bool(getattr(recipe, "patch_lark_isolation", False)),
+            style=Pack(font_size=12.5, margin_bottom=3),
+        )
+        self.switch_patch_chatgpt_isolation = toga.Switch(
+            t("win_recipe_patch_chatgpt"),
+            value=bool(getattr(recipe, "patch_chatgpt_isolation", False)),
+            style=Pack(font_size=12.5, margin_bottom=3),
+        )
+        self.switch_strip_url_schemes = toga.Switch(
+            t("win_recipe_strip_url_schemes"),
+            value=bool(getattr(recipe, "strip_url_schemes", False)),
+            style=Pack(font_size=12.5, margin_bottom=3),
+        )
+        self.switch_seed_preferences = toga.Switch(
+            t("win_recipe_seed_prefs"),
+            value=bool(getattr(recipe, "seed_preferences", True)),
+            style=Pack(font_size=12.5, margin_bottom=3),
+        )
+
         self.advanced_box = self._build_advanced_box()
 
         # Action buttons
@@ -237,6 +270,27 @@ class RecipeEditWindow(toga.Window):
         adv_box.add(lbl_sym)
         adv_box.add(lbl_sym_hint)
         adv_box.add(self.input_symlink_whitelist)
+
+        # Engine patches (bool switches consumed by the clone engines)
+        lbl_patches = toga.Label(
+            t("win_recipe_engine_patches"),
+            style=Pack(font_size=13, font_weight="bold", margin_top=10, margin_bottom=2, color=Theme.TEXT_PRIMARY),
+        )
+        lbl_patches_hint = toga.Label(
+            t("win_recipe_engine_patches_hint"),
+            style=Pack(font_size=11, color=Theme.TEXT_MUTED, margin_bottom=4),
+        )
+        adv_box.add(lbl_patches)
+        adv_box.add(lbl_patches_hint)
+        for switch in (
+            self.switch_patch_framework_singleton,
+            self.switch_patch_cef,
+            self.switch_patch_lark_isolation,
+            self.switch_patch_chatgpt_isolation,
+            self.switch_strip_url_schemes,
+            self.switch_seed_preferences,
+        ):
+            adv_box.add(switch)
 
         return adv_box
 
@@ -368,6 +422,12 @@ class RecipeEditWindow(toga.Window):
             language=language,
             app_type=app_type,
             injection_strategy=injection_strategy,
+            patch_framework_singleton=self.switch_patch_framework_singleton.value,
+            patch_cef=self.switch_patch_cef.value,
+            patch_lark_isolation=self.switch_patch_lark_isolation.value,
+            patch_chatgpt_isolation=self.switch_patch_chatgpt_isolation.value,
+            strip_url_schemes=self.switch_strip_url_schemes.value,
+            seed_preferences=self.switch_seed_preferences.value,
         )
 
     async def on_save_press(self, widget: toga.Button):

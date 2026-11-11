@@ -61,7 +61,7 @@ def test_cli_subcommands_english_help():
     # recipe list
     res = runner.invoke(cli, ["recipe", "list", "--help"])
     assert res.exit_code == 0
-    assert "List all built-in recipes." in res.output
+    assert "List all built-in and custom recipes." in res.output
 
     # recipe show
     res = runner.invoke(cli, ["recipe", "show", "--help"])

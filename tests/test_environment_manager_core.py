@@ -227,9 +227,12 @@ def test_quit_environment_stops_only_selected_apps(tmp_path):
     manager = _environment_with_two_apps(tmp_path)
     stopped = []
 
-    with patch.object(
-        manager_module, "quit_clone", lambda path: stopped.append(str(path)) or True
-    ):
+    def fake_quit_clones(paths, timeout=8.0):
+        for path in paths:
+            stopped.append(str(path))
+        return {str(path): True for path in paths}
+
+    with patch.object(manager_module, "quit_clones", fake_quit_clones):
         errors = manager.quit_environment("phone1", ["zcode"])
 
     assert errors == []
@@ -240,7 +243,10 @@ def test_quit_environment_stops_only_selected_apps(tmp_path):
 def test_quit_environment_reports_still_running_apps(tmp_path):
     manager = _environment_with_two_apps(tmp_path)
 
-    with patch.object(manager_module, "quit_clone", lambda path: False):
+    def fake_quit_clones(paths, timeout=8.0):
+        return {str(path): False for path in paths}
+
+    with patch.object(manager_module, "quit_clones", fake_quit_clones):
         errors = manager.quit_environment("phone1", ["chrome"])
 
     assert errors == ["Chrome-work: still running"]

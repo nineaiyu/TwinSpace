@@ -8,6 +8,7 @@ from .cmd_doctor import doctor
 from .cmd_env import env
 from .cmd_list import list_clones
 from .cmd_migrate import migrate
+from .cmd_open import open_clone
 from .cmd_probe import probe
 from .cmd_recipe import recipe
 from .cmd_remove import remove
@@ -34,6 +35,7 @@ cli.add_command(doctor)
 cli.add_command(env)
 cli.add_command(list_clones)
 cli.add_command(migrate)
+cli.add_command(open_clone)
 cli.add_command(probe)
 cli.add_command(recipe)
 cli.add_command(remove)

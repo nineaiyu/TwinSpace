@@ -9,32 +9,40 @@ def test_app_creation_and_routing():
     app.startup()
 
     assert app.main_window is not None
+    # Landing page and the log listener build eagerly; the rest are lazy.
     assert app.clone_view is not None
-    assert app.environment_view is not None
-    assert app.recipe_view is not None
-    assert app.probe_view is not None
-    assert app.doctor_view is not None
+    assert app.logs_view is not None
+    assert app.environment_view is None
 
-    # Test route switching
+    # Test route switching (each visit lazily builds its view)
+    app.switch_view("sources")
+    assert app.current_view_name == "sources"
+    assert app.source_apps_view is not None
+
     app.switch_view("environments")
     assert app.current_view_name == "environments"
+    assert app.environment_view is not None
     assert app.environment_view.top_bar.btn_action is not None
     assert app.environment_view.top_bar.btn_action.text
 
     app.switch_view("recipes")
     assert app.current_view_name == "recipes"
+    assert app.recipe_view is not None
 
     app.switch_view("probe")
     assert app.current_view_name == "probe"
+    assert app.probe_view is not None
 
     app.switch_view("doctor")
     assert app.current_view_name == "doctor"
+    assert app.doctor_view is not None
 
     app.switch_view("logs")
     assert app.current_view_name == "logs"
 
     app.switch_view("settings")
     assert app.current_view_name == "settings"
+    assert app.settings_view is not None
 
     app.switch_view("clones")
     assert app.current_view_name == "clones"

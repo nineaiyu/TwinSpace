@@ -204,6 +204,22 @@ class TopHeaderBar(toga.Box):
         """Programmatically switch view mode."""
         self._set_view_mode(mode)
 
+    def set_view_mode_silent(self, mode: str):
+        """Adopt a view mode without firing the change callback (restored state)."""
+        self.current_view_mode = mode
+        self._refresh_view_toggle()
+
+    def focus_search(self) -> None:
+        """Give the search field keyboard focus and select its content."""
+        native = getattr(getattr(self.input_search, "_impl", None), "native", None)
+        if native is None:
+            return
+        try:
+            # selectText: selects the field content and makes it first responder.
+            native.selectText_(None)
+        except Exception:
+            pass
+
     def update_title(self, new_title: str):
         if self.label_title:
             self.label_title.text = new_title

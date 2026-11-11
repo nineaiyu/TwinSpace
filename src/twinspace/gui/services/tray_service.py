@@ -1,14 +1,37 @@
 """macOS Cocoa native menu bar status item (tray) service for TwinSpace."""
 
+import asyncio
 import sys
 from pathlib import Path
 from typing import Any
 
+from twinspace.core.config import get_config_value
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
 from twinspace.core.resources import get_app_icon_path
+from twinspace.core.state import CloneRecord
+from twinspace.core.timestamps import parse_iso_timestamp
 
 logger = get_logger("gui.tray")
+
+
+def _tray_launch_interval() -> float:
+    """Configured stagger between environment app launches, clamped to 0-30s."""
+    try:
+        return max(0.0, min(float(get_config_value("launch_interval", 2.0) or 0), 30.0))
+    except (TypeError, ValueError):
+        return 2.0
+
+
+def _tray_recent_key(record: CloneRecord) -> tuple[int, float]:
+    """Sort value by last-opened recency; never-opened clones rank lowest."""
+    stamp = parse_iso_timestamp(getattr(record, "last_opened_at", ""))
+    if stamp is None:
+        return (0, 0.0)
+    try:
+        return (1, stamp.timestamp())
+    except (OSError, OverflowError, ValueError):
+        return (1, 0.0)
 
 try:
     from rubicon.objc import SEL, NSObject, NSSize, objc_method
@@ -43,6 +66,26 @@ class TrayCallbackTarget(NSObject):
     def onMenuShow_(self, sender) -> None:
         if hasattr(self, "_tray_service") and self._tray_service:
             self._tray_service.on_menu_show()
+
+    @objc_method
+    def onMenuLaunchClone_(self, sender) -> None:
+        if hasattr(self, "_tray_service") and self._tray_service:
+            self._tray_service.on_menu_launch_clone(sender)
+
+    @objc_method
+    def onMenuEnvOpen_(self, sender) -> None:
+        if hasattr(self, "_tray_service") and self._tray_service:
+            self._tray_service.on_menu_env_action(sender, "open")
+
+    @objc_method
+    def onMenuEnvQuit_(self, sender) -> None:
+        if hasattr(self, "_tray_service") and self._tray_service:
+            self._tray_service.on_menu_env_action(sender, "quit")
+
+    @objc_method
+    def onMenuEnvSwitch_(self, sender) -> None:
+        if hasattr(self, "_tray_service") and self._tray_service:
+            self._tray_service.on_menu_env_action(sender, "switch")
 
     @objc_method
     def onMenuQuit_(self, sender) -> None:
@@ -185,6 +228,10 @@ class TrayService:
                 sep = NSMenuItem.separatorItem()
                 self._menu.addItem_(sep)
 
+            self._add_quick_launch_items()
+
+            self._add_environment_items()
+
             item_quit = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
                 t("tray_menu_quit"),
                 SEL("onMenuQuit:"),
@@ -202,6 +249,182 @@ class TrayService:
     def on_menu_show(self) -> None:
         if self.app and hasattr(self.app, "show_main_window"):
             self.app.show_main_window()
+
+    def _add_quick_launch_items(self) -> None:
+        """List the most recently used clones for one-click launching."""
+        if NSMenuItem is None:
+            return
+        try:
+            state_manager = getattr(
+                getattr(self.app, "clone_service", None), "state_manager", None
+            )
+            if state_manager is None:
+                return
+            records = state_manager.load()
+            records.sort(key=_tray_recent_key, reverse=True)
+
+            header = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                t("tray_menu_quick_launch"),
+                None,
+                "",
+            )
+            if hasattr(header, "setEnabled_"):
+                header.setEnabled_(False)
+            self._menu.addItem_(header)
+
+            shown = 0
+            for record in records:
+                if shown >= 8:
+                    break
+                item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                    record.clone_name,
+                    SEL("onMenuLaunchClone:"),
+                    "",
+                )
+                if hasattr(item, "setRepresentedObject_"):
+                    item.setRepresentedObject_(record.clone_name)
+                if self._target and hasattr(item, "setTarget_"):
+                    item.setTarget_(self._target)
+                self._menu.addItem_(item)
+                shown += 1
+            if shown and hasattr(NSMenuItem, "separatorItem"):
+                self._menu.addItem_(NSMenuItem.separatorItem())
+        except Exception as e:
+            logger.debug(f"Tray quick-launch items failed: {e}")
+
+    def _add_environment_items(self) -> None:
+        """One submenu per environment: open all / quit all / switch here."""
+        if NSMenu is None or NSMenuItem is None or not self._target:
+            return
+        try:
+            service = getattr(self.app, "environment_service", None)
+            if service is None:
+                return
+            environments = service.list_environments()
+            if not environments:
+                return
+
+            header = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                t("tray_menu_environments"),
+                None,
+                "",
+            )
+            if hasattr(header, "setEnabled_"):
+                header.setEnabled_(False)
+            self._menu.addItem_(header)
+
+            for env in environments:
+                env_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                    env.name,
+                    None,
+                    "",
+                )
+                submenu = NSMenu.alloc().initWithTitle_(env.name)
+                for selector, label_key in (
+                    ("onMenuEnvOpen:", "tray_env_open"),
+                    ("onMenuEnvQuit:", "tray_env_quit"),
+                    ("onMenuEnvSwitch:", "tray_env_switch"),
+                ):
+                    sub_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                        t(label_key),
+                        SEL(selector),
+                        "",
+                    )
+                    if hasattr(sub_item, "setRepresentedObject_"):
+                        sub_item.setRepresentedObject_(env.name)
+                    if hasattr(sub_item, "setTarget_"):
+                        sub_item.setTarget_(self._target)
+                    submenu.addItem_(sub_item)
+                if hasattr(env_item, "setSubmenu_"):
+                    env_item.setSubmenu_(submenu)
+                self._menu.addItem_(env_item)
+
+            if hasattr(NSMenuItem, "separatorItem"):
+                self._menu.addItem_(NSMenuItem.separatorItem())
+        except Exception as e:
+            logger.debug(f"Tray environment items failed: {e}")
+
+    def on_menu_env_action(self, sender: Any, action: str) -> None:
+        """Open/quit/switch an environment chosen from the tray menu."""
+        try:
+            env_name = str(getattr(sender, "representedObject", "") or "")
+            if not env_name:
+                return
+            service = getattr(self.app, "environment_service", None)
+            if service is None:
+                return
+            interval = _tray_launch_interval()
+            if action == "open":
+                worker = lambda: service.open_environment(  # noqa: E731
+                    env_name, interval=interval
+                )
+            elif action == "quit":
+                worker = lambda: service.quit_environment(env_name)  # noqa: E731
+            else:
+                worker = lambda: service.switch_environment(  # noqa: E731
+                    env_name, interval=interval
+                )
+            loop = getattr(self.app, "loop", None)
+            if loop is not None and loop.is_running():
+                asyncio.run_coroutine_threadsafe(self._run_env_action(worker), loop)
+            else:
+                worker()
+        except Exception as e:
+            logger.warning(f"Tray environment action failed: {e}")
+
+    async def _run_env_action(self, worker) -> None:
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, worker)
+        except Exception as e:
+            logger.warning(f"Tray environment action error: {e}")
+        # Both pages hold running-state caches; refresh them in place.
+        try:
+            env_view = getattr(self.app, "environment_view", None)
+            if env_view is not None:
+                await env_view.refresh_environments(show_loading=False)
+        except Exception:
+            pass
+        try:
+            clone_view = getattr(self.app, "clone_view", None)
+            if clone_view is not None:
+                await clone_view.refresh_clones()
+        except Exception:
+            pass
+
+    def on_menu_launch_clone(self, sender: Any) -> None:
+        """Launch (or bring to front) the clone chosen from the tray menu."""
+        try:
+            import asyncio
+            import subprocess
+
+            clone_name = str(getattr(sender, "representedObject", "") or "")
+            if not clone_name:
+                return
+            clone_view = getattr(self.app, "clone_view", None)
+            state_manager = getattr(
+                getattr(self.app, "clone_service", None), "state_manager", None
+            )
+            record = None
+            if state_manager is not None:
+                record = next(
+                    (
+                        item
+                        for item in state_manager.load()
+                        if item.clone_name == clone_name
+                    ),
+                    None,
+                )
+            if record is None:
+                return
+            loop = getattr(self.app, "loop", None)
+            if clone_view is not None and loop is not None and loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    clone_view.on_launch_clone(record), loop
+                )
+            else:
+                subprocess.Popen(["open", str(record.dest_path)])
+        except Exception as e:
+            logger.warning(f"Tray quick launch failed: {e}")
 
     def on_menu_quit(self) -> None:
         if self.app and hasattr(self.app, "exit_application"):

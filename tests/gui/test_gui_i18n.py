@@ -78,11 +78,14 @@ def test_app_retranslate_ui(tmp_path, monkeypatch):
         set_language("zh")
         app.retranslate_ui()
         assert "所有分身" in app.sidebar.buttons["clones"].text
+        # Non-mounted pages are lazy: visit Settings before reading its widgets.
+        app.switch_view("settings")
         assert "更新日志" in app.settings_view.btn_release_notes.text
 
         # Switch to English
         set_language("en")
         app.retranslate_ui()
         assert "Clones" in app.sidebar.buttons["clones"].text
+        app.switch_view("settings")
         assert "Release Notes" in app.settings_view.btn_release_notes.text
 

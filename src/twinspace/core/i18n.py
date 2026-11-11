@@ -21,6 +21,11 @@ SUPPORTED_LANGUAGES_MAP: dict[str, str] = {
 }
 
 _current_lang: str | None = None
+# Memoized result of the auto-detection path. ``detect_system_language`` forks
+# ``defaults`` subprocesses and re-parses config.yaml on every call, which is
+# far too expensive to repeat for a translation function used in every widget
+# update — the GUI alone calls ``t()`` hundreds of times per refresh.
+_detected_lang: str | None = None
 
 MESSAGES: dict[str, dict[str, str]] = {
     "win_wizard_icon_label": {
@@ -646,6 +651,374 @@ MESSAGES: dict[str, dict[str, str]] = {
     "environment_interaction_hint": {
         "en": "Double-click an app to open it · Drag a box across icons or ⌘-click to select several · Right-click the selection for batch actions",
         "zh": "双击应用打开 · 按住左键拉框或 ⌘ 点选可多选 · 右键选区可批量操作",
+    },
+    "clones_loading": {
+        "en": "Loading clones…",
+        "zh": "正在加载分身…",
+    },
+    "menu_group_file": {
+        "en": "File",
+        "zh": "文件",
+    },
+    "menu_group_view": {
+        "en": "View",
+        "zh": "显示",
+    },
+    "menu_new_clone": {
+        "en": "New Clone",
+        "zh": "新建分身",
+    },
+    "menu_refresh": {
+        "en": "Refresh",
+        "zh": "刷新",
+    },
+    "menu_focus_search": {
+        "en": "Focus Search",
+        "zh": "聚焦搜索",
+    },
+    "menu_quick_launch": {
+        "en": "Quick Launch…",
+        "zh": "快速启动…",
+    },
+    "environment_btn_switch": {
+        "en": "Switch to This Environment",
+        "zh": "切换到此环境",
+    },
+    "environment_switch_confirm_title": {
+        "en": "Switch Environment",
+        "zh": "切换环境",
+    },
+    "environment_switch_confirm": {
+        "en": "Will quit {count} running clone(s) outside {name}, then launch {name}. Continue?",
+        "zh": "将退出 {name} 之外的 {count} 个运行中分身,然后启动 {name}。继续?",
+    },
+    "settings_card_launch": {
+        "en": "Environment Launch",
+        "zh": "环境启动",
+    },
+    "settings_launch_interval": {
+        "en": "Launch interval (s)",
+        "zh": "启动间隔(秒)",
+    },
+    "settings_hint_launch_interval": {
+        "en": "Pause between app launches when opening an environment (0-30 seconds).",
+        "zh": "打开环境时各应用按顺序间隔启动的秒数(0-30)。",
+    },
+    "settings_err_launch_interval": {
+        "en": "Launch interval must be a number between 0 and 30.",
+        "zh": "启动间隔必须是 0 到 30 之间的数字。",
+    },
+    "tray_menu_environments": {
+        "en": "Environments",
+        "zh": "环境",
+    },
+    "tray_env_open": {
+        "en": "Open All",
+        "zh": "全部打开",
+    },
+    "tray_env_quit": {
+        "en": "Quit All",
+        "zh": "全部关闭",
+    },
+    "tray_env_switch": {
+        "en": "Switch Here",
+        "zh": "切换到此环境",
+    },
+    "env_menu_clone": {
+        "en": "Duplicate Environment",
+        "zh": "复制环境",
+    },
+    "env_menu_backups": {
+        "en": "Backup Snapshots",
+        "zh": "备份管理",
+    },
+    "env_clone_title": {
+        "en": "Duplicate {name}",
+        "zh": "复制环境 {name}",
+    },
+    "env_clone_intro": {
+        "en": "Create a new environment from {name}'s {count} app(s). Logins can be carried over.",
+        "zh": "基于 {name} 的 {count} 个应用分身创建新环境,可保留登录数据。",
+    },
+    "env_clone_name_label": {
+        "en": "New name",
+        "zh": "新环境名",
+    },
+    "env_clone_switch_data": {
+        "en": "Copy data (logins, profiles)",
+        "zh": "复制数据(登录态、配置)",
+    },
+    "env_clone_btn_create": {
+        "en": "Duplicate",
+        "zh": "开始复制",
+    },
+    "env_clone_err_name": {
+        "en": "Please enter a name for the new environment.",
+        "zh": "请输入新环境名称。",
+    },
+    "env_clone_err_no_loop": {
+        "en": "Cannot start right now — no active GUI loop.",
+        "zh": "当前无法启动任务——没有活动的 GUI 循环。",
+    },
+    "env_clone_progress": {
+        "en": "[{index}/{total}] {name}: {stage}",
+        "zh": "[{index}/{total}] {name}:{stage}",
+    },
+    "env_clone_stage_plan": {
+        "en": "planning",
+        "zh": "规划中",
+    },
+    "env_clone_stage_create": {
+        "en": "creating clone",
+        "zh": "创建分身",
+    },
+    "env_clone_stage_copy": {
+        "en": "copying data",
+        "zh": "复制数据",
+    },
+    "env_clone_stage_done": {
+        "en": "done",
+        "zh": "完成",
+    },
+    "env_clone_done": {
+        "en": "Done — {count} clone(s) created.",
+        "zh": "完成——已创建 {count} 个分身。",
+    },
+    "backup_title": {
+        "en": "Backups — {name}",
+        "zh": "备份管理 — {name}",
+    },
+    "backup_col_file": {
+        "en": "Snapshot",
+        "zh": "快照文件",
+    },
+    "backup_col_size": {
+        "en": "Size",
+        "zh": "大小",
+    },
+    "backup_col_created": {
+        "en": "Created",
+        "zh": "创建时间",
+    },
+    "backup_btn_backup": {
+        "en": "Back Up Now",
+        "zh": "立即备份",
+    },
+    "backup_btn_restore": {
+        "en": "Restore",
+        "zh": "恢复",
+    },
+    "backup_btn_delete": {
+        "en": "Delete",
+        "zh": "删除",
+    },
+    "backup_empty": {
+        "en": "No backups yet — create one with “Back Up Now”.",
+        "zh": "还没有备份——点「立即备份」创建第一个快照。",
+    },
+    "backup_summary": {
+        "en": "{count} snapshot(s) · {size} total",
+        "zh": "{count} 个快照 · 共 {size}",
+    },
+    "backup_created_msg": {
+        "en": "Backup created: {name}",
+        "zh": "备份已创建:{name}",
+    },
+    "backup_restored_msg": {
+        "en": "Restored {count} app(s). Newer files were kept.",
+        "zh": "已恢复 {count} 个应用(较新的文件被保留)。",
+    },
+    "backup_deleted_msg": {
+        "en": "Deleted {name}",
+        "zh": "已删除 {name}",
+    },
+    "backup_restore_confirm_title": {
+        "en": "Restore Backup",
+        "zh": "恢复备份",
+    },
+    "backup_restore_confirm": {
+        "en": "Restore {name} into this environment? Existing files are overwritten, nothing is deleted, and a safety backup is taken first.",
+        "zh": "将 {name} 恢复到此环境?现有文件会被覆盖,但不会删除任何文件,且会先自动做一次安全备份。",
+    },
+    "backup_delete_confirm_title": {
+        "en": "Delete Backup",
+        "zh": "删除备份",
+    },
+    "backup_delete_confirm": {
+        "en": "Delete snapshot {name}? This cannot be undone.",
+        "zh": "删除快照 {name}?此操作不可恢复。",
+    },
+    "detail_label_data_size": {
+        "en": "Data size",
+        "zh": "数据体积",
+    },
+    "detail_data_size_pending": {
+        "en": "calculating…",
+        "zh": "计算中…",
+    },
+    "detail_btn_cache_cleanup": {
+        "en": "Clear Caches",
+        "zh": "清理缓存",
+    },
+    "dialog_cache_cleanup_title": {
+        "en": "Clear Caches",
+        "zh": "清理缓存",
+    },
+    "dialog_cache_cleanup_msg": {
+        "en": "Will remove {size} of cache files (browser caches only). Logins and settings are not affected. Continue?",
+        "zh": "将清理 {size} 的缓存文件(仅浏览器缓存目录),不影响登录态与配置。继续?",
+    },
+    "detail_cache_none": {
+        "en": "No cache folders found to clear.",
+        "zh": "没有发现可清理的缓存目录。",
+    },
+    "settings_card_backup": {
+        "en": "Backups",
+        "zh": "备份",
+    },
+    "settings_switch_auto_backup": {
+        "en": "Daily automatic backup (skips running environments)",
+        "zh": "每日自动备份(运行中的环境自动跳过)",
+    },
+    "settings_backup_retention": {
+        "en": "Keep per environment",
+        "zh": "每个环境保留",
+    },
+    "settings_hint_backup": {
+        "en": "Only the newest N snapshots per environment are kept (1-50). Runs while the app is open.",
+        "zh": "每个环境只保留最新 N 份快照(1-50)。备份在应用运行期间执行。",
+    },
+    "settings_err_backup_retention": {
+        "en": "Backup retention must be an integer between 1 and 50.",
+        "zh": "备份保留数量必须是 1 到 50 之间的整数。",
+    },
+    "recipe_col_origin": {
+        "en": "Custom",
+        "zh": "自定义",
+    },
+    "win_recipe_engine_patches": {
+        "en": "Engine Patches",
+        "zh": "引擎补丁",
+    },
+    "win_recipe_engine_patches_hint": {
+        "en": "Engine-level switches that only some apps need. Keep them off unless a recipe documents them.",
+        "zh": "仅部分应用需要的引擎级开关,配方未说明时请保持关闭。",
+    },
+    "win_recipe_patch_framework": {
+        "en": "Patch Framework Singleton",
+        "zh": "修补 Framework Singleton",
+    },
+    "win_recipe_patch_cef": {
+        "en": "Patch CEF",
+        "zh": "修补 CEF",
+    },
+    "win_recipe_patch_lark": {
+        "en": "Lark Isolation Patch",
+        "zh": "飞书隔离补丁",
+    },
+    "win_recipe_patch_chatgpt": {
+        "en": "ChatGPT Isolation Patch",
+        "zh": "ChatGPT 隔离补丁",
+    },
+    "win_recipe_strip_url_schemes": {
+        "en": "Strip URL Scheme Registration",
+        "zh": "剥离 URL scheme 注册",
+    },
+    "win_recipe_seed_prefs": {
+        "en": "Seed Preferences on First Launch",
+        "zh": "首次启动预置偏好",
+    },
+    "cli_open_ok": {
+        "en": "Launched {name}.",
+        "zh": "已启动 {name}。",
+    },
+    "cli_open_not_found": {
+        "en": "Clone {name} not found. Run `twinspace list` to see available clones.",
+        "zh": "未找到分身 {name}。运行 `twinspace list` 查看可用分身。",
+    },
+    "cli_open_missing": {
+        "en": "Clone bundle missing on disk: {path}",
+        "zh": "分身包在磁盘上不存在:{path}",
+    },
+    "cli_open_url_ok": {
+        "en": "Opened {url} in {name}.",
+        "zh": "已在 {name} 中打开 {url}。",
+    },
+    "cli_open_no_browser": {
+        "en": "{name} has no bound browser. Open its environment with Chrome, or set TWINSPACE_BROWSER_APP_PATH.",
+        "zh": "{name} 没有绑定的浏览器。请使用带 Chrome 的环境,或设置 TWINSPACE_BROWSER_APP_PATH。",
+    },
+    "cli_open_failed": {
+        "en": "Failed to open: {error}",
+        "zh": "打开失败:{error}",
+    },
+    "list_col_data_size": {
+        "en": "Data Size",
+        "zh": "数据体积",
+    },
+    "view_clones_no_results": {
+        "en": "No clones match your search",
+        "zh": "没有匹配的分身",
+    },
+    "view_clones_clear_filters": {
+        "en": "Clear Search & Filters",
+        "zh": "清除搜索与筛选",
+    },
+    "nav_sources": {
+        "en": "Source Apps",
+        "zh": "源应用",
+    },
+    "sources_title": {
+        "en": "Source Apps ({count})",
+        "zh": "源应用 ({count})",
+    },
+    "sources_running_pill": {
+        "en": "● {count} running",
+        "zh": "● {count} 个运行中",
+    },
+    "sources_stat_clones": {
+        "en": "{count} clone(s)",
+        "zh": "{count} 个分身",
+    },
+    "sources_stat_updates": {
+        "en": "{count} updatable",
+        "zh": "{count} 个可更新",
+    },
+    "sources_menu_reveal_source": {
+        "en": "Reveal Source App in Finder",
+        "zh": "在 Finder 中显示源程序",
+    },
+    "sources_empty_hint": {
+        "en": "No clones yet — create one on the Clones page first.",
+        "zh": "还没有分身——请先在「所有分身」页创建。",
+    },
+    "backup_preview_pending": {
+        "en": "Analyzing snapshot contents…",
+        "zh": "正在统计快照内容…",
+    },
+    "backup_preview_app": {
+        "en": "{key}: {size} · {files} files",
+        "zh": "{key}:{size} · {files} 个文件",
+    },
+    "backup_preview_total": {
+        "en": "Total {total} — {breakdown}",
+        "zh": "共 {total} — {breakdown}",
+    },
+    "quick_launch_title": {
+        "en": "Quick Launch",
+        "zh": "快速启动",
+    },
+    "quick_launch_placeholder": {
+        "en": "Type to filter clones, ⏎ to launch",
+        "zh": "输入以筛选分身,回车启动",
+    },
+    "quick_launch_hint": {
+        "en": "↑↓ select · ⏎ launch · esc close",
+        "zh": "↑↓ 选择 · ⏎ 启动 · Esc 关闭",
+    },
+    "tray_menu_quick_launch": {
+        "en": "Quick Launch",
+        "zh": "快速启动",
     },
     "environment_loading": {
         "en": "Loading environments…",
@@ -1279,6 +1652,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "All Clones ({count})",
         "zh": "所有分身 ({count})",
     },
+    "title_running_suffix": {
+        "en": " · {running} running",
+        "zh": " · 运行中 {running}",
+    },
     "view_clones_title_filtered": {
         "en": "All Clones (Filtered {filter_count}/{total_count})",
         "zh": "所有分身 (筛选 {filter_count}/{total_count})",
@@ -1310,6 +1687,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "view_clones_sort_newest": {
         "en": "Newest",
         "zh": "最新",
+    },
+    "view_clones_sort_recent": {
+        "en": "Recently Used",
+        "zh": "最近使用",
     },
     "view_clones_sort_name": {
         "en": "Name A–Z",
@@ -2438,14 +2819,18 @@ def get_language() -> str:
         if override:
             return normalize_lang_code(override)
 
-    return detect_system_language()
+    global _detected_lang
+    if _detected_lang is None:
+        _detected_lang = detect_system_language()
+    return _detected_lang
 
 
 def set_language(lang: str | None) -> None:
     """Explicitly set or reset the active language ('zh', 'en', or None for auto)."""
-    global _current_lang
+    global _current_lang, _detected_lang
     if lang is None:
         _current_lang = None
+        _detected_lang = None
     else:
         _current_lang = normalize_lang_code(lang)
 

@@ -378,6 +378,47 @@ def quit_clone(dest_path: str | Path, timeout: float = 8.0) -> bool:
     return _wait_until_stopped(needle, timeout)
 
 
+def quit_clones(
+    dest_paths: Iterable[str | Path], timeout: float = 8.0
+) -> dict[str, bool]:
+    """Quit several clones with one shared shutdown wait.
+
+    Every Quit Apple Event is sent up front so the apps shut down in parallel,
+    then a single poll watches all of them — waiting for each clone in turn
+    would make switching environments take N × 8 s in the worst case. Same
+    graceful-only policy as ``quit_clone``: no SIGKILL, ever.
+    """
+    import time
+
+    needles: list[str] = []
+    seen: set[str] = set()
+    for raw in dest_paths:
+        needle = str(raw)
+        if not needle.endswith(".app") or needle in seen:
+            continue
+        seen.add(needle)
+        needles.append(needle)
+
+    pending: list[str] = []
+    for needle in needles:
+        if not is_clone_running(needle):
+            continue
+        if not _request_graceful_quit(needle):
+            logger.warning(
+                "Quit Apple Event unavailable for %s; falling back to SIGTERM", needle
+            )
+            _signal_clone(needle, "-TERM")
+        pending.append(needle)
+
+    deadline = time.monotonic() + max(0.0, timeout)
+    remaining = list(pending)
+    while remaining and time.monotonic() < deadline:
+        time.sleep(0.2)
+        remaining = [needle for needle in remaining if is_clone_running(needle)]
+
+    return {needle: needle not in remaining for needle in needles}
+
+
 class StateManager:
     def __init__(self, state_file: Path | None = None):
         if state_file is not None:

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import subprocess
+import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
@@ -17,7 +19,7 @@ from twinspace.core.state import (
     CloneRecord,
     StateManager,
     is_clone_running,
-    quit_clone,
+    quit_clones,
     running_clone_names,
 )
 from twinspace.recipes.loader import RecipeLoader
@@ -34,6 +36,18 @@ from .backup import create_backup, restore_backup
 from .spec import EnvironmentAppSpec, EnvironmentSpec
 
 logger = get_logger("core.environments.manager")
+
+
+def _derived_clone_name(old_name: str, source_env: str, new_env: str) -> str:
+    """Rename ``Chrome-b2``-style clones for the copied environment.
+
+    Clones ending in ``-<source_env>`` swap the suffix; anything else (user
+    renamed clones) gains the new environment as an additional suffix.
+    """
+    suffix = f"-{source_env}"
+    if old_name.lower().endswith(suffix.lower()):
+        return old_name[: -len(suffix)] + f"-{new_env}"
+    return f"{old_name}-{new_env}"
 
 ProgressCallback = Callable[[int, int, EnvironmentApp, str], None]
 
@@ -271,11 +285,156 @@ class EnvironmentManager:
 
         return created
 
+    async def clone_environment(
+        self,
+        source_name: str,
+        new_name: str,
+        *,
+        include_data: bool = True,
+        on_progress=None,
+    ) -> list[CloneRecord]:
+        """Duplicate an environment, optionally carrying the data over.
+
+        The source environment is only ever read: new clone bundles are built
+        the usual way and, when ``include_data`` is set, each source clone's
+        data directory is *merged* into the fresh one (``copytree`` with
+        ``dirs_exist_ok=True``), which preserves logins and settings without
+        touching the original. Browser bindings are re-pointed at the new
+        environment's own browser clone. Returns the created records.
+        """
+        validate_clone_name(new_name)
+        loop = asyncio.get_running_loop()
+        source_records = await loop.run_in_executor(None, self.records_for, source_name)
+        if not source_records:
+            raise ValueError(f"Environment {source_name!r} not found.")
+        records = self.state_manager.load()
+        if any(record.env_group == new_name for record in records):
+            raise ValueError(f"Environment {new_name!r} already exists.")
+        used_names = {record.clone_name for record in records}
+        existing_bundle_ids = {
+            record.new_bundle_id for record in records if record.new_bundle_id
+        }
+        env_dir = DEFAULT_DATA_DIR / "Environments" / new_name
+        order = {app.key: index for index, app in enumerate(KNOWN_APPS)}
+        source_records.sort(
+            key=lambda record: order.get(
+                app_key_for_bundle_id(record.bundle_id), len(order)
+            )
+        )
+
+        # Planning pass: derive every new clone name up front so browser
+        # bindings can be re-pointed at the copied environment's own browser.
+        plans: dict[str, tuple[CloneRecord, str, Path, Path]] = {}
+        for source in source_records:
+            clone_name = _derived_clone_name(
+                source.clone_name, source_name, new_name
+            )
+            validate_clone_name(clone_name)
+            if clone_name in used_names:
+                base = clone_name
+                counter = 2
+                while f"{base}-{counter}" in used_names:
+                    counter += 1
+                clone_name = f"{base}-{counter}"
+            used_names.add(clone_name)
+            key = app_key_for_bundle_id(source.bundle_id) or source.clone_name
+            data_dir = env_dir / ("Browser" if key == "chrome" else clone_name)
+            dest_path = DEFAULT_APPS_DIR / f"{clone_name}.app"
+            if dest_path.exists():
+                raise ValueError(f"A clone bundle already exists at {dest_path}.")
+            plans[key] = (source, clone_name, dest_path, data_dir)
+
+        chrome_plan = plans.get("chrome")
+        created: list[CloneRecord] = []
+        copy_errors: list[str] = []
+        total = len(plans)
+        for index, (key, (source, clone_name, dest_path, data_dir)) in enumerate(
+            plans.items(), start=1
+        ):
+            if on_progress:
+                on_progress(index, total, key, "creating")
+            app_source = Path(source.source_path or "")
+            if not app_source.exists():
+                copy_errors.append(f"{source.clone_name}: source app not found")
+                continue
+            info = await loop.run_in_executor(None, AppInspector.inspect, str(app_source))
+            recipe = RecipeLoader.match(info.bundle_id, app_path=str(app_source))
+
+            overrides = {
+                normalize_legacy_env_key(k): v
+                for k, v in (getattr(source, "env_overrides", None) or {}).items()
+            }
+            if key != "chrome" and chrome_plan is not None:
+                # Keep link hijacking, but aimed at the copied environment.
+                if "TWINSPACE_BROWSER_APP_PATH" in overrides:
+                    overrides["TWINSPACE_BROWSER_APP_PATH"] = str(chrome_plan[2])
+                if "TWINSPACE_BROWSER_DATA_DIR" in overrides:
+                    overrides["TWINSPACE_BROWSER_DATA_DIR"] = str(env_dir / "Browser")
+            for o_key, o_value in overrides.items():
+                recipe.environment_injection[o_key] = o_value
+
+            new_bundle_id = AppInspector.resolve_bundle_id(
+                info.bundle_id,
+                clone_name=clone_name,
+                existing_bundle_ids=existing_bundle_ids,
+            )
+            task = CloneTask(
+                source=info,
+                dest_path=dest_path,
+                data_dir=data_dir,
+                recipe=recipe,
+                clone_name=clone_name,
+                new_bundle_id=new_bundle_id,
+                display_name=clone_name,
+                env_group=new_name,
+                env_dir=env_dir,
+                injection_strategy=getattr(recipe, "injection_strategy", "auto"),
+            )
+            logger.info(
+                "Cloning environment app: source=%s env=%s->%s clone=%s",
+                source.clone_name,
+                source_name,
+                new_name,
+                clone_name,
+            )
+            record = await self.clone_service.create_clone(task)
+            if overrides:
+                record.env_overrides = overrides
+                self.state_manager.add(record)
+            created.append(record)
+            existing_bundle_ids.add(new_bundle_id)
+
+            if include_data:
+                if on_progress:
+                    on_progress(index, total, key, "copying")
+                old_data = Path(source.data_dir)
+                if old_data.is_dir():
+                    try:
+                        await loop.run_in_executor(
+                            None,
+                            lambda o=old_data, d=data_dir: shutil.copytree(
+                                o, d, dirs_exist_ok=True, symlinks=True
+                            ),
+                        )
+                    except Exception as exc:
+                        copy_errors.append(f"{clone_name}: copy failed ({exc})")
+            if on_progress:
+                on_progress(index, total, key, "done")
+
+        if copy_errors:
+            logger.warning(
+                "Environment copy finished with issues: %s", "; ".join(copy_errors)
+            )
+        return created
+
     async def remove_environment(self, name: str, with_data: bool) -> list[str]:
-        records = self.records_for(name)
+        loop = asyncio.get_running_loop()
+        # Both the state-file read and the process scan fork/parse on disk;
+        # keep them off the UI thread that awaits this coroutine.
+        records = await loop.run_in_executor(None, self.records_for, name)
         if not records:
             raise ValueError(f"Environment {name!r} not found.")
-        if any(is_clone_running(record.dest_path) for record in records):
+        if await loop.run_in_executor(None, running_clone_names, records):
             raise RuntimeError(f"Please quit all apps in {name!r} before removing the environment.")
 
         order = {app.key: index for index, app in enumerate(KNOWN_APPS)}
@@ -298,7 +457,10 @@ class EnvironmentManager:
         app_keys: Iterable[str] | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> list[str]:
-        records = self.records_for(name)
+        loop = asyncio.get_running_loop()
+        # Same rationale as remove_environment: state-file read and the running
+        # check are blocking I/O and must not run on the awaiting UI thread.
+        records = await loop.run_in_executor(None, self.records_for, name)
         if not records:
             raise ValueError(f"Environment {name!r} not found.")
         selected_keys = set(app_keys) if app_keys is not None else None
@@ -310,7 +472,7 @@ class EnvironmentManager:
         ]
         if not targets:
             raise ValueError("No matching apps in this environment.")
-        if any(is_clone_running(record.dest_path) for record in targets):
+        if await loop.run_in_executor(None, running_clone_names, targets):
             raise RuntimeError(f"Please quit all apps in {name!r} before updating.")
 
         order = {app.key: index for index, app in enumerate(KNOWN_APPS)}
@@ -443,16 +605,32 @@ class EnvironmentManager:
         if not records:
             raise ValueError(f"Environment {name!r} not found.")
         selected = set(app_keys) if app_keys is not None else None
-        errors: list[str] = []
-        for record in records:
-            key = app_key_for_bundle_id(record.bundle_id)
-            if selected is not None and key not in selected:
-                continue
-            if not quit_clone(record.dest_path):
-                errors.append(f"{record.clone_name}: still running")
-        return errors
+        targets = [
+            record
+            for record in records
+            if selected is None or app_key_for_bundle_id(record.bundle_id) in selected
+        ]
+        # One shared shutdown wait instead of N × quit_clone: the Apple Events
+        # are sent up front and the apps quit in parallel.
+        results = quit_clones([record.dest_path for record in targets])
+        return [
+            f"{record.clone_name}: still running"
+            for record in targets
+            if not results.get(str(record.dest_path), True)
+        ]
 
-    def open_environment(self, name: str, app_keys: Iterable[str] | None = None) -> list[str]:
+    def open_environment(
+        self,
+        name: str,
+        app_keys: Iterable[str] | None = None,
+        *,
+        interval: float = 0.0,
+    ) -> list[str]:
+        """Open an environment's clones in KNOWN_APPS order.
+
+        ``interval`` pauses between launches so several Electron apps do not
+        race for disk and login-state writes at the same moment.
+        """
         selected = set(app_keys) if app_keys is not None else None
         records = self.records_for(name)
         order = {app.key: index for index, app in enumerate(KNOWN_APPS)}
@@ -460,6 +638,7 @@ class EnvironmentManager:
             key=lambda record: order.get(app_key_for_bundle_id(record.bundle_id), len(order))
         )
         errors: list[str] = []
+        launched = 0
         for record in records:
             key = app_key_for_bundle_id(record.bundle_id)
             if selected is not None and key not in selected:
@@ -468,8 +647,55 @@ class EnvironmentManager:
             if not path.exists():
                 errors.append(f"{record.clone_name}: bundle not found")
                 continue
+            if launched and interval > 0:
+                time.sleep(min(interval, 30.0))
             try:
                 subprocess.run(["open", "-n", str(path)], check=False, capture_output=True)
+                launched += 1
             except Exception as exc:
                 errors.append(f"{record.clone_name}: {exc}")
         return errors
+
+    def switch_environment(
+        self,
+        name: str,
+        *,
+        interval: float = 0.0,
+        quit_grace: float = 1.5,
+    ) -> tuple[list[str], list[str]]:
+        """Close every running clone outside ``name``, then open ``name``.
+
+        This is the one-action "change workspace" move: quit the other
+        environments' running apps (single clones included), give the system a
+        moment to release their singletons, then start the target environment.
+        Returns ``(open_errors, quit_errors)``.
+        """
+        records = self.records_for(name)
+        if not records:
+            raise ValueError(f"Environment {name!r} not found.")
+        target_names = {record.clone_name for record in records}
+
+        outside = [
+            record
+            for record in self.state_manager.load()
+            if record.clone_name not in target_names
+        ]
+        quit_errors: list[str] = []
+        running_outside = running_clone_names(outside)
+        if running_outside:
+            by_name = {record.clone_name: record for record in outside}
+            paths = [
+                by_name[clone_name].dest_path
+                for clone_name in sorted(running_outside)
+                if clone_name in by_name
+            ]
+            # Parallel shutdown: all Quit Apple Events first, one shared wait.
+            results = quit_clones(paths)
+            quit_errors = [
+                f"{name}: still running" for name, stopped in results.items() if not stopped
+            ]
+            if quit_grace > 0:
+                time.sleep(min(quit_grace, 10.0))
+
+        open_errors = self.open_environment(name, interval=interval)
+        return open_errors, quit_errors

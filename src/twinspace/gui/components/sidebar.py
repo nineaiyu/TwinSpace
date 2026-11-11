@@ -56,10 +56,11 @@ def format_update_error(exc: Exception) -> str:
 class SidebarNav(toga.Box):
     """Sidebar navigation bar with branding, main sections, and bottom auxiliary items."""
 
-    MAIN_NAV_KEYS = ["clones", "environments", "recipes", "probe", "doctor"]
+    MAIN_NAV_KEYS = ["clones", "sources", "environments", "recipes", "probe", "doctor"]
     BOTTOM_NAV_KEYS = ["logs", "settings"]
     NAV_SYMBOLS = {
         "clones": "square.on.square",
+        "sources": "square.stack.3d.up",
         "environments": "square.grid.2x2",
         "recipes": "book",
         "probe": "magnifyingglass",

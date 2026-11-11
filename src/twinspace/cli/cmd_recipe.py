@@ -22,22 +22,35 @@ def recipe() -> None:
 
 @recipe.command(name="list")
 def recipe_list() -> None:
-    """List all built-in recipes."""
-    logger.info("Listing all built-in recipes")
-    builtin_dir = RecipeLoader.BUILTIN_DIR
-    yaml_files = sorted(builtin_dir.glob("*.yaml"))
+    """List all built-in and custom recipes."""
+    logger.info("Listing all recipes (built-in and custom)")
+    entries: list[dict] = []  # (data, origin)
 
-    recipes_data = []
-    for yf in yaml_files:
+    builtin_dir = RecipeLoader.BUILTIN_DIR
+    for yf in sorted(builtin_dir.glob("*.yaml")):
         with open(yf, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-            recipes_data.append(data)
+            entries.append({"data": data, "origin": "builtin"})
 
-    # Sort rows by strategy (hard_clone first), then by app_name
-    recipes_data.sort(
-        key=lambda r: (
-            0 if r.get("strategy") == "hard_clone" else 1,
-            str(r.get("app_name", "")).lower(),
+    custom_dir = RecipeLoader.get_local_dir()
+    if custom_dir.is_dir():
+        for yf in sorted(custom_dir.glob("*.yaml")):
+            if not yf.is_file():
+                continue
+            try:
+                with open(yf, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+            except Exception as exc:
+                logger.warning("Skipping unreadable recipe %s: %s", yf, exc)
+                continue
+            entries.append({"data": data, "origin": "custom"})
+
+    # Sort rows by origin (builtin first), then strategy, then app_name
+    entries.sort(
+        key=lambda item: (
+            0 if item["origin"] == "builtin" else 1,
+            0 if item["data"].get("strategy") == "hard_clone" else 1,
+            str(item["data"].get("app_name", "")).lower(),
         )
     )
 
@@ -46,14 +59,18 @@ def recipe_list() -> None:
     table.add_column(t("recipe_col_app_name"))
     table.add_column(t("recipe_col_strategy"))
     table.add_column(t("recipe_col_strip_sandbox"))
+    table.add_column(t("recipe_col_origin"))
 
-    for r in recipes_data:
+    for item in entries:
+        r = item["data"]
         strip_sb = "✅" if r.get("strip_sandbox", False) else "✘"
+        origin = "🔧" if item["origin"] == "custom" else ""
         table.add_row(
             str(r.get("bundle_id", "")),
             str(r.get("app_name", "")),
             str(r.get("strategy", "")),
             strip_sb,
+            origin,
         )
 
     console.print(table)

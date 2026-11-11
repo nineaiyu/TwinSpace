@@ -49,6 +49,10 @@ def probe(app_path: str, save: bool, output: str | None, json_mode: bool) -> Non
         "strategy": recipe.strategy,
         "strip_sandbox": recipe.strip_sandbox,
     }
+    if recipe.injection_strategy:
+        recipe_dict["injection_strategy"] = recipe.injection_strategy
+    if getattr(recipe, "app_type", None):
+        recipe_dict["app_type"] = recipe.app_type
     if recipe.environment_injection:
         recipe_dict["environment_injection"] = recipe.environment_injection
     if recipe.launch_args:

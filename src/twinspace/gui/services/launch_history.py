@@ -33,6 +33,18 @@ def launch_history_for(state_manager: StateManager) -> "LaunchHistory":
     return history
 
 
+def _main_loop() -> Any:
+    """The asyncio loop driving the GUI, or None when there is none running."""
+    try:
+        from toga import App as TogaApp
+
+        app = TogaApp.app
+    except Exception:
+        return None
+    loop = getattr(app, "loop", None)
+    return loop if loop is not None and loop.is_running() else None
+
+
 class LaunchHistory:
     """Persist last-opened timestamps and broadcast them to the GUI."""
 
@@ -69,6 +81,17 @@ class LaunchHistory:
         """NSWorkspace reported a bundle launching or terminating."""
         if not running:
             return
+        # This notification fires for *every* application launch on the system,
+        # on the UI thread. mark_opened does a flock + full YAML read/write, so
+        # it must run in a worker; listeners are notified back on the UI thread.
+        loop = _main_loop()
+        if loop is None:
+            # No GUI loop (tests / early startup): keep the synchronous path.
+            self._record_launch(bundle_path, None)
+        else:
+            loop.run_in_executor(None, self._record_launch, bundle_path, loop)
+
+    def _record_launch(self, bundle_path: str, loop: Any) -> None:
         try:
             result = self.state_manager.mark_opened(dest_path=bundle_path)
         except Exception:
@@ -77,7 +100,14 @@ class LaunchHistory:
         if result is None:
             return
         clone_name, timestamp = result
-        self._notify(clone_name, timestamp)
+        if loop is not None:
+            try:
+                loop.call_soon_threadsafe(self._notify, clone_name, timestamp)
+            except RuntimeError:
+                # Loop stopped during shutdown — the timestamp is persisted anyway.
+                pass
+        else:
+            self._notify(clone_name, timestamp)
 
     def _notify(self, clone_name: str, timestamp: str) -> None:
         for owner in list(self._listeners):
