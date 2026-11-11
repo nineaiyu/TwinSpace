@@ -193,8 +193,11 @@ class SourceAppsView(toga.Box):
         self.clone_service = clone_service
         self.app_instance = app
 
+        self._query = ""
         self.top_bar = TopHeaderBar(
             title=t("sources_title", count=0),
+            search_placeholder=t("sources_search_placeholder"),
+            on_search=self.on_search_changed,
             refresh_symbol="arrow.clockwise",
             on_refresh=self.on_refresh_sources,
         )
@@ -236,6 +239,18 @@ class SourceAppsView(toga.Box):
             )
         )
         self._empty_box.add(toga.Box(style=Pack(flex=2)))
+
+        self._no_results_box = toga.Box(
+            style=Pack(direction=COLUMN, flex=1, align_items=CENTER)
+        )
+        self._no_results_box.add(toga.Box(style=Pack(flex=1)))
+        self._no_results_box.add(
+            toga.Label(
+                t("sources_no_results"),
+                style=Pack(font_size=14, color=Theme.TEXT_MUTED),
+            )
+        )
+        self._no_results_box.add(toga.Box(style=Pack(flex=2)))
 
     # -- data ------------------------------------------------------------
 
@@ -279,6 +294,21 @@ class SourceAppsView(toga.Box):
 
     def on_refresh_sources(self, widget: Any = None) -> None:
         self._dispatch_async(self.refresh_sources())
+
+    def on_search_changed(self, query: str) -> None:
+        """Filter groups by source app or clone name; re-render in place."""
+        self._query = str(query or "").strip().lower()
+        self._sync_cards()
+
+    def _filtered_groups(self) -> list[_SourceGroup]:
+        if not self._query:
+            return self._groups
+        return [
+            group
+            for group in self._groups
+            if self._query in group.source_app.lower()
+            or any(self._query in name.lower() for name in group.clone_names())
+        ]
 
     def _rebuild_groups(self) -> None:
         groups: dict[str, _SourceGroup] = {}
@@ -335,16 +365,18 @@ class SourceAppsView(toga.Box):
         self.content_container.add(widget)
 
     def _sync_cards(self) -> None:
-        self._update_title()
-        live_keys = {group.source_path for group in self._groups}
+        groups = self._filtered_groups()
+        self._update_title(len(groups))
+        live_keys = {group.source_path for group in groups}
         for key in [key for key in self._cards if key not in live_keys]:
             card, _ = self._cards.pop(key)
             parent = getattr(card, "parent", None)
             if parent is not None:
                 parent.remove(card)
 
-        if not self._groups:
-            self._mount_content(self._empty_box)
+        if not groups:
+            box = self._no_results_box if self._query else self._empty_box
+            self._mount_content(box)
             self._mounted = "empty"
             return
 
@@ -357,7 +389,7 @@ class SourceAppsView(toga.Box):
             if child not in mounted_cards:
                 self.list_box.remove(child)
 
-        for group in self._groups:
+        for group in groups:
             signature = self._group_signature(group)
             entry = self._cards.get(group.source_path)
             if entry is None or entry[1] != signature:
@@ -385,8 +417,9 @@ class SourceAppsView(toga.Box):
             1 for record in group.records if self._updates.get(record.clone_name)
         )
 
-    def _update_title(self) -> None:
-        title = t("sources_title", count=len(self._groups))
+    def _update_title(self, count: int | None = None) -> None:
+        shown = len(self._groups) if count is None else count
+        title = t("sources_title", count=shown)
         running = len(self._running)
         if running:
             title += t("title_running_suffix", running=running)
@@ -546,5 +579,6 @@ class SourceAppsView(toga.Box):
         for card, _signature in self._cards.values():
             card.set_running(self._running)
 
-    def focus_search(self) -> None:  # pragma: no cover - no search on this page
-        pass
+    def focus_search(self) -> None:
+        """Focus the toolbar search field (menu / keyboard driven)."""
+        self.top_bar.focus_search()

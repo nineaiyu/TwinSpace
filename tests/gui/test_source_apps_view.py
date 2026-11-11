@@ -105,6 +105,36 @@ def test_running_pill_patch_counts():
     asyncio.run(_test())
 
 
+def test_search_filters_groups():
+    async def _test():
+        from unittest.mock import AsyncMock, MagicMock
+
+        service = MagicMock()
+        service.list_clones = AsyncMock(
+            return_value=[
+                _record("WeChat-b2", "WeChat", "/Applications/WeChat.app"),
+                _record("Chrome-b2", "Chrome", "/Applications/Chrome.app"),
+            ]
+        )
+        view = SourceAppsView(clone_service=service)
+        view._records = await service.list_clones()
+        view._rebuild_groups()
+        view._sync_cards()
+        assert len(view._cards) == 2
+
+        view.on_search_changed("wechat")
+        assert len(view._cards) == 1
+        assert view._mounted == "sources"
+
+        view.on_search_changed("zzz")
+        assert view._mounted == "empty"
+
+        view.on_search_changed("")
+        assert len(view._cards) == 2
+
+    asyncio.run(_test())
+
+
 def test_source_group_helper():
     group = _SourceGroup("/Applications/WeChat.app", "WeChat")
     assert group.clone_names() == []

@@ -968,6 +968,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Source Apps",
         "zh": "源应用",
     },
+    "sources_search_placeholder": {
+        "en": "Filter source apps or clones",
+        "zh": "筛选源应用或分身",
+    },
+    "sources_no_results": {
+        "en": "No source apps match your filter",
+        "zh": "没有匹配的源应用",
+    },
     "sources_title": {
         "en": "Source Apps ({count})",
         "zh": "源应用 ({count})",
