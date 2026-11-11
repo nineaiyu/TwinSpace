@@ -228,3 +228,51 @@ def test_app_prober_unknown_app_probed_data_dir_sandboxed(tmp_path: Path):
         assert res.recipe.launch_args == ["--config-dir={{TWINSPACE_DATA_DIR}}"]
 
 
+
+
+def test_detect_app_type_bundle_id_word_boundaries():
+    """Regression: short keywords matched anywhere in the bundle id used to
+    misclassify apps (e.g. "arc" inside com.apple.archiveutility → Chromium)."""
+    # "arc" must only match a whole dot/dash-delimited segment
+    assert AppProber.detect_app_type(bundle_id="com.apple.archiveutility") == "cocoa"
+    assert AppProber.detect_app_type(bundle_id="com.example.clarkapp") == "cocoa"
+    assert AppProber.detect_app_type(bundle_id="company.thebrowser.arc") == "chromium"
+    # Chromium segment keys
+    assert AppProber.detect_app_type(bundle_id="com.google.Chrome.canary") == "chromium"
+    assert AppProber.detect_app_type(bundle_id="com.brave.Browser") == "chromium"
+    # Electron segment / dotted keys
+    assert AppProber.detect_app_type(bundle_id="com.electron.lark") == "electron"
+    assert AppProber.detect_app_type(bundle_id="com.tinyspeck.slackmacgap") == "electron"
+    assert AppProber.detect_app_type(bundle_id="com.tencent.qq") == "electron"
+    assert AppProber.detect_app_type(bundle_id="notion.id") == "electron"
+
+
+def test_probe_result_reason_localized():
+    """ProbeResult.reason resolves the reason_key through i18n."""
+    from twinspace.core.app_prober import ProbeResult
+    from twinspace.core.i18n import set_language
+    from twinspace.recipes.models import Recipe
+
+    info = AppInfo(
+        path=Path("/Applications/X.app"),
+        bundle_id="com.example.x",
+        app_name="X",
+        executable=Path("/Applications/X.app/Contents/MacOS/X"),
+        has_sandbox=False,
+    )
+    result = ProbeResult(
+        app_info=info,
+        has_sandbox=False,
+        frameworks=[],
+        strategy="hard_clone",
+        reason_key="probe_reason_native_nonsandboxed",
+        recipe=Recipe(bundle_id="com.example.x", app_name="X", strategy="hard_clone"),
+    )
+    set_language("en_US")
+    en_reason = result.reason
+    set_language("zh_CN")
+    zh_reason = result.reason
+    set_language("en_US")
+    assert "Native macOS application" in en_reason
+    assert zh_reason != en_reason
+    assert "原生" in zh_reason

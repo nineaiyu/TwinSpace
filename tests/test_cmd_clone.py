@@ -676,7 +676,7 @@ def test_clone_unlisted_app_auto_probes(tmp_path: Path):
         has_sandbox=False,
         frameworks=[],
         strategy="hard_clone",
-        reason="Native macOS application (Non-sandboxed)",
+        reason_key="probe_reason_native_nonsandboxed",
         recipe=probed_recipe,
     )
 

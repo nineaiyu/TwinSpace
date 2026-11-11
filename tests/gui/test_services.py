@@ -192,14 +192,12 @@ def test_probe_service():
         with patch("twinspace.core.app_prober.AppProber.analyze") as mock_analyze:
             mock_result = MagicMock()
             mock_result.recipe = Recipe(bundle_id="com.test", app_name="Test", strategy="hard_clone")
-            mock_result.architecture = "arm64"
-            mock_result.engine = "Native"
             mock_result.has_sandbox = False
             mock_analyze.return_value = mock_result
 
             res = await service.probe_app(Path("/Applications/Test.app"))
             assert res.recipe.bundle_id == "com.test"
-            assert res.engine == "Native"
+            assert res.has_sandbox is False
 
     asyncio.run(_test())
 

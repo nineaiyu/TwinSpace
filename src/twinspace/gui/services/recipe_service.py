@@ -28,32 +28,34 @@ class RecipeService:
                 for f in sorted(RecipeLoader.BUILTIN_DIR.glob("*.yaml")):
                     try:
                         r = RecipeLoader._load_file(f)
-                        recipes_map[r.bundle_id] = {
-                            "bundle_id": r.bundle_id,
-                            "app_name": r.app_name,
-                            "strategy": r.strategy,
-                            "is_builtin": True,
-                            "path": str(f),
-                            "recipe": r,
-                        }
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning(f"Ignoring broken built-in recipe '{f}': {exc}")
+                        continue
+                    recipes_map[r.bundle_id] = {
+                        "bundle_id": r.bundle_id,
+                        "app_name": r.app_name,
+                        "strategy": r.strategy,
+                        "is_builtin": True,
+                        "path": str(f),
+                        "recipe": r,
+                    }
 
             # Local custom overrides / additions
             if self.custom_recipes_dir.is_dir():
                 for f in sorted(self.custom_recipes_dir.glob("*.yaml")):
                     try:
                         r = RecipeLoader._load_file(f)
-                        recipes_map[r.bundle_id] = {
-                            "bundle_id": r.bundle_id,
-                            "app_name": r.app_name,
-                            "strategy": r.strategy,
-                            "is_builtin": False,
-                            "path": str(f),
-                            "recipe": r,
-                        }
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning(f"Ignoring broken custom recipe '{f}': {exc}")
+                        continue
+                    recipes_map[r.bundle_id] = {
+                        "bundle_id": r.bundle_id,
+                        "app_name": r.app_name,
+                        "strategy": r.strategy,
+                        "is_builtin": False,
+                        "path": str(f),
+                        "recipe": r,
+                    }
 
             return list(recipes_map.values())
 

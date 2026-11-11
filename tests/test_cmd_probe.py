@@ -40,7 +40,7 @@ def sample_probe_result(tmp_path: Path) -> ProbeResult:
         has_sandbox=False,
         frameworks=["Qt6Core.framework"],
         strategy="hard_clone",
-        reason="Native macOS application (Non-sandboxed)",
+        reason_key="probe_reason_native_nonsandboxed",
         recipe=recipe,
     )
 

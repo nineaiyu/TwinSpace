@@ -84,8 +84,6 @@ def test_probe_view_with_long_frameworks_and_notes(tmp_path):
             "libvlccore.dylib", "usb.framework", "roam_server.framework",
             "WCDY.framework", "ilink_stream_channel.framework", "libwechatocr.dylib",
         ]
-        long_reason = "Native macOS application (Sandboxed); requires binary wrapper hijack with HOME/TMPDIR isolation."
-
         mock_probe_result = ProbeResult(
             app_info=AppInfo(
                 path=Path("/Applications/WeChat.app"),
@@ -97,7 +95,7 @@ def test_probe_view_with_long_frameworks_and_notes(tmp_path):
             has_sandbox=True,
             frameworks=long_fw_list,
             strategy="hard_clone",
-            reason=long_reason,
+            reason_key="probe_reason_native_sandboxed",
             recipe=Recipe(
                 bundle_id="com.tencent.xinWeChat",
                 app_name="WeChat",

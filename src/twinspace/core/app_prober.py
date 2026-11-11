@@ -1,6 +1,7 @@
 """Core application prober and dynamic recipe generator."""
 
 import plistlib
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 
 from twinspace.core.app_inspector import AppInspector
 from twinspace.core.argument_prober import BinaryArgumentProber
+from twinspace.core.i18n import t
 from twinspace.core.models import AppInfo
 from twinspace.recipes.models import AppType, Recipe
 
@@ -18,9 +20,28 @@ class ProbeResult:
     has_sandbox: bool
     frameworks: list[str]
     strategy: str
-    reason: str
+    reason_key: str
     recipe: Recipe
+    reason_params: dict[str, Any] = field(default_factory=dict)
     raw_entitlements: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def reason(self) -> str:
+        """Localized analysis note for GUI and CLI display."""
+        return t(self.reason_key, **self.reason_params)
+
+
+# Bundle-ID heuristics for app-type detection. Dotted keys are vendor-qualified
+# and matched as plain substrings ("com.tencent.qq" also covers com.tencent.qqinput).
+# Single-word keys must match a whole dot/dash/underscore-delimited segment so
+# short names like "arc" cannot misclassify e.g. com.apple.archiveutility as
+# Chromium; products that embed their name inside a longer segment (Slack →
+# com.tinyspeck.slackmacgap) use segment-prefix matching instead.
+_ELECTRON_BID_DOTTED = ("com.microsoft.vscode", "com.tencent.qq")
+_ELECTRON_BID_SEGMENTS = ("electron", "vscode", "discord", "lark", "notion")
+_ELECTRON_BID_PREFIXES = ("slack",)
+_CHROMIUM_BID_DOTTED = ("microsoft.edge",)
+_CHROMIUM_BID_SEGMENTS = ("chrome", "chromium", "arc", "brave")
 
 
 class AppProber:
@@ -90,6 +111,7 @@ class AppProber:
 
         bid_lower = bundle_id.lower()
         fw_lower = [f.lower() for f in frameworks]
+        bid_segments = [seg for seg in re.split(r"[.\-_]", bid_lower) if seg]
 
         # 1. Electron detection (Framework, bundle ID, or asar bundle structures)
         app_p = Path(app_path).expanduser().resolve() if app_path else None
@@ -105,18 +127,17 @@ class AppProber:
 
         if (
             any("electron" in f or "qqnt" in f for f in fw_lower)
-            or any(
-                k in bid_lower
-                for k in ["electron", "vscode", "com.microsoft.vscode", "slack", "discord", "lark", "notion", "com.tencent.qq"]
-            )
+            or any(k in bid_lower for k in _ELECTRON_BID_DOTTED)
+            or any(k in bid_segments for k in _ELECTRON_BID_SEGMENTS)
+            or any(seg.startswith(p) for p in _ELECTRON_BID_PREFIXES for seg in bid_segments)
             or has_electron_fingerprint
         ):
             return "electron"
 
         # 2. Chromium detection (Framework or bundle ID)
         if any("chromium" in f or "google chrome" in f for f in fw_lower) or any(
-            k in bid_lower for k in ["chrome", "chromium", "microsoft.edge", "arc", "brave"]
-        ):
+            k in bid_lower for k in _CHROMIUM_BID_DOTTED
+        ) or any(k in bid_segments for k in _CHROMIUM_BID_SEGMENTS):
             return "chromium"
 
         # 3. Firefox / Gecko detection
@@ -163,20 +184,23 @@ class AppProber:
             strip_sandbox = False
             launch_args = []
             env_injection: dict[str, str] = {}
-            reason = "iOS/iPadOS Wrapper application on Mac (not supported for cloning)."
+            reason_key = "probe_reason_ios_wrapper"
+            reason_params: dict[str, Any] = {}
         # Chromium / Electron detection
         elif app_type in ("chromium", "electron"):
             strategy = "soft_clone"
             strip_sandbox = False
             launch_args = ["--user-data-dir={{TWINSPACE_DATA_DIR}}"]
             env_injection = {}
-            reason = "Chromium/Electron framework detected; supports --user-data-dir parameter."
+            reason_key = "probe_reason_web_data_dir"
+            reason_params = {}
         elif app_type == "firefox":
             strategy = "soft_clone"
             strip_sandbox = False
             launch_args = ["-profile", "{{TWINSPACE_DATA_DIR}}"]
             env_injection = {}
-            reason = "Firefox/Gecko framework detected; supports -profile parameter."
+            reason_key = "probe_reason_firefox_profile"
+            reason_params = {}
         else:
             # Probe binary for custom data directory CLI argument (e.g. --data-dir, --config-dir)
             arg_probe = BinaryArgumentProber.probe_data_dir_argument(app_info.executable)
@@ -186,13 +210,15 @@ class AppProber:
                     strip_sandbox = True
                     launch_args = [arg_probe.template]
                     env_injection = {}
-                    reason = f"Sandboxed application with CLI data directory parameter '{arg_probe.flag}'; requires hard clone with sandbox stripping."
+                    reason_key = "probe_reason_sandboxed_cli_flag"
+                    reason_params = {"flag": arg_probe.flag}
                 else:
                     strategy = "soft_clone"
                     strip_sandbox = False
                     launch_args = [arg_probe.template]
                     env_injection = {}
-                    reason = f"CLI data directory parameter '{arg_probe.flag}' detected via binary analysis."
+                    reason_key = "probe_reason_cli_flag"
+                    reason_params = {"flag": arg_probe.flag}
             else:
                 strategy = "hard_clone"
                 strip_sandbox = has_sandbox
@@ -201,10 +227,10 @@ class AppProber:
                     "HOME": "{{TWINSPACE_DATA_DIR}}/Home",
                     "TMPDIR": "{{TWINSPACE_DATA_DIR}}/Tmp",
                 }
-                reason = (
-                    f"Native macOS application ({'Sandboxed' if has_sandbox else 'Non-sandboxed'}); "
-                    f"requires binary wrapper hijack with HOME/TMPDIR isolation."
+                reason_key = (
+                    "probe_reason_native_sandboxed" if has_sandbox else "probe_reason_native_nonsandboxed"
                 )
+                reason_params = {}
 
         recipe = Recipe(
             bundle_id=app_info.bundle_id,
@@ -221,7 +247,8 @@ class AppProber:
             has_sandbox=has_sandbox,
             frameworks=frameworks,
             strategy=strategy,
-            reason=reason,
+            reason_key=reason_key,
+            reason_params=reason_params,
             recipe=recipe,
             raw_entitlements=entitlements,
         )

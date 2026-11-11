@@ -135,3 +135,45 @@ def test_recipe_edit_window_invalid_env_raises():
     with pytest.raises(ValueError) as excinfo:
         win.get_recipe_from_form()
     assert "第 1 行" in str(excinfo.value)
+
+
+def test_recipe_edit_window_proxy_credentials_roundtrip():
+    """Username/password/no_proxy must survive a GUI open→save cycle (they are
+    consumed verbatim by the engine proxy snippet)."""
+    original_recipe = Recipe(
+        bundle_id="com.example.proxyapp",
+        app_name="ProxyApp",
+        strategy="soft_clone",
+        proxy=ProxyConfig(
+            enabled=True,
+            type="http",
+            host="proxy.corp",
+            port=8118,
+            username="alice",
+            password="s3cret",
+            no_proxy="localhost,.internal",
+        ),
+    )
+
+    win = RecipeEditWindow(title="Edit", recipe=original_recipe)
+    assert win.input_proxy_username.value == "alice"
+    assert win.input_proxy_password.value == "s3cret"
+    assert win.input_proxy_no_proxy.value == "localhost,.internal"
+
+    recipe_out = win.get_recipe_from_form()
+    assert recipe_out.proxy.username == "alice"
+    assert recipe_out.proxy.password == "s3cret"
+    assert recipe_out.proxy.no_proxy == "localhost,.internal"
+    assert recipe_out.proxy.url == "http://alice:s3cret@proxy.corp:8118"
+
+
+def test_recipe_edit_window_invalid_port_rejected():
+    set_language("en_US")
+    win = RecipeEditWindow(title="New Recipe", recipe=None)
+    win.input_bundle_id.value = "com.test.port"
+    win.input_app_name.value = "PortApp"
+    win.input_proxy_port.value = "not_a_port"
+
+    with pytest.raises(ValueError) as excinfo:
+        win.get_recipe_from_form()
+    assert "65535" in str(excinfo.value)

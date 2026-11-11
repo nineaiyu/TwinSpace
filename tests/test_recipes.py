@@ -640,3 +640,48 @@ def test_environment_recipes_isolate_device_identity(bundle_id):
     assert env["TWINSPACE_DEVICE_SERIAL"] == "{{TWINSPACE_DEVICE_SERIAL}}"
     assert env["TWINSPACE_DEVICE_SEED"] == "{{TWINSPACE_DEVICE_SEED}}"
     assert env["TWINSPACE_DEVICE_HOSTNAME"] == "{{TWINSPACE_DEVICE_HOSTNAME}}"
+
+
+def test_recipe_rejects_unknown_fields():
+    """extra="forbid": a misspelled YAML field must fail loudly, not be ignored."""
+    with pytest.raises(ValidationError):
+        Recipe(
+            bundle_id="com.example.typo",
+            app_name="Typo",
+            strategy="hard_clone",
+            strip_sandboxes=True,  # misspelled strip_sandbox
+        )
+
+
+def test_recipe_loader_tolerates_broken_local_file(tmp_path, monkeypatch):
+    """A corrupt local override falls back to the built-in recipe instead of crashing."""
+    monkeypatch.setattr(RecipeLoader, "LOCAL_DIR", tmp_path)
+    bad = tmp_path / "com.tencent.xinWeChat.yaml"
+    bad.write_text("strategy: [unclosed", encoding="utf-8")
+
+    recipe = RecipeLoader.get("com.tencent.xinWeChat")
+    assert recipe is not None
+    assert recipe.bundle_id == "com.tencent.xinWeChat"
+
+
+def test_recipe_loader_tolerates_invalid_schema(tmp_path, monkeypatch):
+    """A local file with an invalid enum value is dropped (logged), not raised."""
+    monkeypatch.setattr(RecipeLoader, "LOCAL_DIR", tmp_path)
+    (tmp_path / "com.example.badschema.yaml").write_text(
+        "bundle_id: com.example.badschema\n"
+        "app_name: Bad\n"
+        "strategy: sometimes\n",  # invalid Literal value
+        encoding="utf-8",
+    )
+    assert RecipeLoader.get("com.example.badschema") is None
+
+
+def test_recipe_match_survives_broken_recipe_file(tmp_path, monkeypatch):
+    """RecipeLoader.match never raises on a broken rule file: it degrades to
+    the default recipe so the clone/wizard flow keeps working."""
+    monkeypatch.setattr(RecipeLoader, "LOCAL_DIR", tmp_path)
+    (tmp_path / "com.example.broken.yaml").write_text("::not yaml::[", encoding="utf-8")
+
+    recipe = RecipeLoader.match("com.example.broken")
+    assert recipe.bundle_id == "com.example.broken"
+    assert recipe.strategy == "hard_clone"

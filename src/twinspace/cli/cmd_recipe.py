@@ -28,9 +28,13 @@ def recipe_list() -> None:
 
     builtin_dir = RecipeLoader.BUILTIN_DIR
     for yf in sorted(builtin_dir.glob("*.yaml")):
-        with open(yf, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-            entries.append({"data": data, "origin": "builtin"})
+        try:
+            with open(yf, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+        except Exception as exc:
+            logger.warning("Skipping unreadable built-in recipe %s: %s", yf, exc)
+            continue
+        entries.append({"data": data, "origin": "builtin"})
 
     custom_dir = RecipeLoader.get_local_dir()
     if custom_dir.is_dir():

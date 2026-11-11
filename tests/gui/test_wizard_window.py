@@ -239,7 +239,7 @@ def test_wizard_step1_non_builtin_app_triggers_probe(tmp_path: Path):
             has_sandbox=False,
             frameworks=["Chromium Framework.framework"],
             strategy="soft_clone",
-            reason="Chromium detected",
+            reason_key="probe_reason_web_data_dir",
             recipe=mock_probed_recipe,
         )
 

@@ -1881,16 +1881,64 @@ MESSAGES: dict[str, dict[str, str]] = {
         "zh": "修复建议 / 说明",
     },
     "doctor_status_failed": {
-        "en": "❌ Missing",
-        "zh": "❌ 缺失",
+        "en": "❌ Failed",
+        "zh": "❌ 未通过",
     },
     "doctor_btn_recheck": {
         "en": "Recheck",
         "zh": "重新检测",
     },
-    "doctor_summary_initial": {
-        "en": "⏳ Click Recheck to start diagnostics",
-        "zh": "⏳ 点击右上角“重新检测”按钮开始检测",
+    "doctor_summary_checking": {
+        "en": "⏳ Checking environment...",
+        "zh": "⏳ 正在检测环境...",
+    },
+    "doctor_summary_failed": {
+        "en": "Environment check failed: {error}",
+        "zh": "环境检测失败：{error}",
+    },
+    "doctor_card_results": {
+        "en": "Check Results",
+        "zh": "检测结果",
+    },
+    "doctor_details_not_found": {
+        "en": "Not found",
+        "zh": "未找到",
+    },
+    "doctor_details_plistbuddy_missing": {
+        "en": "Not found at /usr/libexec/PlistBuddy",
+        "zh": "未在 /usr/libexec/PlistBuddy 找到",
+    },
+    "doctor_hint_plistbuddy": {
+        "en": "Reinstall Xcode Command Line Tools to restore PlistBuddy (click the install button above).",
+        "zh": "请重装 Xcode 命令行工具以恢复 PlistBuddy（可点击上方一键安装按钮）。",
+    },
+    "doctor_details_python_version": {
+        "en": "Python {version} (requires >= 3.10)",
+        "zh": "Python {version}（需要 ≥ 3.10）",
+    },
+    "doctor_hint_python": {
+        "en": "Upgrade the runtime Python installation to 3.10 or newer.",
+        "zh": "请将运行时 Python 升级到 3.10 或更高版本。",
+    },
+    "doctor_item_disk_space": {
+        "en": "Disk Free Space",
+        "zh": "磁盘剩余空间",
+    },
+    "doctor_details_disk_ok": {
+        "en": "{free} free ({path})",
+        "zh": "可用 {free}（{path}）",
+    },
+    "doctor_details_disk_low": {
+        "en": "Only {free} free ({path})",
+        "zh": "仅剩 {free}（{path}）",
+    },
+    "doctor_hint_disk_low": {
+        "en": "Less than {limit} free may break cloning and backups. Please free up disk space.",
+        "zh": "剩余空间不足 {limit}，克隆/备份可能失败，请清理磁盘空间。",
+    },
+    "doctor_details_disk_error": {
+        "en": "Could not read disk usage: {error}",
+        "zh": "无法读取磁盘使用情况：{error}",
     },
     "doctor_status_ok": {
         "en": "✅ Passed",
@@ -1944,6 +1992,34 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Check directory permissions: chmod u+rwx {path}",
         "zh": "检查目录权限: chmod u+rwx {path}",
     },
+    "probe_reason_ios_wrapper": {
+        "en": "iOS/iPadOS Wrapper application on Mac (not supported for cloning).",
+        "zh": "iOS/iPadOS Wrapper 应用（暂不支持克隆分身）。",
+    },
+    "probe_reason_web_data_dir": {
+        "en": "Chromium/Electron framework detected; supports --user-data-dir parameter.",
+        "zh": "检测到 Chromium/Electron 框架；支持 --user-data-dir 参数。",
+    },
+    "probe_reason_firefox_profile": {
+        "en": "Firefox/Gecko framework detected; supports -profile parameter.",
+        "zh": "检测到 Firefox/Gecko 框架；支持 -profile 参数。",
+    },
+    "probe_reason_sandboxed_cli_flag": {
+        "en": "Sandboxed application with CLI data directory parameter '{flag}'; requires hard clone with sandbox stripping.",
+        "zh": "沙盒应用且检测到命令行数据目录参数 '{flag}'；需要硬克隆并解除沙盒。",
+    },
+    "probe_reason_cli_flag": {
+        "en": "CLI data directory parameter '{flag}' detected via binary analysis.",
+        "zh": "通过二进制分析检测到命令行数据目录参数 '{flag}'。",
+    },
+    "probe_reason_native_sandboxed": {
+        "en": "Native macOS application (Sandboxed); requires binary wrapper hijack with HOME/TMPDIR isolation.",
+        "zh": "原生 macOS 应用（已启用沙盒）；需通过二进制包装注入 HOME/TMPDIR 实现隔离。",
+    },
+    "probe_reason_native_nonsandboxed": {
+        "en": "Native macOS application (Non-sandboxed); requires binary wrapper hijack with HOME/TMPDIR isolation.",
+        "zh": "原生 macOS 应用（未启用沙盒）；需通过二进制包装注入 HOME/TMPDIR 实现隔离。",
+    },
     "probe_btn_start": {
         "en": "Start Probe",
         "zh": "开始探测",
@@ -1975,6 +2051,34 @@ MESSAGES: dict[str, dict[str, str]] = {
     "probe_saved_success": {
         "en": "✅ Saved to ~/TwinSpace/recipes",
         "zh": "✅ 已保存到 ~/TwinSpace/recipes",
+    },
+    "probe_status_probing": {
+        "en": "⏳ Probing application...",
+        "zh": "⏳ 正在探测应用...",
+    },
+    "probe_warning_ios_unsupported": {
+        "en": "⚠️ iOS/iPadOS apps are not supported for cloning yet.",
+        "zh": "⚠️ iOS/iPadOS 应用暂不支持克隆分身。",
+    },
+    "probe_frameworks_none": {
+        "en": "Native AppKit",
+        "zh": "原生 AppKit",
+    },
+    "dialog_probe_invalid_app": {
+        "en": "'{path}' is not a valid macOS .app bundle.",
+        "zh": "'{path}' 不是有效的 macOS .app 应用。",
+    },
+    "dialog_probe_failed_msg": {
+        "en": "Probe failed: {error}",
+        "zh": "探测失败：{error}",
+    },
+    "probe_btn_view_recipes": {
+        "en": "View Recipes",
+        "zh": "查看分身规则",
+    },
+    "dialog_recipe_save_failed": {
+        "en": "Failed to save recipe: {error}",
+        "zh": "保存分身规则失败：{error}",
     },
     "view_recipes_col_origin": {
         "en": "Origin",
@@ -2563,6 +2667,22 @@ MESSAGES: dict[str, dict[str, str]] = {
     "win_edit_type_host_port": {
         "en": "Type/Host/Port:",
         "zh": "类型/地址/端口:",
+    },
+    "win_recipe_proxy_auth": {
+        "en": "Username / Password:",
+        "zh": "用户名 / 密码:",
+    },
+    "win_recipe_proxy_no_proxy": {
+        "en": "NO_PROXY:",
+        "zh": "NO_PROXY 排除列表:",
+    },
+    "win_recipe_proxy_no_proxy_hint": {
+        "en": "Comma-separated hosts that bypass the proxy (e.g. localhost,127.0.0.1,*.local).",
+        "zh": "以英文逗号分隔的免代理主机列表（如 localhost,127.0.0.1,*.local）。",
+    },
+    "win_recipe_invalid_port": {
+        "en": "Proxy port must be an integer between 1 and 65535.",
+        "zh": "代理端口必须是 1-65535 之间的整数。",
     },
     "proxy_auth_enable": {
         "en": "Proxy Authentication (Username/Password)",

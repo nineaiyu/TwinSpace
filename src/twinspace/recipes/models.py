@@ -15,7 +15,9 @@ from twinspace.validation import (
 class ProxyConfig(BaseModel):
     # Validate on assignment too: CLI/GUI flows mutate proxy fields after
     # construction, and those values end up inside generated shell scripts.
-    model_config = ConfigDict(validate_assignment=True)
+    # Unknown/misspelled fields are rejected so hand-written YAML typos surface
+    # immediately instead of silently changing clone behaviour.
+    model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
     enabled: bool = False
     type: Literal["http", "https", "socks5"] = "http"
@@ -56,7 +58,10 @@ InjectionStrategy = Literal["auto", "dylib", "launcher"]
 
 
 class Recipe(BaseModel):
-    model_config = ConfigDict(validate_assignment=True)
+    # extra="forbid": a misspelled YAML field (e.g. strip_sandboxes) must fail
+    # loudly during loading instead of being ignored while the clone runs with
+    # different isolation settings than the author intended.
+    model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
     bundle_id: str
     app_name: str

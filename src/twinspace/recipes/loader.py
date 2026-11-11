@@ -4,8 +4,11 @@ from pathlib import Path
 import yaml  # type: ignore[import-untyped]
 
 from twinspace.core.config import DEFAULT_RECIPES_DIR
+from twinspace.core.logger import get_logger
 
 from .models import Recipe
+
+logger = get_logger("recipes.loader")
 
 
 class RecipeLoader:
@@ -33,17 +36,24 @@ class RecipeLoader:
     def get(cls, bundle_id: str) -> Recipe | None:
         local_file = cls.get_local_dir() / f"{bundle_id}.yaml"
         builtin_file = cls.BUILTIN_DIR / f"{bundle_id}.yaml"
+        # A broken rule file (bad YAML syntax, invalid enum value, misspelled
+        # field) must never take down the clone/wizard flow: log loudly and
+        # fall back to the next candidate instead of raising.
+        recipe = cls._load_tolerant(local_file)
+        if recipe is not None:
+            return recipe
+        return cls._load_tolerant(builtin_file)
+
+    @classmethod
+    def _load_tolerant(cls, path: Path) -> Recipe | None:
+        """Load a recipe file, mapping any failure to None with an error log."""
         try:
-            if local_file.is_file():
-                return cls._load_file(local_file)
-        except (PermissionError, OSError):
-            pass
-        try:
-            if builtin_file.is_file():
-                return cls._load_file(builtin_file)
-        except (PermissionError, OSError):
-            pass
-        return None
+            if not path.is_file():
+                return None
+            return cls._load_file(path)
+        except Exception as exc:
+            logger.error("Ignoring broken recipe file '%s': %s", path, exc)
+            return None
 
     @classmethod
     def match(cls, bundle_id: str, app_path: Path | str | None = None) -> Recipe:

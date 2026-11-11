@@ -116,6 +116,20 @@ class RecipeEditWindow(toga.Window):
             value=str(proxy.port),
             style=Pack(width=90, font_size=13.5),
         )
+        # Credentials are consumed verbatim by the engine proxy snippet; losing
+        # them on save would silently break authenticated proxies.
+        self.input_proxy_username = toga.TextInput(
+            value=proxy.username,
+            style=Pack(flex=1, margin_right=8, font_size=13.5),
+        )
+        self.input_proxy_password = toga.TextInput(
+            value=proxy.password,
+            style=Pack(flex=1, margin_right=8, font_size=13.5),
+        )
+        self.input_proxy_no_proxy = toga.TextInput(
+            value=proxy.no_proxy,
+            style=Pack(flex=1, font_size=13.5),
+        )
 
         # Advanced inputs
         self._app_type_keys: list[AppType | None] = [None, "cocoa", "electron", "chromium", "firefox", "generic"]
@@ -342,6 +356,21 @@ class RecipeEditWindow(toga.Window):
         row_proxy_detail.add(self.input_proxy_port)
         form_box.add(row_proxy_detail)
 
+        row_proxy_auth = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_bottom=8))
+        row_proxy_auth.add(toga.Label(t("win_recipe_proxy_auth"), style=Pack(width=120, font_size=13, color=Theme.TEXT_PRIMARY)))
+        row_proxy_auth.add(self.input_proxy_username)
+        row_proxy_auth.add(self.input_proxy_password)
+        form_box.add(row_proxy_auth)
+
+        row_proxy_no = toga.Box(style=Pack(direction=ROW, align_items=CENTER, margin_bottom=2))
+        row_proxy_no.add(toga.Label(t("win_recipe_proxy_no_proxy"), style=Pack(width=120, font_size=13, color=Theme.TEXT_PRIMARY)))
+        row_proxy_no.add(self.input_proxy_no_proxy)
+        form_box.add(row_proxy_no)
+        form_box.add(toga.Label(
+            t("win_recipe_proxy_no_proxy_hint"),
+            style=Pack(font_size=11, color=Theme.TEXT_MUTED, margin_bottom=6),
+        ))
+
         # Advanced toggle button
         form_box.add(self.btn_toggle_advanced)
 
@@ -382,17 +411,20 @@ class RecipeEditWindow(toga.Window):
         return "system"
 
     def get_recipe_from_form(self) -> Recipe:
-        port = 1080
+        port_text = self.input_proxy_port.value.strip()
         try:
-            port = int(self.input_proxy_port.value)
+            port = int(port_text)
         except ValueError:
-            pass
+            raise ValueError(t("win_recipe_invalid_port")) from None
 
         proxy = ProxyConfig(
             enabled=self.switch_proxy.value,
             type=str(self.select_proxy_type.value),
             host=self.input_proxy_host.value.strip() or "127.0.0.1",
             port=port,
+            username=self.input_proxy_username.value.strip(),
+            password=self.input_proxy_password.value,
+            no_proxy=self.input_proxy_no_proxy.value.strip() or "localhost,127.0.0.1,*.local",
         )
 
         env_dict, env_err = parse_env_injection(self.input_env_injection.value or "")
@@ -445,6 +477,13 @@ class RecipeEditWindow(toga.Window):
             return
 
         if self.on_save_callback:
-            await self.on_save_callback(recipe)
+            try:
+                await self.on_save_callback(recipe)
+            except Exception as err:
+                await self.error_dialog(
+                    t("dialog_validation_error_title"),
+                    t("dialog_recipe_save_failed", error=str(err)),
+                )
+                return
         self.close()
 
