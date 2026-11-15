@@ -1079,6 +1079,19 @@ def test_a_second_update_is_ignored_while_one_runs(toga_app, tmp_path):
     view.app_instance.main_window.confirm_dialog.assert_not_awaited()
 
 
+def test_tile_updating_caption_takes_over_the_status_row(toga_app):
+    tile = _make_tile(running=True)
+    assert tile.status_label.text == "● " + t("environment_running")
+
+    tile.set_updating(True)
+    assert tile.status_label.text == "↻ " + t("app_tile_updating")
+    assert str(tile.status_label.style.color) == "rgb(255 149 0 / 1.0)"
+
+    tile.set_updating(False)
+    assert tile.status_label.text == "● " + t("environment_running")
+    assert str(tile.status_label.style.color) == "rgb(52 199 89 / 1.0)"
+
+
 def test_progress_callback_paints_the_card_and_gets_restored(toga_app, tmp_path):
     service = EnvironmentService(state_manager=_environment_state(tmp_path))
     view = EnvironmentListView(environment_service=service)
@@ -1086,6 +1099,7 @@ def test_progress_callback_paints_the_card_and_gets_restored(toga_app, tmp_path)
     view._render()
     card = view._cards["phone1"]
     app = service.app_for_key("zcode")
+    tile = card.tiles["ZCode-phone1"]
 
     view._progress_reporter("phone1", "environment_progress_updating")(
         2, 3, app, "updating"
@@ -1094,6 +1108,14 @@ def test_progress_callback_paints_the_card_and_gets_restored(toga_app, tmp_path)
     assert card.status_text.text == t(
         "environment_progress_updating", current=2, total=3, app=app.label
     )
+    # The app being rebuilt also shows its own caption under the icon.
+    assert tile.updating is True
+    assert tile.status_label.text == "↻ " + t("app_tile_updating")
+
+    view._progress_reporter("phone1", "environment_progress_updating")(
+        2, 3, app, "updated"
+    )
+    assert tile.updating is False
 
     # The next repaint restores the running / idle label.
     view._update_card(card, view._environments[0])

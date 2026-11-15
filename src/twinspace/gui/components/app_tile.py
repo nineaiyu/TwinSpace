@@ -106,8 +106,10 @@ class AppTile(toga.Box):
         self.label_text = label
         self.clone_name = clone_name
         self.running = running
+        self.updating = False
         self.tooltip = tooltip or clone_name
         self.selected = False
+        self._painted_status: tuple[str, str] | None = None
         self.update_available = bool(update_available)
         self.downgrade_available = bool(downgrade_available)
         self.current_version = current_version
@@ -212,6 +214,7 @@ class AppTile(toga.Box):
             ),
         )
         self.add(self.status_label)
+        self._paint_status()
 
         cocoa_events.attach_tile_interactions(
             self,
@@ -334,10 +337,13 @@ class AppTile(toga.Box):
 
     def set_selected(self, selected: bool) -> None:
         """Draw (or clear) the Finder-style selection pill behind the icon."""
-        self.selected = bool(selected)
+        selected = bool(selected)
+        if selected == self.selected:
+            return
+        self.selected = selected
         cocoa_events.set_hover_background(
             self.pill,
-            self.selected,
+            selected,
             Theme.BG_SELECTION,
             radius=PILL_CORNER_RADIUS,
         )
@@ -354,14 +360,42 @@ class AppTile(toga.Box):
         if running == self.running:
             return
         self.running = running
-        self.status_label.text = ("● " + t("environment_running")) if running else ""
-        self.status_label.style.color = (
-            Theme.BTN_SUCCESS if running else Theme.TEXT_TERTIARY
-        )
+        self._paint_status()
         # The context menu holds open/close enablement captured at build time.
         cocoa_events.update_tile_menu(
             self, self._menu_entries(), self._handle_menu
         )
+
+    def set_updating(self, updating: bool) -> None:
+        """Show (or clear) the "updating" caption under the icon.
+
+        A tile being rebuilt is idle by definition — updates refuse running
+        clones — so the updating caption simply takes over the status row and
+        the running marker comes back when it clears.
+        """
+        updating = bool(updating)
+        if updating == self.updating:
+            return
+        self.updating = updating
+        self._paint_status()
+
+    def _paint_status(self) -> None:
+        """Paint the status row: updating wins over running, then idle."""
+        if self.updating:
+            text = "↻ " + t("app_tile_updating")
+            color = Theme.BTN_WARNING
+        elif self.running:
+            text = "● " + t("environment_running")
+            color = Theme.BTN_SUCCESS
+        else:
+            text = ""
+            color = Theme.TEXT_TERTIARY
+        state = (text, color)
+        if state == self._painted_status:
+            return
+        self._painted_status = state
+        self.status_label.text = text
+        self.status_label.style.color = color
 
     def _handle_double_click(self) -> None:
         logger.info(

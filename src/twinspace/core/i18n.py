@@ -1132,6 +1132,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Updated {count} clone(s) to the source version.",
         "zh": "已按源程序更新 {count} 个分身。",
     },
+    "sources_progress_updating": {
+        "en": "Updating {current}/{total} · {clone}",
+        "zh": "更新中 {current}/{total} · {clone}",
+    },
     "btn_compute_sizes": {
         "en": "Compute Sizes",
         "zh": "计算体积",
@@ -1323,6 +1327,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "environment_running": {
         "en": "Running",
         "zh": "运行中",
+    },
+    "app_tile_updating": {
+        "en": "Updating…",
+        "zh": "更新中…",
     },
     "environment_not_running": {
         "en": "Not running",

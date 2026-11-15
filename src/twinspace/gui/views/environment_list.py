@@ -2166,11 +2166,22 @@ class EnvironmentListView(toga.Box):
         )
 
     def _progress_reporter(self, env_name: str, message_key: str):
-        """Paint "updating 2/3 · ZCode" on the card while an app is rebuilt."""
+        """Paint "updating 2/3 · ZCode" on the card while an app is rebuilt.
+
+        The tile of the app currently being rebuilt also shows "↻ 更新中…"
+        under its icon, so the status is visible where the app is, not only in
+        the card header.
+        """
         def report(index: int, total: int, app: Any, status: str) -> None:
             state = self._cards.get(env_name)
             if state is None:
                 return
+            key = getattr(app, "key", "") if app is not None else ""
+            updating = status == "updating"
+            for clone_name in self._clone_names_for_app(env_name, key):
+                tile = state.tiles.get(clone_name)
+                if tile is not None:
+                    tile.set_updating(updating)
             label = getattr(app, "label", "") if app is not None else ""
             if status == "failed":
                 text = t("environment_progress_failed", app=label)

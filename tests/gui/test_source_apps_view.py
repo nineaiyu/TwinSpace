@@ -8,6 +8,7 @@ import toga
 from twinspace.core.app_version import AppUpdate
 from twinspace.core.i18n import t
 from twinspace.core.state import CloneRecord
+from twinspace.gui import cocoa_events
 from twinspace.gui.components.app_tile import AppTile, compute_tile_columns
 from twinspace.gui.views.source_apps_view import (
     _SEARCH_DEBOUNCE,
@@ -107,6 +108,86 @@ def test_card_uses_tiles_and_running_pill_patches_in_place():
     assert str(card.status_dot.style.color) == "rgb(52 199 89 / 1.0)"
     assert card.btn_close.enabled is True
     assert card.btn_open.enabled is True  # one clone still idle
+
+
+def test_clicking_a_tile_paints_the_selection_pill():
+    records = [
+        _record("WeChat-b2", "WeChat", "/Applications/WeChat.app"),
+        _record("WeChat-work", "WeChat", "/Applications/WeChat.app"),
+    ]
+    view = _view(records)
+    card = _card(view)
+    first = card.tiles["WeChat-b2"]
+
+    view._select_tile(first, cocoa_events.SELECT_REPLACE)
+    assert view.selected_clone == "WeChat-b2"
+    assert first.selected is True
+    assert card.tiles["WeChat-work"].selected is False
+
+    # Selection survives a repaint.
+    view._sync_cards()
+    assert first.selected is True
+
+    # ⌘-click on the selected tile clears it.
+    view._select_tile(first, cocoa_events.SELECT_TOGGLE)
+    assert view.selected_clone is None
+    assert first.selected is False
+
+
+def test_card_progress_pill_disables_update_and_restores():
+    view = _view([_record("WeChat-b2", "WeChat", "/Applications/WeChat.app")])
+    card = _card(view)
+    card.set_stats(None, 2)
+    assert card.btn_update.enabled is True
+
+    progress = t("sources_progress_updating", current=1, total=2, clone="WeChat-b2")
+    card.set_progress(progress)
+    assert card.label_pill.text == progress
+    assert card.btn_update.enabled is False
+
+    card.set_progress(None)
+    assert card.label_pill.text == t("environment_not_running")
+    assert card.btn_update.enabled is True
+
+
+def test_update_all_marks_each_tile_as_updating():
+    async def _test():
+        records = [
+            _record("WeChat-b2", "WeChat", "/Applications/WeChat.app"),
+            _record("WeChat-work", "WeChat", "/Applications/WeChat.app"),
+        ]
+        view = _view(records)
+        view._status = {
+            name: AppUpdate("1.0", "2.0", needs_update=True)
+            for name in ("WeChat-b2", "WeChat-work")
+        }
+        view._confirm = AsyncMock(return_value=True)
+        view._info = AsyncMock()
+        view._error = AsyncMock()
+        view.refresh_sources = AsyncMock()
+        card = _card(view)
+
+        seen: list[tuple[str, bool, str]] = []
+
+        async def _update(name: str) -> None:
+            tile = card.tiles[name]
+            seen.append((name, tile.updating, card.label_pill.text))
+
+        view.clone_service.update_clone = AsyncMock(side_effect=_update)
+        await view._update_all(view._groups[0])
+
+        assert [entry[0] for entry in seen] == ["WeChat-b2", "WeChat-work"]
+        # While the rebuild is awaited the tile says 更新中 and the card pill
+        # shows the running index; both are cleared once the group finishes.
+        assert all(entry[1] for entry in seen)
+        assert seen[0][2] == t(
+            "sources_progress_updating", current=1, total=2, clone="WeChat-b2"
+        )
+        assert all(tile.updating is False for tile in card.tiles.values())
+        assert card.label_pill.text == t("environment_not_running")
+        assert view._updating_groups == set()
+
+    asyncio.run(_test())
 
 
 def test_search_filters_groups_without_rebuilding_cards():

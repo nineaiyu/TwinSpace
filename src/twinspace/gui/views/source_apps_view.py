@@ -113,7 +113,9 @@ class SourceAppCard(toga.Box):
         # Painted-state caches: every write below reaches AppKit, so unchanged
         # values must cost nothing (a refresh with no changes writes nothing).
         self._running_count = -1
-        self._running_any = False
+        self._painted_status: tuple[str, str] | None = None
+        self._progress_text: str | None = None
+        self._updating_active = False
         self._update_count: int | None = None
         self._downgrade_count: int | None = None
         self._stats_text = ""
@@ -309,12 +311,13 @@ class SourceAppCard(toga.Box):
         )
         pill.add(self.status_dot)
         pill.add(self.label_pill)
+        self._paint_status()
         return pill
 
     def _build_tile(self, record: CloneRecord) -> AppTile:
         status = self._view.status_for(record.clone_name)
         name = record.clone_name
-        return AppTile(
+        tile = AppTile(
             label=name,
             clone_name=name,
             icon=cocoa_events.load_app_icon(record.dest_path),
@@ -341,7 +344,11 @@ class SourceAppCard(toga.Box):
             on_detail=lambda clone=name: self._view.dispatch_chip_action(
                 "detail", clone
             ),
+            on_select=self._view._select_tile,
         )
+        if name == self._view.selected_clone:
+            tile.set_selected(True)
+        return tile
 
     # -- menus -----------------------------------------------------------------
 
@@ -349,10 +356,23 @@ class SourceAppCard(toga.Box):
         label = t("environment_btn_update_all")
         return f"{label} ({syncs})" if syncs else label
 
+    def _syncs(self) -> int:
+        """Clones whose version differs from the source, in either direction."""
+        return max(0, self._update_count or 0) + max(0, self._downgrade_count or 0)
+
+    def _refresh_update_enabled(self) -> None:
+        enabled = (
+            self._syncs() > 0
+            and not self._source_missing
+            and not self._updating_active
+        )
+        if self._update_enabled != enabled:
+            self._update_enabled = enabled
+            self.btn_update.enabled = enabled
+
     def _menu_entries(self) -> tuple[MenuEntry, ...]:
         total = len(self.group.records)
         running = max(0, self._running_count)
-        syncs = max(0, self._update_count or 0) + max(0, self._downgrade_count or 0)
         return (
             MenuEntry(
                 "open_all",
@@ -366,8 +386,12 @@ class SourceAppCard(toga.Box):
             ),
             MenuEntry(
                 "update_all",
-                self._update_label(syncs),
-                enabled=syncs > 0 and not self._source_missing,
+                self._update_label(self._syncs()),
+                enabled=(
+                    self._syncs() > 0
+                    and not self._source_missing
+                    and not self._updating_active
+                ),
                 separator=True,
             ),
             MenuEntry("reveal", t("sources_menu_reveal_source"), separator=True),
@@ -375,9 +399,12 @@ class SourceAppCard(toga.Box):
 
     def _sync_menu(self, force: bool = False) -> None:
         """Rebuild the native menu only when its enabled states changed."""
-        running = max(0, self._running_count)
-        syncs = max(0, self._update_count or 0) + max(0, self._downgrade_count or 0)
-        signature = (running, syncs, self._source_missing)
+        signature = (
+            max(0, self._running_count),
+            self._syncs(),
+            self._source_missing,
+            self._updating_active,
+        )
         if signature == self._menu_signature and not force:
             return
         self._menu_signature = signature
@@ -397,19 +424,6 @@ class SourceAppCard(toga.Box):
         count = sum(1 for record in self.group.records if record.clone_name in running)
         if count != self._running_count:
             self._running_count = count
-            text = (
-                t("sources_running_pill", count=count)
-                if count
-                else t("environment_not_running")
-            )
-            if self.label_pill.text != text:
-                self.label_pill.text = text
-            any_running = count > 0
-            if any_running != self._running_any:
-                self._running_any = any_running
-                color = Theme.BTN_SUCCESS if any_running else Theme.TEXT_TERTIARY
-                self.status_dot.style.color = color
-                self.label_pill.style.color = color
             open_enabled = count < len(self.group.records)
             if self.btn_open.enabled != open_enabled:
                 self.btn_open.enabled = open_enabled
@@ -417,8 +431,44 @@ class SourceAppCard(toga.Box):
             if self.btn_close.enabled != close_enabled:
                 self.btn_close.enabled = close_enabled
             self._sync_menu()
+        self._paint_status()
         for name, tile in self.tiles.items():
             tile.set_running(name in running)
+
+    def set_progress(self, text: str | None) -> None:
+        """Show an update progress line in the status pill.
+
+        Passing ``None`` restores the running/idle pill. While a progress line
+        is shown the update action is disabled, so a group cannot be queued
+        twice from the button or its context menu.
+        """
+        text = text or None
+        if text == self._progress_text:
+            return
+        self._progress_text = text
+        self._updating_active = text is not None
+        self._paint_status()
+        self._refresh_update_enabled()
+        self._sync_menu()
+
+    def _paint_status(self) -> None:
+        """Paint the status pill, letting update progress win over running state."""
+        if self._progress_text:
+            text = self._progress_text
+            color = Theme.BTN_WARNING
+        elif self._running_count > 0:
+            text = t("sources_running_pill", count=self._running_count)
+            color = Theme.BTN_SUCCESS
+        else:
+            text = t("environment_not_running")
+            color = Theme.TEXT_TERTIARY
+        state = (text, color)
+        if state == self._painted_status:
+            return
+        self._painted_status = state
+        self.label_pill.text = text
+        self.label_pill.style.color = color
+        self.status_dot.style.color = color
 
     def set_stats(
         self,
@@ -460,10 +510,7 @@ class SourceAppCard(toga.Box):
                 Theme.BTN_WARNING if updates else Theme.BADGE_HARD_TEXT
             )
             self._sync_menu()
-        enabled = (updates + downgrades) > 0 and not self._source_missing
-        if self._update_enabled != enabled:
-            self._update_enabled = enabled
-            self.btn_update.enabled = enabled
+        self._refresh_update_enabled()
 
     def patch_updates(self) -> None:
         """Repaint the per-tile version badges from the cached comparison.
@@ -530,6 +577,12 @@ class SourceAppsView(toga.Box):
         self._cards: dict[str, tuple[SourceAppCard, tuple]] = {}
         self._pool: dict[str, tuple[SourceAppCard, tuple]] = {}
         self._running: set[str] = set()
+        # Finder-style single selection of one clone tile (visual feedback for
+        # clicks; ⌘-click toggles it off). Kept across refreshes when possible.
+        self._selected_clone: str | None = None
+        # Groups with an update running; blocks a second click from the button
+        # and the context menu while the rebuild loop is in flight.
+        self._updating_groups: set[str] = set()
         self._sizes: dict[str, int] = {}
         self._sizes_computed = False
         self._computing_sizes = False
@@ -621,6 +674,10 @@ class SourceAppsView(toga.Box):
     @property
     def running_clones(self) -> set[str]:
         return self._running
+
+    @property
+    def selected_clone(self) -> str | None:
+        return self._selected_clone
 
     def status_for(self, clone_name: str) -> AppUpdate | None:
         return self._status.get(clone_name)
@@ -970,6 +1027,13 @@ class SourceAppsView(toga.Box):
             )
             self._place_card(index, card)
 
+        if (
+            self._selected_clone is not None
+            and self._selected_clone not in self._record_by_name
+        ):
+            self._selected_clone = None
+        self._apply_selection()
+
         mounted = {card for card, _signature in self._cards.values()}
         for child in list(self.list_box.children):
             if child not in mounted:
@@ -1013,6 +1077,77 @@ class SourceAppsView(toga.Box):
         if current >= 0:
             self.list_box.remove(card)
         self.list_box.insert(index, card)
+
+    # -- selection -------------------------------------------------------------
+
+    def _select_tile(
+        self,
+        tile: AppTile,
+        intent: str = cocoa_events.SELECT_REPLACE,
+    ) -> None:
+        """Finder-style tile selection: click selects, ⌘-click toggles off."""
+        name = tile.clone_name
+        if intent == cocoa_events.SELECT_TOGGLE and self._selected_clone == name:
+            self._selected_clone = None
+        else:
+            self._selected_clone = name
+        self._apply_selection()
+
+    def _apply_selection(self) -> None:
+        """Paint the selection pill on the selected clone (guarded writes)."""
+        selected = self._selected_clone
+        for card, _signature in self._cards.values():
+            for name, tile in card.tiles.items():
+                wanted = name == selected
+                if tile.selected != wanted:
+                    tile.set_selected(wanted)
+
+    def clear_selection(self, widget: Any = None) -> None:
+        if self._selected_clone is None:
+            return
+        self._selected_clone = None
+        self._apply_selection()
+
+    # -- update progress -------------------------------------------------------
+
+    def _card_for_clone(self, clone_name: str) -> SourceAppCard | None:
+        key = self._group_of.get(clone_name)
+        entry = self._cards.get(key) if key is not None else None
+        return entry[0] if entry is not None else None
+
+    def _set_tile_updating(self, clone_name: str, updating: bool) -> None:
+        card = self._card_for_clone(clone_name)
+        tile = card.tiles.get(clone_name) if card is not None else None
+        if tile is not None:
+            tile.set_updating(updating)
+
+    def _show_update_progress(
+        self, clone_name: str, current: int, total: int
+    ) -> None:
+        """Mark one tile as updating and paint the group's progress in its pill."""
+        card = self._card_for_clone(clone_name)
+        if card is None:
+            return
+        tile = card.tiles.get(clone_name)
+        if tile is not None:
+            tile.set_updating(True)
+        card.set_progress(
+            t(
+                "sources_progress_updating",
+                current=current,
+                total=total,
+                clone=clone_name,
+            )
+        )
+
+    def _clear_update_progress(self, clone_name: str) -> None:
+        card = self._card_for_clone(clone_name)
+        if card is None:
+            return
+        tile = card.tiles.get(clone_name)
+        if tile is not None:
+            tile.set_updating(False)
+        card.set_progress(None)
 
     def _group_signature(self, group: _SourceGroup) -> tuple:
         return (
@@ -1241,6 +1376,8 @@ class SourceAppsView(toga.Box):
 
     async def _update_all(self, group: _SourceGroup) -> None:
         """Rebuild the outdated clones of a group, skipping the running ones."""
+        if group.source_path in self._updating_groups:
+            return
         outdated = [
             record
             for record in group.records
@@ -1283,13 +1420,35 @@ class SourceAppsView(toga.Box):
             return
         errors: list[str] = []
         updated = 0
-        for record in targets:
-            try:
-                await self.clone_service.update_clone(record.clone_name)
-            except Exception as exc:
-                errors.append(f"{record.clone_name}: {exc}")
-                continue
-            updated += 1
+        self._updating_groups.add(group.source_path)
+        try:
+            for index, record in enumerate(targets, start=1):
+                # Paint "更新中 i/n · 分身" in the card pill and the tile caption
+                # before awaiting the rebuild, which can take a while.
+                self._show_update_progress(record.clone_name, index, len(targets))
+                try:
+                    await self.clone_service.update_clone(record.clone_name)
+                except Exception as exc:
+                    errors.append(f"{record.clone_name}: {exc}")
+                    self._set_tile_updating(record.clone_name, False)
+                    card = self._card_for_clone(record.clone_name)
+                    if card is not None:
+                        card.set_progress(
+                            t(
+                                "environment_progress_failed",
+                                app=record.clone_name,
+                            )
+                        )
+                    continue
+                self._set_tile_updating(record.clone_name, False)
+                updated += 1
+        finally:
+            for record in targets:
+                self._set_tile_updating(record.clone_name, False)
+            entry = self._cards.get(group.source_path)
+            if entry is not None:
+                entry[0].set_progress(None)
+            self._updating_groups.discard(group.source_path)
         await self.refresh_sources()
         if errors:
             await self._error(
@@ -1310,6 +1469,9 @@ class SourceAppsView(toga.Box):
                 t("environment_app_running", app=record.clone_name),
             )
             return
+        group_key = self._group_of.get(record.clone_name)
+        if group_key in self._updating_groups:
+            return
         confirmed = await self._confirm(
             t("sources_update_title"),
             t("environment_app_update_confirm", app=record.clone_name),
@@ -1317,12 +1479,19 @@ class SourceAppsView(toga.Box):
         )
         if not confirmed:
             return
+        if group_key is not None:
+            self._updating_groups.add(group_key)
+        self._show_update_progress(record.clone_name, 1, 1)
         try:
             await self.clone_service.update_clone(record.clone_name)
         except Exception as exc:
             logger.warning("Could not update %s: %s", record.clone_name, exc)
             await self._error(t("environment_error_title"), str(exc))
             return
+        finally:
+            self._clear_update_progress(record.clone_name)
+            if group_key is not None:
+                self._updating_groups.discard(group_key)
         await self.refresh_sources()
         await self._info(
             t("environment_done_title"),
