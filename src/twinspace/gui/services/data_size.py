@@ -32,22 +32,32 @@ def dir_size(path: Path | str) -> int:
     return total
 
 
+def data_size(path: Path | str) -> int:
+    """Cached recursive size of one directory (shared TTL cache).
+
+    Walking a multi-GB tree takes seconds, so callers that want live progress
+    can measure one directory at a time on a worker thread and reuse the cache.
+    """
+    text = str(path or "")
+    if not text:
+        return 0
+    now = time.monotonic()
+    cached = _SIZE_CACHE.get(text)
+    if cached is not None and now - cached[0] < _SIZE_TTL:
+        return cached[1]
+    size = dir_size(text)
+    _SIZE_CACHE[text] = (now, size)
+    return size
+
+
 def compute_data_sizes(records: Iterable[Any]) -> dict[str, int]:
     """Map ``clone_name -> data size`` for the given records (cached)."""
-    now = time.monotonic()
     result: dict[str, int] = {}
     for record in records:
         data_dir = str(getattr(record, "data_dir", "") or "")
         if not data_dir:
             continue
-        name = record.clone_name
-        cached = _SIZE_CACHE.get(data_dir)
-        if cached is not None and now - cached[0] < _SIZE_TTL:
-            result[name] = cached[1]
-            continue
-        size = dir_size(data_dir)
-        _SIZE_CACHE[data_dir] = (now, size)
-        result[name] = size
+        result[record.clone_name] = data_size(data_dir)
     return result
 
 

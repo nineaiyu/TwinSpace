@@ -38,7 +38,7 @@ from twinspace.gui.components.top_bar import TopHeaderBar
 from twinspace.gui.components.wrapping_label import WrappingLabel
 from twinspace.gui.patch_cocoa import configure_cocoa_card
 from twinspace.gui.services.app_monitor import AppLifecycleMonitor, enclosing_bundle
-from twinspace.gui.services.data_size import compute_data_sizes, format_size
+from twinspace.gui.services.data_size import data_size, format_size
 from twinspace.gui.services.launch_history import launch_history_for
 from twinspace.gui.theme import Theme
 from twinspace.gui.windows.clone_edit import CloneEditWindow
@@ -637,6 +637,9 @@ class SourceAppsView(toga.Box):
             secondary_action_label=t("btn_compute_sizes"),
             on_secondary_action=self.on_compute_sizes,
             secondary_action_symbol="internaldrive",
+            extra_action_label=t("storage_cleanup_btn"),
+            on_extra_action=self.on_cleanup_caches,
+            extra_action_symbol="trash",
             refresh_symbol="arrow.clockwise",
             on_refresh=self.on_refresh_sources,
         )
@@ -1234,17 +1237,63 @@ class SourceAppsView(toga.Box):
         self._schedule(self._compute_sizes())
 
     async def _compute_sizes(self) -> None:
+        """Measure one clone at a time so sizes appear progressively.
+
+        A single ``compute_data_sizes`` call walks every data dir before the
+        UI changes at all — on a large install that is half a minute of nothing
+        happening. Iterating here keeps each group's number arriving as it is
+        measured, and the toolbar button reports ``计算中 12/36``.
+        """
+        if self._computing_sizes:
+            return
         self._computing_sizes = True
         self._set_secondary_busy(True)
+        loop = asyncio.get_running_loop()
+        records = list(self._records)
+        total = len(records)
+        self._sizes_computed = True
         try:
-            loop = asyncio.get_running_loop()
-            sizes = await loop.run_in_executor(None, compute_data_sizes, self._records)
-            self._sizes = sizes
-            self._sizes_computed = True
+            for index, record in enumerate(records, start=1):
+                try:
+                    size = await loop.run_in_executor(
+                        None, data_size, record.data_dir
+                    )
+                except Exception:
+                    size = 0
+                self._sizes[record.clone_name] = size
+                self._patch_stats()
+                self._set_secondary_text(
+                    t("btn_computing_sizes", current=index, total=total)
+                )
         finally:
             self._computing_sizes = False
+            self._set_secondary_text(t("btn_compute_sizes"))
             self._set_secondary_busy(False)
+
+    def on_cleanup_caches(self, widget: Any = None) -> None:
+        """Open the storage cleanup window (cache review + selective delete)."""
+        if self.app_instance is None:
+            return
+        from twinspace.gui.windows.cache_cleanup import CacheCleanupWindow
+
+        CacheCleanupWindow(
+            self.app_instance,
+            self.clone_service,
+            on_cleaned=self._on_caches_cleaned,
+        ).show()
+
+    def _on_caches_cleaned(self) -> None:
+        """Forget measured sizes and recompute them after a cleanup."""
+        self._sizes = {}
+        self._sizes_computed = False
         self._patch_stats()
+        if self._records:
+            self.on_compute_sizes()
+
+    def _set_secondary_text(self, text: str) -> None:
+        button = getattr(self.top_bar, "btn_secondary", None)
+        if button is not None and button.text != text:
+            button.text = text
 
     def _patch_stats(self) -> None:
         for group in self._groups:

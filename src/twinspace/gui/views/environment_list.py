@@ -1406,6 +1406,7 @@ class EnvironmentListView(toga.Box):
             cocoa_events.MenuEntry("restore", t("env_btn_restore")),
             cocoa_events.MenuEntry("clone_env", t("env_menu_clone"), separator=True),
             cocoa_events.MenuEntry("backups", t("env_menu_backups")),
+            cocoa_events.MenuEntry("cleanup", t("env_menu_cleanup")),
             cocoa_events.MenuEntry("device", t("env_menu_device"), separator=True),
             cocoa_events.MenuEntry("reveal", t("env_menu_reveal_dir"), separator=True),
             cocoa_events.MenuEntry(
@@ -1451,6 +1452,8 @@ class EnvironmentListView(toga.Box):
             self._open_clone_env_window(env)
         elif key == "backups":
             self._open_backup_manager(env)
+        elif key == "cleanup":
+            self._open_cache_cleanup(env)
         elif key == "device":
             self._show_device_identity(env)
         elif key == "reveal":
@@ -1591,6 +1594,21 @@ class EnvironmentListView(toga.Box):
             on_complete=lambda: self._schedule(self._on_environment_changed()),
         )
         window.show()
+
+    def _open_cache_cleanup(self, env: EnvironmentInfo) -> None:
+        """Open the storage cleanup window limited to this environment."""
+        if self.app_instance is None:
+            return
+        from twinspace.gui.windows.cache_cleanup import CacheCleanupWindow
+
+        CacheCleanupWindow(
+            self.app_instance,
+            self.environment_service.clone_service,
+            clone_names={record.clone_name for record in env.records},
+            on_cleaned=lambda: self._schedule(
+                self.refresh_environments(show_loading=False)
+            ),
+        ).show()
 
     def _open_backup_manager(self, env: EnvironmentInfo) -> None:
         """Open the snapshot backup manager for ``env``."""

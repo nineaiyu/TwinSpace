@@ -134,6 +134,36 @@ def test_clicking_a_tile_paints_the_selection_pill():
     assert first.selected is False
 
 
+def test_compute_sizes_reports_progress_and_restores_button(monkeypatch):
+    async def _test():
+        records = [
+            _record("WeChat-b2", "WeChat", "/Applications/WeChat.app"),
+            _record("WeChat-work", "WeChat", "/Applications/WeChat.app"),
+        ]
+        view = _view(records)
+        card = _card(view)
+        seen: list[str] = []
+
+        def fake_size(path: str) -> int:
+            seen.append(view.top_bar.btn_secondary.text)
+            return 1024 * 1024
+
+        monkeypatch.setattr(
+            "twinspace.gui.views.source_apps_view.data_size", fake_size
+        )
+        await view._compute_sizes()
+
+        assert view._sizes_computed is True
+        assert set(view._sizes.values()) == {1024 * 1024}
+        # The toolbar reported progress while the loop was running, then went
+        # back to its idle label.
+        assert seen[1] == t("btn_computing_sizes", current=1, total=2)
+        assert view.top_bar.btn_secondary.text == t("btn_compute_sizes")
+        assert "2.0 MB" in card.label_stats.text
+
+    asyncio.run(_test())
+
+
 def test_card_progress_pill_disables_update_and_restores():
     view = _view([_record("WeChat-b2", "WeChat", "/Applications/WeChat.app")])
     card = _card(view)

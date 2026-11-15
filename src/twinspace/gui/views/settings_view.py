@@ -110,7 +110,16 @@ class SettingsView(toga.Box):
             style=Pack(font_weight="bold", font_size=13, height=30),
         )
         cocoa_events.configure_button_icon(self.btn_open_finder, "folder")
-        card_dir.add_action_row(self.btn_open_finder, margin_top=12)
+        self.btn_cleanup_caches = toga.Button(
+            t("settings_btn_cleanup"),
+            on_press=self.on_cleanup_caches,
+            style=Pack(font_size=13, height=30, margin_left=8),
+        )
+        cocoa_events.configure_button_icon(self.btn_cleanup_caches, "trash")
+        card_dir.add_action_row(
+            self.btn_open_finder, self.btn_cleanup_caches, margin_top=12
+        )
+        card_dir.add_hint(t("settings_hint_cleanup"), margin_top=6, margin_bottom=0)
         content_box.add(card_dir)
 
         # ── Card 3: Default Proxy ──────────────────────────────────────────── #
@@ -406,6 +415,15 @@ class SettingsView(toga.Box):
             subprocess.Popen(["open", str(base_dir)])
         except Exception as e:
             logger.warning(f"Failed to open directory in Finder: {e}")
+
+    def on_cleanup_caches(self, widget: toga.Button):
+        """Open the storage cleanup window for every clone cache."""
+        clone_service = getattr(self.app_instance, "clone_service", None)
+        if clone_service is None:
+            return
+        from twinspace.gui.windows.cache_cleanup import CacheCleanupWindow
+
+        CacheCleanupWindow(self.app_instance, clone_service).show()
 
     async def _on_browse_base(self, widget: toga.Button):
         if self.app_instance and hasattr(self.app_instance, "main_window"):

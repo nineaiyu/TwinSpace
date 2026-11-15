@@ -24,6 +24,9 @@ class TopHeaderBar(toga.Box):
         secondary_action_label: Optional[str] = None,
         on_secondary_action: Optional[Callable[[toga.Button], None]] = None,
         secondary_action_symbol: Optional[str] = None,
+        extra_action_label: Optional[str] = None,
+        on_extra_action: Optional[Callable[[toga.Button], None]] = None,
+        extra_action_symbol: Optional[str] = None,
         refresh_symbol: Optional[str] = None,
         search_placeholder: Optional[str] = None,
         on_search: Optional[Callable[[str], None]] = None,
@@ -84,6 +87,18 @@ class TopHeaderBar(toga.Box):
             title_row.add(self.btn_secondary)
         else:
             self.btn_secondary = None
+
+        if on_extra_action and extra_action_label:
+            self.btn_extra = toga.Button(
+                extra_action_label,
+                on_press=on_extra_action,
+                style=Pack(font_size=13, height=30, margin_left=8),
+            )
+            if extra_action_symbol:
+                cocoa_events.configure_button_icon(self.btn_extra, extra_action_symbol)
+            title_row.add(self.btn_extra)
+        else:
+            self.btn_extra = None
 
         self.add(title_row)
 

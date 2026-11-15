@@ -1136,6 +1136,118 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Updating {current}/{total} · {clone}",
         "zh": "更新中 {current}/{total} · {clone}",
     },
+    "btn_computing_sizes": {
+        "en": "Computing {current}/{total}…",
+        "zh": "计算中 {current}/{total}…",
+    },
+    "storage_cleanup_title": {
+        "en": "Storage Cleanup",
+        "zh": "存储清理",
+    },
+    "storage_cleanup_btn": {
+        "en": "Clean Up…",
+        "zh": "清理缓存…",
+    },
+    "storage_cleanup_intro": {
+        "en": "Only caches, temp files, logs and orphaned data are listed. Clone logins, preferences and documents are never touched.",
+        "zh": "只列出缓存、临时文件、日志和孤立数据；分身的登录状态、偏好设置与文档不会被删除。",
+    },
+    "storage_cleanup_scanning": {
+        "en": "Scanning caches…",
+        "zh": "正在扫描缓存…",
+    },
+    "storage_cleanup_summary": {
+        "en": "{count} item(s) · {size} can be freed",
+        "zh": "共 {count} 项 · 可释放 {size}",
+    },
+    "storage_cleanup_selected": {
+        "en": "Selected: {count} item(s) · {size}",
+        "zh": "已选 {count} 项 · {size}",
+    },
+    "storage_cleanup_empty": {
+        "en": "Nothing to clean up right now.",
+        "zh": "当前没有可清理的内容。",
+    },
+    "storage_cleanup_btn_select_all": {
+        "en": "Select All",
+        "zh": "全选",
+    },
+    "storage_cleanup_btn_select_none": {
+        "en": "Deselect All",
+        "zh": "全不选",
+    },
+    "storage_cleanup_btn_rescan": {
+        "en": "Rescan",
+        "zh": "重新扫描",
+    },
+    "storage_cleanup_btn_clean": {
+        "en": "Clean Selected",
+        "zh": "清理所选",
+    },
+    "storage_cleanup_confirm": {
+        "en": "Delete the {count} selected item(s)?\n{size} will be freed.\n\nCaches are rebuilt automatically the next time they are needed.",
+        "zh": "要删除选中的 {count} 项吗？\n将释放 {size}。\n\n缓存会在下次需要时自动重建。",
+    },
+    "storage_cleanup_done": {
+        "en": "Freed {size}.",
+        "zh": "已释放 {size}。",
+    },
+    "storage_cleanup_error": {
+        "en": "Some items could not be removed:\n{errors}",
+        "zh": "部分内容无法删除：\n{errors}",
+    },
+    "storage_cleanup_running": {
+        "en": "Running clones are skipped: {names}",
+        "zh": "运行中的分身已跳过：{names}",
+    },
+    "storage_cleanup_cat_cache": {
+        "en": "App Cache",
+        "zh": "应用缓存",
+    },
+    "storage_cleanup_cat_tmp": {
+        "en": "Temp Files",
+        "zh": "临时文件",
+    },
+    "storage_cleanup_cat_logs": {
+        "en": "Logs",
+        "zh": "日志",
+    },
+    "storage_cleanup_cat_crash": {
+        "en": "Crash Reports",
+        "zh": "崩溃报告",
+    },
+    "storage_cleanup_cat_package": {
+        "en": "Package Caches",
+        "zh": "包管理缓存",
+    },
+    "storage_cleanup_cat_orphan": {
+        "en": "Orphaned Data",
+        "zh": "孤立数据",
+    },
+    "storage_cleanup_hint_package": {
+        "en": "Safe to delete; dependencies are re-downloaded on the next install.",
+        "zh": "可安全删除，下次安装依赖时会重新下载。",
+    },
+    "storage_cleanup_hint_orphan": {
+        "en": "No clone points at this data any more — double-check before deleting.",
+        "zh": "已没有分身引用这些数据，删除前请确认。",
+    },
+    "storage_cleanup_orphan_label": {
+        "en": "Orphaned data",
+        "zh": "孤立数据",
+    },
+    "env_menu_cleanup": {
+        "en": "Clean Up This Environment…",
+        "zh": "清理该环境缓存…",
+    },
+    "settings_btn_cleanup": {
+        "en": "Clean Up Caches…",
+        "zh": "清理缓存…",
+    },
+    "settings_hint_cleanup": {
+        "en": "Review the cache directories every clone keeps and delete the ones you no longer need.",
+        "zh": "查看各分身占用的缓存目录，勾选后清理。",
+    },
     "btn_compute_sizes": {
         "en": "Compute Sizes",
         "zh": "计算体积",
