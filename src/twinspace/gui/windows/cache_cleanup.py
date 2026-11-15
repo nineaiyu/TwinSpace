@@ -132,16 +132,38 @@ class _SelectableRow:
     def toggle(self) -> None:
         self.set_selected(not self.selected)
 
-    def set_selected(self, selected: bool) -> None:
+    def set_selected(self, selected: bool, *, notify: bool = True) -> None:
         selected = bool(selected)
         if selected == self.selected:
             return
         self.selected = selected
-        self.mark.text = _CHECKED if selected else _UNCHECKED
+        self._paint_mark()
+        if notify:
+            self._on_toggle()
+
+    def _paint_mark(self) -> None:
+        """Flip the checkbox glyph without relaying out the whole list.
+
+        ``Label.text`` triggers a Toga refresh (rehint + layout of the scroll
+        content); doing that for every row turned one "select all" click into
+        seconds of work. The glyph label has a fixed width, so writing the
+        native string directly is safe and keeps the toggle instant.
+        """
+        text = _CHECKED if self.selected else _UNCHECKED
+        native = getattr(getattr(self.mark, "_impl", None), "native", None)
+        if native is not None:
+            try:
+                native.setStringValue_(text)
+                self.mark.style.color = (
+                    Theme.ACCENT_BLUE if self.selected else Theme.TEXT_TERTIARY
+                )
+                return
+            except Exception:
+                logger.debug("Native checkbox paint failed", exc_info=True)
+        self.mark.text = text
         self.mark.style.color = (
-            Theme.ACCENT_BLUE if selected else Theme.TEXT_TERTIARY
+            Theme.ACCENT_BLUE if self.selected else Theme.TEXT_TERTIARY
         )
-        self._on_toggle()
 
 
 class CacheCleanupWindow(toga.Window):
@@ -405,13 +427,16 @@ class CacheCleanupWindow(toga.Window):
             self.btn_clean.enabled = enabled
 
     def _on_select_all(self, widget: Any = None) -> None:
+        # Bulk toggles must not recompute the summary per row: on a few hundred
+        # rows that turned one click into ~5 seconds of repeated full-list
+        # scans and status-label relayouts.
         for row in self._rows:
-            row.set_selected(True)
+            row.set_selected(True, notify=False)
         self._update_selected_state()
 
     def _on_select_none(self, widget: Any = None) -> None:
         for row in self._rows:
-            row.set_selected(False)
+            row.set_selected(False, notify=False)
         self._update_selected_state()
 
     # -- cleanup ---------------------------------------------------------------

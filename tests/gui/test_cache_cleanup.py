@@ -57,6 +57,48 @@ def test_render_groups_entries_with_safe_defaults(tmp_path):
     assert len(window._selected_entries()) == 3
 
 
+def test_bulk_selection_updates_summary_once_and_paints_glyphs(tmp_path):
+    """Select All/None must not recompute the summary per row.
+
+    That per-row callback is what made a 174-row click take ~5 seconds
+    (each row triggered a full-list scan plus a status-label relayout).
+    """
+    window = _window()
+    entries = [
+        _entry(tmp_path, f"cache-{index}", CATEGORY_CACHE, 1024)
+        for index in range(6)
+    ]
+    window._render_report(CleanupReport(entries=entries))
+
+    calls: list[int] = []
+    for row in window._rows:
+        row._on_toggle = lambda: calls.append(1)
+
+    window._on_select_none()
+    assert calls == []
+    assert window._selected_entries() == []
+    assert all(row.mark.text == "☐" for row in window._rows)
+
+    window._on_select_all()
+    assert calls == []
+    assert len(window._selected_entries()) == 6
+    assert all(row.mark.text == "☑" for row in window._rows)
+
+
+def test_single_row_toggle_notifies_once(tmp_path):
+    window = _window()
+    entry = _entry(tmp_path, "go-build", CATEGORY_CACHE, 1024)
+    window._render_report(CleanupReport(entries=[entry]))
+    calls: list[int] = []
+    row = window._rows[0]
+    row._on_toggle = lambda: calls.append(1)
+
+    row.toggle()
+    assert calls == [1]
+    assert row.selected is False
+    assert row.mark.text == "☐"
+
+
 def test_render_empty_report_shows_hint(tmp_path):
     window = _window()
     window._render_report(CleanupReport(entries=[], skipped_running=["App-b1"]))
