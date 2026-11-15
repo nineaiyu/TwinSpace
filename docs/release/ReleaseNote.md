@@ -2,6 +2,23 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.9.0] - 2026-11-15
+
+### ✨ Features
+- **The Source Apps page is rebuilt on the same card language as the Environments page**: each source app is a 16pt rounded card (hairline border, shadow, 14pt spacing) with its icon and name, an "⬆ N to update" badge and a "● N running" pill. Below them come the source path, bundle id, clone count and the on-demand data size. Clones are now a 56pt icon grid (hover highlight, last opened, version badge, double-click to launch) that reflows with the window width, and the empty / no-results states gained an icon, a title, a hint and a primary button (the empty state jumps straight to clone creation).
+- **Per-clone actions match the Environments page**: right-click a tile for Open / Close / Rebuild from Source / Edit Configuration / Reveal in Finder / Info; the card's right-click menu and "⋯" button offer group actions (Open All / Close All / Update All / Reveal Source App), with every item enabled or greyed out from the live running and update state.
+- **The toolbar gained filtering and sorting**: All / Has Updates / Has Running Clones / Source Missing, sorted by name, clone count or last opened; search matches the source app name, bundle id and clone names.
+- **"Update All" is now safe**: it confirms the list of clones to rebuild, skips the ones still running and names them in the dialog, and refuses outright when the source app is gone from disk. "Open All" launches clones one by one on the configured launch interval so the green dots light up progressively instead of firing a dozen apps at once.
+
+### 🩹 Fixes
+- **The stack of grey bars at the bottom of the Source Apps page**: the old page removed its 1px inter-card separators on every refresh and then re-appended them with `add()`. Cards that were already mounted were skipped because they still had a parent, so every refresh pushed all N-1 separators to the end of the list. The rewrite expresses group boundaries with card spacing instead — the page no longer contains any separator widget — and places cards by index.
+
+### ⚡ Performance
+- Source-bundle existence is probed with a batched `stat` on a worker thread, sharing one background pass with the version comparison; the UI thread no longer performs disk I/O.
+- Cards are reused by signature; cards that fall out of the current filter move to a pool (capped at 24) instead of being destroyed and are mounted back unchanged when the search is cleared. A clone starting or stopping patches only its own card, and every text/badge write is guarded by a value comparison, so a refresh that changes nothing performs no AppKit calls.
+- Search input is debounced by 120 ms, so a typing burst renders only the last query; window resizes reflow the same icon widgets instead of rebuilding them.
+- Launches and quits write back the last-opened timestamp, and the caption on the tile updates in place.
+
 ## [v1.8.1] - 2026-11-11
 
 ### ✨ Features
