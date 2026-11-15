@@ -2,6 +2,21 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.10.0] - 2026-11-15
+
+### ✨ Features
+- **Storage cleanup**: a new "Storage Cleanup" window scans every clone for reclaimable directories and lists them one row at a time — category, clone, relative path and size. Rows are selected by clicking, deleted after an explicit confirmation, and the freed space is reported. Covered: application caches (Electron `Cache`/`Code Cache`/`GPUCache`/`CachedData`, Chromium profile caches), every child of `Home/Library/Caches` as its own row (Go build cache, Playwright, pnpm, …), `~/.cache`, temp files, logs, crash reports, package-manager caches (pnpm/npm store, go mod, gradle, m2, cargo) and **orphaned data** (data directories and `.app` copies no clone points at). Only caches/temp/logs/crash are preselected; package caches and orphaned data are opt-in. Entry points: the Source Apps toolbar ("Clean Up…"), Settings → "Data & Storage", and each environment card's `⋯` → "Clean Up This Environment…".
+- **Cleanup safety rails**: only whitelisted directories are listed, every path is resolved with `realpath` and must still live inside that clone's data directory, and symlinks are refused — the clone HOME contains host-resource links (`.cargo`, `go`, `Library/Keychains`, …) that must never be counted or deleted as clone caches. Running clones are skipped entirely during the scan, and every path is validated again right before deletion.
+- **Progressive size computation**: measuring every clone used to walk all data dirs in one go (98 GB / 26 s on a real install) with zero feedback. Clones are now measured one at a time and their group is repainted immediately, while the toolbar reports "Computing 12/36…".
+
+### 🩹 Fixes
+- **Update progress is visible now**: rebuilding a clone shows `↻ 更新中…` under its tile on both the Source Apps and Environments pages, the source-app card pill shows "Updating 1/2 · clone", and the update button plus its context-menu item are disabled for the duration. Failures show "Failed: clone".
+- **Source Apps tiles have a selection state**: a click paints the Finder-style selection pill, ⌘-click clears it, and it survives refreshes and card reuse.
+- **CI was completely stalled**: every workflow was cancelled in 0–2 seconds because `macos-14` now maps to the unsupported `macos-14-arm64-us-default` configuration (no release artifacts since v1.7.0). Both workflows moved to `macos-15`, and two tests that assumed WeChat was installed on the build host were fixed; CI is green again.
+
+### ⚡ Performance
+- "Select All / Deselect All" in Storage Cleanup no longer recomputes the summary per row, and the checkbox glyph is written straight to the native `NSTextField` instead of triggering a full relayout: 174 rows went from **5.5 s to 0.04 s**.
+
 ## [v1.9.0] - 2026-11-15
 
 ### ✨ Features
