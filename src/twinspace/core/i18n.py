@@ -1046,11 +1046,91 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     "sources_search_placeholder": {
         "en": "Filter source apps or clones",
-        "zh": "筛选源应用或分身",
+        "zh": "筛选来源应用或分身",
     },
     "sources_no_results": {
         "en": "No source apps match your filter",
-        "zh": "没有匹配的源应用",
+        "zh": "没有匹配的来源应用",
+    },
+    "sources_hint": {
+        "en": "Grouped by source app — double-click a tile to launch its clone, right-click for more actions.",
+        "zh": "按来源应用分组：双击图标启动分身，右键查看更多操作。",
+    },
+    "sources_empty_title": {
+        "en": "No source apps yet",
+        "zh": "还没有来源应用",
+    },
+    "sources_empty_action": {
+        "en": "Create a Clone",
+        "zh": "去创建分身",
+    },
+    "sources_clear_filters": {
+        "en": "Clear Filters",
+        "zh": "清除筛选",
+    },
+    "sources_menu_refresh": {
+        "en": "Refresh List",
+        "zh": "刷新列表",
+    },
+    "sources_path_line": {
+        "en": "Source: {path}",
+        "zh": "源程序：{path}",
+    },
+    "sources_tile_hint": {
+        "en": "{app} · {clone} — double-click to launch",
+        "zh": "{app} · {clone} — 双击启动",
+    },
+    "sources_filter_all": {
+        "en": "All Source Apps",
+        "zh": "全部来源应用",
+    },
+    "sources_filter_updates": {
+        "en": "Has Updates",
+        "zh": "有可更新",
+    },
+    "sources_filter_running": {
+        "en": "Has Running Clones",
+        "zh": "有运行中",
+    },
+    "sources_filter_missing": {
+        "en": "Source Missing",
+        "zh": "源程序缺失",
+    },
+    "sources_sort_name": {
+        "en": "Sort by Name",
+        "zh": "按名称",
+    },
+    "sources_sort_clones": {
+        "en": "Sort by Clone Count",
+        "zh": "按分身数",
+    },
+    "sources_sort_recent": {
+        "en": "Sort by Last Opened",
+        "zh": "按最近打开",
+    },
+    "sources_update_title": {
+        "en": "Update Clones",
+        "zh": "更新分身",
+    },
+    "sources_update_confirm": {
+        "en": "Rebuild the following clones from their current source app?\n{apps}\n\nData directories are kept.",
+        "zh": "要按源程序当前版本重建以下分身吗？\n{apps}\n\n数据目录保持不变。",
+    },
+    "sources_update_none": {
+        "en": "Every clone of {app} already matches its source app.",
+        "zh": "{app} 的分身都已和源程序版本一致。",
+    },
+    "sources_update_running": {
+        "en": "Every outdated clone of {app} is still running. Quit them first.",
+        "zh": "{app} 中待更新的分身都在运行中，请先退出后再操作。",
+    },
+    "sources_update_source_missing": {
+        "en": "The source app of {app} is missing from disk; it cannot be rebuilt.",
+        "zh": "{app} 的源程序已不在磁盘上，无法重建。",
+    },
+    "sources_update_done": {
+        "en": "Updated {count} clone(s) to the source version.",
+        "zh": "已按源程序更新 {count} 个分身。",
     },
     "btn_compute_sizes": {
         "en": "Compute Sizes",
@@ -1066,11 +1146,11 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     "sources_title": {
         "en": "Source Apps ({count})",
-        "zh": "源应用 ({count})",
+        "zh": "来源应用 ({count})",
     },
     "sources_running_pill": {
-        "en": "● {count} running",
-        "zh": "● {count} 个运行中",
+        "en": "{count} running",
+        "zh": "{count} 个运行中",
     },
     "sources_stat_clones": {
         "en": "{count} clone(s)",

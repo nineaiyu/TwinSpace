@@ -671,6 +671,49 @@ def update_tile_menu(
         logger.debug("Could not retain Cocoa menu references", exc_info=True)
 
 
+def attach_root_menu(
+    widget: Any,
+    entries: Sequence[MenuEntry],
+    handler: Callable[[str], None],
+) -> None:
+    """Set a context menu on a container without touching its children's menus.
+
+    ``update_tile_menu`` walks every native view of a widget, which is right for
+    a leaf tile but wrong for a card that holds tiles: it would replace their
+    per-tile menus with the card's group menu. AppKit's default
+    ``menuForEvent:`` walks up the responder chain, so a menu on the container's
+    own view already covers right clicks that land on plain labels or gaps.
+    """
+    if not _ensure_appkit():
+        return
+    native = native_of(widget)
+    if native is None:
+        return
+    if not entries:
+        try:
+            native.setMenu_(None)
+        except Exception:
+            logger.debug("Could not clear the container menu", exc_info=True)
+        widget._twinspace_root_menu_refs = []
+        return
+    menu = build_menu(entries, handler)
+    if menu is None:
+        return
+    try:
+        native.setMenu_(menu)
+    except Exception:
+        logger.debug("Could not set the container menu", exc_info=True)
+        return
+    references: list[Any] = [menu]
+    menu_target = getattr(menu, "_target", None)
+    if menu_target is not None:
+        references.append(menu_target)
+    try:
+        widget._twinspace_root_menu_refs = references
+    except Exception:
+        logger.debug("Could not retain the container menu", exc_info=True)
+
+
 def _debounced(callback: Callable[[], None], window: float) -> Callable[[], None]:
     """Ignore repeats of ``callback`` within ``window`` seconds.
 

@@ -90,6 +90,7 @@ class AppTile(toga.Box):
         on_edit: Optional[Callable[[], None]] = None,
         on_reveal: Optional[Callable[[], None]] = None,
         on_update: Optional[Callable[[], None]] = None,
+        on_detail: Optional[Callable[[], None]] = None,
         on_select: Optional[Callable[["AppTile", str], None]] = None,
         on_batch_action: Optional[Callable[[str], None]] = None,
     ):
@@ -122,6 +123,7 @@ class AppTile(toga.Box):
             "edit": on_edit,
             "reveal": on_reveal,
             "update": on_update,
+            "detail": on_detail,
         }
 
         # The pill is the hover/selection surface. It is deliberately smaller
@@ -387,9 +389,13 @@ class AppTile(toga.Box):
     def _menu_entries(self) -> tuple[cocoa_events.MenuEntry, ...]:
         if self._batch_entries is not None:
             return self._batch_entries
-        return (
-            cocoa_events.MenuEntry("open", t("environment_app_open"), enabled=not self.running),
-            cocoa_events.MenuEntry("close", t("environment_app_close"), enabled=self.running),
+        entries = [
+            cocoa_events.MenuEntry(
+                "open", t("environment_app_open"), enabled=not self.running
+            ),
+            cocoa_events.MenuEntry(
+                "close", t("environment_app_close"), enabled=self.running
+            ),
             cocoa_events.MenuEntry(
                 "update",
                 t("env_app_menu_update"),
@@ -398,7 +404,11 @@ class AppTile(toga.Box):
             ),
             cocoa_events.MenuEntry("edit", t("env_app_menu_edit")),
             cocoa_events.MenuEntry("reveal", t("env_app_menu_reveal")),
-        )
+        ]
+        # Only pages that can show a detail window offer the entry.
+        if self._callbacks.get("detail") is not None:
+            entries.append(cocoa_events.MenuEntry("detail", t("btn_detail_short")))
+        return tuple(entries)
 
     def _handle_menu(self, key: str) -> None:
         logger.info("Tile menu action: clone=%s key=%s", self.clone_name, key)
