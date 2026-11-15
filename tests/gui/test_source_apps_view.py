@@ -460,6 +460,10 @@ def test_refresh_reuses_cards_when_nothing_changed():
         records = [_record("WeChat-b2", "WeChat", "/Applications/WeChat.app")]
         view = _view(records)
         card_before = _card(view)
+        # Keep this deterministic: the real probe depends on whether the source
+        # app is installed on the build machine, and a changed existence flag
+        # legitimately rebuilds the card.
+        view._load_status_and_paths = lambda: ({}, {})
 
         await view.refresh_sources()
 

@@ -73,6 +73,11 @@ def test_configure_cocoa_wrapping_label_null_safe():
 
 
 def test_probe_view_with_long_frameworks_and_notes(tmp_path):
+    # `do_probe` validates that the path exists on disk, so the test must not
+    # rely on /Applications/WeChat.app being installed on the build machine.
+    fake_app = tmp_path / "WeChat.app"
+    (fake_app / "Contents" / "MacOS").mkdir(parents=True)
+
     async def _test():
         probe_service = ProbeService()
         recipe_service = RecipeService(custom_recipes_dir=tmp_path / "recipes")
@@ -105,7 +110,7 @@ def test_probe_view_with_long_frameworks_and_notes(tmp_path):
         )
 
         with patch.object(probe_service, "probe_app", new=AsyncMock(return_value=mock_probe_result)):
-            view.input_path.value = "/Applications/WeChat.app"
+            view.input_path.value = str(fake_app)
             await view.do_probe()
 
             # Verify that labels are WrappingLabel instances
