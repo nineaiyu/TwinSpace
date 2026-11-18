@@ -2,6 +2,18 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.10.1] - 2026-11-18
+
+### 🩹 Fixes
+- **"Update available" stuck after an update**: all three pages (Source Apps, Environments, Clones) recomputed versions only when the whole batch finished, so clones that were already rebuilt kept their old badge and the update looked like it never applied. Each clone is now re-checked the moment its rebuild returns and the tile badge, the card's "⬆ N to update" counter and the "Update All (N)" button are repainted in place.
+- **Clones page version column**: a finished clone repaints its own "⬆ old → new" cell and card badge immediately instead of waiting for the rest of the batch; a failed clone keeps its state while the batch continues.
+- **`twinspace version` test failed on long HOME paths**: the test now pins short paths, so its assertions no longer depend on the host's user-directory length (rich truncated the row to `…/Code…` on this machine).
+
+### ⚡ Performance
+- All three update paths recompute only the clone that just finished (the source plist hits the mtime cache) and read it on a worker thread, so the UI thread never touches the disk.
+- Grid views repaint a single card in place; the table view only refreshes its rows, skipping re-mounting and selection restore, and skips rows hidden by the current filter.
+- The clone card's version line is now always mounted and toggled via visibility instead of being added/removed, and repaints sync the view signature so the next render takes the "nothing changed" fast path instead of rebuilding the page.
+
 ## [v1.10.0] - 2026-11-15
 
 ### ✨ Features
