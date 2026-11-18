@@ -220,6 +220,52 @@ def test_update_all_marks_each_tile_as_updating():
     asyncio.run(_test())
 
 
+def test_update_all_clears_badge_as_soon_as_one_clone_finishes():
+    async def _test():
+        records = [
+            _record("WeChat-b2", "WeChat", "/Applications/WeChat.app"),
+            _record("WeChat-work", "WeChat", "/Applications/WeChat.app"),
+        ]
+        view = _view(records)
+        view._status = {
+            name: AppUpdate("1.0", "2.0", needs_update=True)
+            for name in ("WeChat-b2", "WeChat-work")
+        }
+        view._sync_cards()
+        view._confirm = AsyncMock(return_value=True)
+        view._info = AsyncMock()
+        view._error = AsyncMock()
+        view.refresh_sources = AsyncMock()
+        card = _card(view)
+        assert card.tiles["WeChat-b2"].update_label.text == t(
+            "env_app_update_badge", version="2.0"
+        )
+
+        seen: list[tuple[bool, str]] = []
+
+        async def _update(name: str) -> None:
+            # The next clone starts rebuilding: the previous one must already
+            # show as up to date, not wait for the whole group to finish.
+            seen.append(
+                (card.tiles["WeChat-b2"].update_available, card.update_badge.text)
+            )
+
+        view.clone_service.update_clone = AsyncMock(side_effect=_update)
+        with patch(
+            "twinspace.gui.views.source_apps_view.update_status",
+            return_value=AppUpdate("2.0", "2.0", needs_update=False),
+        ):
+            await view._update_all(view._groups[0])
+
+        assert seen[1][0] is False
+        assert card.tiles["WeChat-b2"].update_label.text == ""
+        assert card.tiles["WeChat-work"].update_label.text == ""
+        assert card.update_badge.text == ""
+        assert "(" not in card.btn_update.text
+
+    asyncio.run(_test())
+
+
 def test_search_filters_groups_without_rebuilding_cards():
     records = [
         _record("WeChat-b2", "WeChat", "/Applications/WeChat.app"),

@@ -13,7 +13,12 @@ from toga.sources import AccessorColumn
 from toga.style import Pack
 from toga.style.pack import CENTER, COLUMN, ROW
 
-from twinspace.core.app_version import AppUpdate, parse_version, update_statuses
+from twinspace.core.app_version import (
+    AppUpdate,
+    parse_version,
+    update_status,
+    update_statuses,
+)
 from twinspace.core.config import get_config_value, set_config_value
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
@@ -596,6 +601,58 @@ class CloneListView(toga.Box):
             if card.record.clone_name == clone_name:
                 card.set_running(running)
         self._update_title()
+
+    async def _refresh_clone_status(self, record: CloneRecord) -> None:
+        """Re-read one clone's version right after its rebuild.
+
+        The plist read runs in an executor and only the finished row/card is
+        repainted: a full re-render per clone would rebuild every native view
+        once per item.
+        """
+        loop = asyncio.get_running_loop()
+        try:
+            status = await loop.run_in_executor(
+                None, update_status, record.source_path, record.dest_path
+            )
+        except Exception:
+            logger.debug(
+                "Could not re-check version for %s", record.clone_name, exc_info=True
+            )
+            return
+        if status is None:
+            self._update_status.pop(record.clone_name, None)
+        else:
+            self._update_status[record.clone_name] = status
+        self._repaint_clone_version(record.clone_name)
+
+    def _repaint_clone_version(self, clone_name: str) -> None:
+        """Repaint one clone's version cell/card without rebuilding the list."""
+        record = self._records_by_name.get(clone_name)
+        if record is None:
+            return
+        status = self._update_status.get(clone_name)
+        info = (
+            bool(status and status.needs_update),
+            status.current if status else "",
+            status.latest if status else "",
+            bool(status and status.needs_downgrade),
+        )
+        if self.view_mode == "grid":
+            for card in self._grid_cards:
+                if card.record.clone_name == clone_name:
+                    card.set_update_info(*info)
+                    self._card_pool[clone_name] = (
+                        card,
+                        self._record_signature(record),
+                    )
+                    break
+        elif any(r.clone_name == clone_name for r in self._filtered_clones):
+            # A hidden row needs no repaint; the next filter render picks the
+            # new status up from the rebuild signature.
+            self.table.data = [self._table_row(r) for r in self._filtered_clones]
+        # Keep the rebuild signature in step with what is already painted, so
+        # the next repaint does not tear the whole view down for this change.
+        self._render_signature = self._view_signature()
 
     def _render_current_view(self):
         signature = self._view_signature()
@@ -1666,6 +1723,10 @@ class CloneListView(toga.Box):
                 except Exception as e:
                     logger.error(f"Failed to update clone '{r.clone_name}': {e}")
                     failed_list.append((r.clone_name, str(e)))
+                    continue
+                # Clear this clone's badge now instead of waiting for the rest
+                # of the batch: the row it occupies is already up to date.
+                await self._refresh_clone_status(r)
             await self.refresh_clones()
         finally:
             for r in active_records:

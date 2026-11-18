@@ -25,7 +25,7 @@ import toga
 from toga.style import Pack
 from toga.style.pack import CENTER, COLUMN, ROW, START
 
-from twinspace.core.app_version import AppUpdate, update_statuses
+from twinspace.core.app_version import AppUpdate, update_status, update_statuses
 from twinspace.core.config import get_config_value
 from twinspace.core.i18n import t
 from twinspace.core.logger import get_logger
@@ -1196,6 +1196,39 @@ class SourceAppsView(toga.Box):
         status = self._status.get(clone_name)
         return bool(status and (status.needs_update or status.needs_downgrade))
 
+    async def _refresh_clone_update(self, record: CloneRecord) -> None:
+        """Re-read one clone's version right after its rebuild.
+
+        Batch updates rebuild the clones one at a time; without this the tiles
+        that already finished would keep their "new version" badge until the
+        whole group was done, which reads as an update that did not apply.
+        """
+        try:
+            status = await asyncio.get_running_loop().run_in_executor(
+                None, update_status, record.source_path, record.dest_path
+            )
+        except Exception:
+            logger.debug(
+                "Could not re-check version for %s", record.clone_name, exc_info=True
+            )
+            return
+        if status is None:
+            self._status.pop(record.clone_name, None)
+        else:
+            self._status[record.clone_name] = status
+        card = self._card_for_clone(record.clone_name)
+        if card is not None:
+            card.patch_updates()
+        group_key = self._group_of.get(record.clone_name)
+        entry = self._cards.get(group_key) if group_key else None
+        group = self._group_by_key.get(group_key) if group_key else None
+        if entry is not None and group is not None:
+            entry[0].set_stats(
+                self._group_size(group) if self._sizes_computed else None,
+                self._group_updates(group),
+                self._group_downgrades(group),
+            )
+
     def _update_title(self, count: int | None = None) -> None:
         shown = len(self._groups) if count is None else count
         title = t("sources_title", count=shown)
@@ -1490,6 +1523,7 @@ class SourceAppsView(toga.Box):
                         )
                     continue
                 self._set_tile_updating(record.clone_name, False)
+                await self._refresh_clone_update(record)
                 updated += 1
         finally:
             for record in targets:

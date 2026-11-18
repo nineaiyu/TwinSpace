@@ -1125,6 +1125,56 @@ def test_progress_callback_paints_the_card_and_gets_restored(toga_app, tmp_path)
     )
 
 
+def test_finished_app_clears_its_badge_before_the_batch_ends(
+    toga_app, tmp_path, monkeypatch
+):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    card = view._cards["phone1"]
+    view._update_status = {
+        record.clone_name: AppUpdate("1.0", "2.0", True)
+        for env in view._environments
+        for record in env.records
+    }
+    view._update_card(card, view._environments[0])
+    assert card.update_badge.text == t("environment_update_badge", count=3)
+
+    monkeypatch.setattr(
+        "twinspace.gui.views.environment_list.update_statuses",
+        lambda records: {
+            record.clone_name: AppUpdate("2.0", "2.0", False) for record in records
+        },
+    )
+    asyncio.run(view._refresh_app_status("phone1", "zcode"))
+
+    tile = card.tiles["ZCode-phone1"]
+    assert tile.update_available is False
+    assert tile.update_label.text == ""
+    assert card.update_badge.text == t("environment_update_badge", count=2)
+    assert card.update_button.enabled is True
+
+
+def test_progress_reporter_refreshes_the_app_that_just_finished(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    view._refresh_app_status = AsyncMock()
+    app = service.app_for_key("zcode")
+    reporter = view._progress_reporter("phone1", "environment_progress_updating")
+
+    async def _run():
+        reporter(2, 3, app, "updated")
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+    asyncio.run(_run())
+
+    view._refresh_app_status.assert_awaited_once_with("phone1", "zcode")
+
+
 def test_autoscroll_scrolls_while_the_pointer_sits_near_an_edge(
     toga_app, tmp_path, monkeypatch
 ):

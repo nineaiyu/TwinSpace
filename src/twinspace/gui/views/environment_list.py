@@ -2207,8 +2207,48 @@ class EnvironmentListView(toga.Box):
                 text = t(message_key, current=index, total=total, app=label)
             if state.status_text.text != text:
                 state.status_text.text = text
+            if status == "updated" and key:
+                self._schedule(self._refresh_app_status(env_name, key))
 
         return report
+
+    async def _refresh_app_status(self, env_name: str, app_key: str) -> None:
+        """Re-check one app's version right after its rebuild.
+
+        A batch update reports each app as it finishes; without this the tiles
+        of the apps that already finished keep their "newer source" badge
+        until the whole environment is done, which reads as an update that did
+        not apply.
+        """
+        env = next(
+            (item for item in self._environments if item.name == env_name), None
+        )
+        if env is None:
+            return
+        names = set(self._clone_names_for_app(env_name, app_key))
+        records = [record for record in env.records if record.clone_name in names]
+        if not records:
+            return
+        loop = asyncio.get_running_loop()
+        try:
+            statuses = await loop.run_in_executor(None, update_statuses, records)
+        except Exception:
+            logger.debug("Could not re-check %s after update", app_key, exc_info=True)
+            return
+        state = self._cards.get(env_name)
+        for record in records:
+            status = statuses.get(record.clone_name)
+            if status is None:
+                self._update_status.pop(record.clone_name, None)
+            else:
+                self._update_status[record.clone_name] = status
+            if state is not None:
+                tile = state.tiles.get(record.clone_name)
+                if tile is not None:
+                    self._apply_tile_update(tile, record.clone_name)
+        if state is not None:
+            self._apply_update_badge(state, env)
+            state.update_button.enabled = self._pending_syncs(env) > 0
 
     @staticmethod
     def _app_keys(records: list[CloneRecord], service: EnvironmentService) -> list[str]:

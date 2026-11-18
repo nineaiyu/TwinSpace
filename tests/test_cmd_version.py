@@ -1,5 +1,7 @@
 """Unit tests for twinspace version command and options."""
 
+from pathlib import Path
+
 from click.testing import CliRunner
 
 from twinspace import __version__
@@ -20,7 +22,16 @@ def test_cli_version_flag_short():
     assert __version__ in result.output
 
 
-def test_cmd_version_detailed():
+def test_cmd_version_detailed(monkeypatch):
+    # Pin short paths: the real HOME path can be wide enough that the rich
+    # table truncates it ("…/Code…"), which made this assertion host-dependent.
+    monkeypatch.setattr(
+        "twinspace.cli.cmd_version.DEFAULT_STATE_FILE",
+        Path("/TwinSpace/clones.yaml"),
+    )
+    monkeypatch.setattr(
+        "twinspace.cli.cmd_version.DEFAULT_DATA_DIR", Path("/TwinSpace/Data")
+    )
     runner = CliRunner()
     result = runner.invoke(cli, ["version"])
     assert result.exit_code == 0

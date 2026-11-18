@@ -1,6 +1,9 @@
 from datetime import datetime
 from unittest.mock import MagicMock
 
+from toga.style.pack import HIDDEN, VISIBLE
+
+from twinspace.core.i18n import t
 from twinspace.core.state import CloneRecord
 from twinspace.gui.components.clone_card import CloneCard
 
@@ -57,4 +60,49 @@ def test_clone_card_shows_and_updates_last_opened():
 
     assert card.record.last_opened_at == stamp
     assert "5:30" in card.last_opened_label.text
+
+
+def _record() -> CloneRecord:
+    return CloneRecord(
+        clone_name="WeChat2",
+        source_app="WeChat",
+        source_path="/Applications/WeChat.app",
+        bundle_id="com.tencent.xinWeChat",
+        strategy="hard_clone",
+        dest_path="/Users/test/TwinSpace/Apps/WeChat2.app",
+        data_dir="/Users/test/TwinSpace/data/WeChat2",
+        created_at="2026-08-20T10:00:00Z",
+    )
+
+
+def test_clone_card_hides_the_version_line_when_up_to_date():
+    card = CloneCard(record=_record())
+
+    assert card.update_available is False
+    assert card.label_update.text == ""
+    assert card.version_label.text == ""
+    assert card.version_label.style.visibility == HIDDEN
+
+
+def test_clone_card_set_update_info_repaints_in_place():
+    card = CloneCard(
+        record=_record(),
+        current_version="1.0",
+        latest_version="2.0",
+        update_available=True,
+    )
+
+    assert card.label_update.text == t("card_update_badge")
+    assert card.version_label.text == t(
+        "card_version_line", current="1.0", latest="2.0"
+    )
+    assert card.version_label.style.visibility == VISIBLE
+
+    card.set_update_info(False, "2.0", "2.0", False)
+
+    assert card.update_available is False
+    assert card.current_version == "2.0"
+    assert card.label_update.text == ""
+    assert card.version_label.text == ""
+    assert card.version_label.style.visibility == HIDDEN
 

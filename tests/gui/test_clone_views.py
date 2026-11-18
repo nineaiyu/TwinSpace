@@ -1,6 +1,7 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from twinspace.core.app_version import AppUpdate
 from twinspace.core.state import CloneRecord
 from twinspace.gui.services.clone_service import CloneService
 from twinspace.gui.views.clone_list import CloneListView
@@ -824,3 +825,90 @@ def test_selected_cards_expose_the_batch_menu(monkeypatch):
     ]
     # Empty grid space keeps the select-all menu.
     assert view._card_menu_entries_at((1500.0, 40.0))[0].key == "select_all"
+
+
+def _versioned_records() -> list[CloneRecord]:
+    return [
+        CloneRecord(
+            clone_name=name,
+            source_app="App",
+            source_path="/Applications/App.app",
+            bundle_id="com.example.app",
+            strategy="hard_clone",
+            dest_path=f"/Apps/{name}.app",
+            data_dir=f"/Data/{name}",
+            created_at="2026-08-20T10:00:00",
+        )
+        for name in ("Alpha", "Beta")
+    ]
+
+
+def test_repaint_clone_version_updates_only_the_finished_row():
+    view = CloneListView()
+    records = _versioned_records()
+    view._raw_clones = records
+    view._records_by_name = {record.clone_name: record for record in records}
+    view._update_status = {
+        record.clone_name: AppUpdate("1.0", "2.0", True) for record in records
+    }
+    view._apply_filter()
+    assert view._version_cell(records[0]) == "⬆ 1.0 → 2.0"
+
+    view._update_status["Alpha"] = AppUpdate("2.0", "2.0", False)
+    view._repaint_clone_version("Alpha")
+
+    assert view._version_cell(records[0]) == "2.0"
+    assert view._version_cell(records[1]) == "⬆ 1.0 → 2.0"
+    # The signature follows the painted state, so the next render is a no-op.
+    assert view._render_signature == view._view_signature()
+    name_accessor = view.table.columns[0].accessor
+    version_accessor = view.table.columns[8].accessor
+    versions = {
+        getattr(row, name_accessor): getattr(row, version_accessor)
+        for row in view.table.data
+    }
+    assert versions == {"Alpha": "2.0", "Beta": "⬆ 1.0 → 2.0"}
+
+
+def test_repaint_clone_version_repaints_the_card_in_grid_mode():
+    view = CloneListView()
+    records = _versioned_records()
+    view._raw_clones = records
+    view._records_by_name = {record.clone_name: record for record in records}
+    view._update_status = {
+        record.clone_name: AppUpdate("1.0", "2.0", True) for record in records
+    }
+    view._apply_filter()
+    view.on_view_mode_changed("grid")
+    card = next(
+        card for card in view._grid_cards if card.record.clone_name == "Alpha"
+    )
+    assert card.update_available is True
+
+    view._update_status["Alpha"] = AppUpdate("2.0", "2.0", False)
+    view._repaint_clone_version("Alpha")
+
+    assert card.update_available is False
+    assert card.label_update.text == ""
+    assert view._render_signature == view._view_signature()
+
+
+def test_update_clone_refreshes_each_clone_right_after_its_rebuild():
+    async def _test():
+        view = CloneListView()
+        records = _versioned_records()
+        view._raw_clones = records
+        view._records_by_name = {record.clone_name: record for record in records}
+        view.clone_service.update_clone = AsyncMock()
+        view.refresh_clones = AsyncMock()
+        refreshed: list[str] = []
+        view._refresh_clone_status = AsyncMock(
+            side_effect=lambda record: refreshed.append(record.clone_name)
+        )
+
+        await view.on_update_clone(records)
+
+        assert refreshed == ["Alpha", "Beta"]
+        assert view.clone_service.update_clone.await_count == 2
+
+    asyncio.run(_test())

@@ -5,7 +5,7 @@ from typing import Callable, Optional
 
 import toga
 from toga.style import Pack
-from toga.style.pack import CENTER, COLUMN, ROW
+from toga.style.pack import CENTER, COLUMN, HIDDEN, ROW, VISIBLE
 
 from twinspace.core.i18n import t
 from twinspace.core.state import CloneRecord
@@ -119,27 +119,24 @@ class CloneCard(toga.Box):
             style=Pack(font_size=11.5, color=Theme.TEXT_TERTIARY, margin_top=3),
         )
         body.add(self.last_opened_label)
-        if self.update_available or self.downgrade_available:
-            body.add(
-                toga.Label(
-                    t(
-                        "card_version_line"
-                        if self.update_available
-                        else "card_downgrade_version_line",
-                        current=current_version or "-",
-                        latest=latest_version or "-",
-                    ),
-                    style=Pack(
-                        font_size=11.5,
-                        color=(
-                            Theme.BTN_WARNING
-                            if self.update_available
-                            else Theme.BADGE_HARD_TEXT
-                        ),
-                        margin_top=3,
-                    ),
-                )
-            )
+        # The "old → new" line stays mounted and is hidden when there is
+        # nothing to report, so refreshing one clone after a rebuild toggles
+        # visibility instead of rebuilding the card.
+        self.version_label = toga.Label(
+            "",
+            style=Pack(
+                font_size=11.5,
+                color=Theme.BTN_WARNING,
+                margin_top=3,
+                visibility=(
+                    VISIBLE
+                    if (self.update_available or self.downgrade_available)
+                    else HIDDEN
+                ),
+            ),
+        )
+        body.add(self.version_label)
+        self._paint_version_line()
         notes_raw = (getattr(record, "notes", "") or "").replace("\n", " ").replace("\r", "")
         if notes_raw:
             notes_display = (notes_raw[:40] + "…") if len(notes_raw) > 40 else notes_raw
@@ -211,6 +208,62 @@ class CloneCard(toga.Box):
         callback = self._actions.get(key)
         if callback is not None:
             callback(self.record)
+
+    def _paint_version_line(self) -> None:
+        """Show or hide the version line without touching the widget tree."""
+        wanted = self.update_available or self.downgrade_available
+        text = ""
+        if wanted:
+            text = t(
+                "card_version_line"
+                if self.update_available
+                else "card_downgrade_version_line",
+                current=self.current_version or "-",
+                latest=self.latest_version or "-",
+            )
+        if self.version_label.text != text:
+            self.version_label.text = text
+        self.version_label.style.color = (
+            Theme.BTN_WARNING if self.update_available else Theme.BADGE_HARD_TEXT
+        )
+        visibility = VISIBLE if wanted else HIDDEN
+        if self.version_label.style.visibility != visibility:
+            self.version_label.style.visibility = visibility
+
+    def set_update_info(
+        self,
+        update_available: bool,
+        current_version: str = "",
+        latest_version: str = "",
+        downgrade_available: bool = False,
+    ) -> None:
+        """Repaint the "new version" badge in place (no widget rebuild)."""
+        available = bool(update_available)
+        downgraded = bool(downgrade_available) and not available
+        current_version = current_version or self.current_version
+        latest_version = latest_version or self.latest_version
+        if (available, downgraded) == (
+            self.update_available,
+            self.downgrade_available,
+        ) and (current_version, latest_version) == (
+            self.current_version,
+            self.latest_version,
+        ):
+            return
+        self.update_available = available
+        self.downgrade_available = downgraded
+        self.current_version = current_version
+        self.latest_version = latest_version
+        if available:
+            badge_text, badge_color = t("card_update_badge"), Theme.BTN_WARNING
+        elif downgraded:
+            badge_text, badge_color = t("card_downgrade_badge"), Theme.BADGE_HARD_TEXT
+        else:
+            badge_text, badge_color = "", Theme.BTN_WARNING
+        if self.label_update.text != badge_text:
+            self.label_update.text = badge_text
+        self.label_update.style.color = badge_color
+        self._paint_version_line()
 
     def set_running(self, running: bool) -> None:
         """Repaint the running dot in place (no widget rebuild)."""
