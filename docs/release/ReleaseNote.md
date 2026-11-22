@@ -2,6 +2,25 @@ English | [简体中文](ReleaseNote_zh.md)
 
 # TwinSpace Release Notes
 
+## [v1.11.0] - 2026-11-22
+
+### ✨ New
+- **Delete clones from the Environments page**: right-click an app tile inside an environment → "Delete" (greyed out while running, two-step confirmation including the data directory); marquee/⌘ multi-select → right-click → "Batch Delete (N)", disabled when every selected app runs. Deletion uses the exact same core logic and safety checks as the All-Clones page (system paths refused, running clones refused); while deleting, the environment card's status pill shows "Deleting 1/3 · App", and the environment card and the All-Clones page refresh in sync afterwards.
+- **Detail entry on environment tiles**: right-click a tile → detail window (the same window the All-Clones page opens, with working Edit/Update/Reveal buttons) — all three pages now expose the same actions.
+- **Right-click an environment card for its menu**: right-clicking the card header/footer/gaps between tiles pops the environment's full menu (Open All / Switch To / Update / Rebuild / Backup / Export / Restore / Clone / Backups / Cleanup / Device Identity / Reveal / Remove) without hunting for the `⋯` button.
+- **Context menu for the clones table**: right-click a table row → Launch / Dir / Data Dir / Update / Edit / Details / Delete (busy/running items greyed out); right-clicking a row that belongs to a multi-selection offers the batch menu. The table finally matches the card grid's action surface.
+- **"Data Dir" one-click reveal on clone cards**: the card context menu gains a "Data Dir" entry that reveals the clone's isolated data directory in Finder; cards now show the full bundle path as their tooltip.
+- **"Clean Up…" on the Clones page toolbar**: the storage-cleanup entry is now available on all three pages (previously only Source Apps and Environments had it); measured sizes are invalidated and the list refreshed after a cleanup.
+
+### 🩹 Fixes
+- **Grid context menus never appeared**: on the All-Clones page's card grid, right-clicking a single card was swallowed by the page-level monitor, which popped "Select All / Clear Selection" instead of the card's own menu (Launch/Update/Delete/…). A single card now passes through to its own menu; only a multi-selection swaps in the batch menu.
+- **Updating/deleting running clones no longer fails one by one**: they are skipped up front with a "Skipped (still running)" note in the confirmation, and buttons/menu items grey out when every selected clone runs; the update action gained a confirmation dialog (the Environments and Source Apps pages confirmed, the Clones page did not).
+- **Operation progress is visible in grid mode**: cards show an orange "↻ Updating…/↻ Deleting…" caption while an operation runs — previously the progress text lived only on the list-mode toolbar buttons, so the card grid showed nothing at all.
+- **⌘A select-all** now also works in the All-Clones page's list mode (previously grid only).
+
+### ⚡ Performance
+- **Progressive data-size computation**: the All-Clones page used to walk every clone's data directory in one shot (tens of seconds of no feedback on large installs); sizes are now measured one clone at a time, each row fills in as it completes, and the toolbar button shows "Computing 12/36…" while disabled, matching the Source Apps page.
+
 ## [v1.10.1] - 2026-11-18
 
 ### 🩹 Fixes
