@@ -25,6 +25,7 @@ class CloneCard(toga.Box):
         record: CloneRecord,
         on_launch: Optional[Callable[[CloneRecord], None]] = None,
         on_open_dir: Optional[Callable[[CloneRecord], None]] = None,
+        on_open_data_dir: Optional[Callable[[CloneRecord], None]] = None,
         on_update: Optional[Callable[[CloneRecord], None]] = None,
         on_edit: Optional[Callable[[CloneRecord], None]] = None,
         on_detail: Optional[Callable[[CloneRecord], None]] = None,
@@ -38,6 +39,7 @@ class CloneCard(toga.Box):
         self.record = record
         self.selected = False
         self.running = False
+        self._operation_text = ""
         self.update_available = bool(update_available)
         self.downgrade_available = bool(downgrade_available) and not update_available
         self.current_version = current_version
@@ -177,6 +179,7 @@ class CloneCard(toga.Box):
         self._actions = {
             "launch": on_launch,
             "open_dir": on_open_dir,
+            "open_data_dir": on_open_data_dir,
             "update": on_update,
             "edit": on_edit,
             "detail": on_detail,
@@ -184,23 +187,32 @@ class CloneCard(toga.Box):
         }
         # Pointer feedback, double-click launch and the right-click menu across
         # the whole card surface (no click handling here — selection recognizers
-        # live on the header).
+        # live on the header). The tooltip carries the full bundle path, which
+        # the card itself only shows truncated to its basename.
         cocoa_events.attach_tile_interactions(
             self,
             on_double_click=self._handle_double_click,
             on_hover=self._handle_hover,
             menu_entries=self._menu_entries(),
             menu_handler=self._on_menu_action,
+            tooltip=str(record.dest_path or record.clone_name),
+            accessibility_label=record.clone_name,
         )
 
     def _menu_entries(self) -> tuple[MenuEntry, ...]:
         return (
             MenuEntry("launch", t("btn_launch")),
             MenuEntry("open_dir", t("btn_open_dir_short")),
+            MenuEntry("open_data_dir", t("btn_open_data_dir_short")),
             MenuEntry("update", t("btn_update_short"), separator=True),
             MenuEntry("edit", t("btn_edit_short")),
             MenuEntry("detail", t("btn_detail_short")),
-            MenuEntry("delete", t("btn_delete_short"), separator=True),
+            MenuEntry(
+                "delete",
+                t("btn_delete_short"),
+                enabled=not self.running,
+                separator=True,
+            ),
         )
 
     def _on_menu_action(self, key: str) -> None:
@@ -271,7 +283,27 @@ class CloneCard(toga.Box):
         if running == self.running:
             return
         self.running = running
-        self.label_running.text = ("● " + t("environment_running")) if running else ""
+        if not self._operation_text:
+            self.label_running.text = ("● " + t("environment_running")) if running else ""
+        # The context menu greys out "delete" while the clone runs.
+        cocoa_events.update_tile_menu(self, self._menu_entries(), self._on_menu_action)
+
+    def set_operation(self, text: str) -> None:
+        """Show a transient operation caption ("↻ 删除中…") in the header.
+
+        The running label doubles as the operation row: a busy clone is idle by
+        definition, and the running marker comes back when the caption clears.
+        """
+        text = str(text or "")
+        if text == self._operation_text:
+            return
+        self._operation_text = text
+        if text:
+            self.label_running.text = text
+            self.label_running.style.color = Theme.BTN_WARNING
+        else:
+            self.label_running.text = ("● " + t("environment_running")) if self.running else ""
+            self.label_running.style.color = Theme.BTN_SUCCESS
 
     def _handle_double_click(self) -> None:
         """Finder-style double-click opens the clone.

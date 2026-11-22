@@ -91,6 +91,7 @@ class AppTile(toga.Box):
         on_reveal: Optional[Callable[[], None]] = None,
         on_update: Optional[Callable[[], None]] = None,
         on_detail: Optional[Callable[[], None]] = None,
+        on_delete: Optional[Callable[[], None]] = None,
         on_select: Optional[Callable[["AppTile", str], None]] = None,
         on_batch_action: Optional[Callable[[str], None]] = None,
     ):
@@ -126,6 +127,7 @@ class AppTile(toga.Box):
             "reveal": on_reveal,
             "update": on_update,
             "detail": on_detail,
+            "delete": on_delete,
         }
 
         # The pill is the hover/selection surface. It is deliberately smaller
@@ -442,6 +444,17 @@ class AppTile(toga.Box):
         # Only pages that can show a detail window offer the entry.
         if self._callbacks.get("detail") is not None:
             entries.append(cocoa_events.MenuEntry("detail", t("btn_detail_short")))
+        # Deleting a running app is refused by the core, so grey the entry out
+        # while the green dot is up (set_running repaints the menu anyway).
+        if self._callbacks.get("delete") is not None:
+            entries.append(
+                cocoa_events.MenuEntry(
+                    "delete",
+                    t("btn_delete_short"),
+                    enabled=not self.running,
+                    separator=True,
+                )
+            )
         return tuple(entries)
 
     def _handle_menu(self, key: str) -> None:

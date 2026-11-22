@@ -30,7 +30,7 @@ from twinspace.gui.components.top_bar import TopHeaderBar
 from twinspace.gui.patch_cocoa import TABLE_ICON_SIZE, configure_cocoa_danger_button
 from twinspace.gui.services.app_monitor import AppLifecycleMonitor, enclosing_bundle
 from twinspace.gui.services.clone_service import CloneService
-from twinspace.gui.services.data_size import compute_data_sizes, format_size
+from twinspace.gui.services.data_size import data_size, format_size
 from twinspace.gui.services.launch_history import launch_history_for
 from twinspace.gui.theme import Theme
 from twinspace.gui.windows.clone_detail import CloneDetailWindow
@@ -45,6 +45,10 @@ _GRID_MARQUEE_THRESHOLD = 4.0
 _GRID_AUTOSCROLL_EDGE = 42.0
 _GRID_AUTOSCROLL_STEP = 16.0
 _GRID_AUTOSCROLL_INTERVAL = 0.05
+# Menu keys that act on one resolved clone (table-row right click).
+_SINGLE_MENU_KEYS = frozenset(
+    {"launch", "open_dir", "open_data_dir", "update", "edit", "detail", "delete"}
+)
 
 
 def _normalise_bundle_path(raw: Any) -> str:
@@ -105,11 +109,14 @@ class CloneListView(toga.Box):
         # Data-dir sizes for the table column; computed in a worker with a
         # shared TTL cache and patched into rows in place.
         self._sizes: dict[str, int] = {}
+        self._computing_sizes = False
         self._records_by_name: dict[str, CloneRecord] = {}
         # Clone/source version comparison, refreshed together with the list.
         self._update_status: dict[str, AppUpdate] = {}
         # Selection shared by the table and the card grid.
         self._selected_names: set[str] = set()
+        # Record resolved by the context-menu provider before the menu pops.
+        self._menu_record: CloneRecord | None = None
         self._selection_anchor: str | None = None
         self._grid_cards: list[CloneCard] = []
         # Pool of mounted cards keyed by clone name; re-parenting an existing
@@ -176,6 +183,9 @@ class CloneListView(toga.Box):
             action_symbol="plus",
             secondary_action_label=t("btn_compute_sizes"),
             on_secondary_action=self.on_compute_sizes,
+            extra_action_label=t("storage_cleanup_btn"),
+            on_extra_action=self.on_cleanup_caches,
+            extra_action_symbol="trash",
             refresh_symbol="arrow.clockwise",
             search_placeholder=t("view_clones_search_placeholder"),
             on_search=self.on_search_query_changed,
@@ -718,6 +728,7 @@ class CloneListView(toga.Box):
             record=record,
             on_launch=lambda r: asyncio.create_task(self.on_launch_clone(r)),
             on_open_dir=lambda r: asyncio.create_task(self.on_open_clone_dir(r)),
+            on_open_data_dir=lambda r: asyncio.create_task(self.on_open_data_dir(r)),
             on_update=lambda r: asyncio.create_task(self.on_update_clone(r)),
             on_edit=lambda r: asyncio.create_task(self.on_edit_clone(r)),
             on_detail=lambda r: asyncio.create_task(self.on_detail_clone(r)),
@@ -921,6 +932,12 @@ class CloneListView(toga.Box):
 
         count = len(records)
         has_busy = any(r.clone_name in self._busy_clones for r in records)
+        # Update/delete refuse running clones at the core; keep the buttons
+        # enabled while at least one selectable record is idle.
+        has_idle = any(
+            r.clone_name not in self._busy_clones and r.clone_name not in self._running_clones
+            for r in records
+        )
         if self.view_mode == "list":
             self._selected_names = {r.clone_name for r in records}
 
@@ -942,11 +959,11 @@ class CloneListView(toga.Box):
             self.btn_close_table.enabled = True
             self.btn_close_table.text = t("btn_close")
             self.btn_open_dir_table.enabled = True
-            self.btn_update_table.enabled = not has_busy
+            self.btn_update_table.enabled = has_idle
             self.btn_update_table.text = t("btn_update")
             self.btn_edit_table.enabled = not has_busy
             self.btn_detail_table.enabled = True
-            self.btn_delete_table.enabled = not has_busy
+            self.btn_delete_table.enabled = has_idle
             self.btn_delete_table.text = t("btn_delete")
         else:  # count >= 2: batch open / close / update / delete
             self.btn_launch_table.enabled = not has_busy
@@ -954,11 +971,11 @@ class CloneListView(toga.Box):
             self.btn_close_table.enabled = True
             self.btn_close_table.text = t("btn_batch_close", count=count)
             self.btn_open_dir_table.enabled = False
-            self.btn_update_table.enabled = not has_busy
+            self.btn_update_table.enabled = has_idle
             self.btn_update_table.text = t("btn_batch_update", count=count)
             self.btn_edit_table.enabled = False
             self.btn_detail_table.enabled = False
-            self.btn_delete_table.enabled = not has_busy
+            self.btn_delete_table.enabled = has_idle
             self.btn_delete_table.text = t("btn_batch_delete", count=count)
 
     async def on_table_activate(self, widget: toga.Table, row=None, **kwargs):
@@ -1109,18 +1126,68 @@ class CloneListView(toga.Box):
     def on_compute_sizes(self, widget: Any = None) -> None:
         """Measure every clone's data dir on demand (77GB-class trees are far
         too expensive to walk on every refresh)."""
-        if not self._raw_clones:
+        if not self._raw_clones or self._computing_sizes:
             return
         self._dispatch_async(self._compute_sizes())
 
     async def _compute_sizes(self) -> None:
-        loop = asyncio.get_running_loop()
-        sizes = await loop.run_in_executor(None, compute_data_sizes, self._raw_clones)
-        self._set_sizes(sizes)
+        """Measure one clone at a time so sizes appear progressively.
 
-    def _set_sizes(self, sizes: dict[str, int]) -> None:
-        self._sizes = sizes
-        self._refresh_size_cells()
+        A single ``compute_data_sizes`` call walks every data dir before the
+        UI changes at all — on a large install that is half a minute of nothing
+        happening. Iterating here keeps each row's number arriving as it is
+        measured, and the toolbar button reports ``计算中 12/36``.
+        """
+        self._computing_sizes = True
+        self._set_secondary_busy(True)
+        loop = asyncio.get_running_loop()
+        records = list(self._raw_clones)
+        total = len(records)
+        try:
+            for index, record in enumerate(records, start=1):
+                try:
+                    size = await loop.run_in_executor(None, data_size, record.data_dir)
+                except Exception:
+                    logger.debug(
+                        "Could not measure data size for %s", record.clone_name, exc_info=True
+                    )
+                    size = 0
+                self._sizes[record.clone_name] = size
+                self._refresh_size_cells()
+                self._set_secondary_text(
+                    t("btn_computing_sizes", current=index, total=total)
+                )
+        finally:
+            self._set_secondary_text(t("btn_compute_sizes"))
+            self._set_secondary_busy(False)
+            self._computing_sizes = False
+
+    def _set_secondary_text(self, text: str) -> None:
+        button = getattr(self.top_bar, "btn_secondary", None)
+        if button is not None and button.text != text:
+            button.text = text
+
+    def _set_secondary_busy(self, busy: bool) -> None:
+        button = getattr(self.top_bar, "btn_secondary", None)
+        if button is not None and button.enabled == busy:
+            button.enabled = not busy
+
+    def on_cleanup_caches(self, widget: Any = None) -> None:
+        """Open the storage cleanup window (cache review + selective delete)."""
+        if self.app_instance is None:
+            return
+        from twinspace.gui.windows.cache_cleanup import CacheCleanupWindow
+
+        CacheCleanupWindow(
+            self.app_instance,
+            self.clone_service,
+            on_cleaned=lambda: self._dispatch_async(self._on_caches_cleaned()),
+        ).show()
+
+    async def _on_caches_cleaned(self) -> None:
+        """Measured sizes are stale after a cleanup: forget them and reload."""
+        self._sizes = {}
+        await self.refresh_clones()
 
     def _refresh_size_cells(self) -> None:
         """Repaint only the size cells of the mounted table rows."""
@@ -1214,6 +1281,11 @@ class CloneListView(toga.Box):
                 t("clone_menu_batch_update", count=count),
                 separator=True,
             ),
+            cocoa_events.MenuEntry(
+                "card_batch_delete",
+                t("btn_batch_delete", count=count),
+                separator=True,
+            ),
             cocoa_events.MenuEntry("card_batch_clear", t("selection_clear"), separator=True),
         )
 
@@ -1224,40 +1296,105 @@ class CloneListView(toga.Box):
             self._spawn(self.on_close_selected())
         elif key == "card_batch_update":
             self._spawn(self.on_update_clone())
+        elif key == "card_batch_delete":
+            self._spawn(self.on_delete_clone())
         elif key == "card_batch_clear":
             self.clear_selection()
 
     def _card_menu_entries_at(
         self, location: tuple[float, float]
     ) -> tuple[cocoa_events.MenuEntry, ...]:
-        """Context menu for a right click on the card grid."""
-        if self.view_mode != "grid":
-            return ()
+        """Context menu for a right click, on the table rows and the card grid alike.
+
+        Grid: a multi-selected card offers the batch menu; a single card passes
+        through (it carries its own menu); blank space offers select-all.
+        List: a row offers the per-clone menu, the batch menu when the row
+        belongs to the native multi-selection, and passes through elsewhere.
+        """
+        self._menu_record = None
         frame = cocoa_events.window_frame(self.grid_scroll)
-        if frame is None or not cocoa_events.frame_contains(frame, location):
+        if self.view_mode == "grid":
+            if frame is None or not cocoa_events.frame_contains(frame, location):
+                return ()
+            hit = cocoa_events.hit_test_view(self, location)
+            if cocoa_events.is_control_view(hit):
+                return ()
+            name = self._card_at_location(location)
+            if name is not None:
+                if name in self._selected_names and len(self._selected_names) > 1:
+                    return self._card_batch_entries()
+                return ()  # the card carries its own per-clone menu
+            return (
+                cocoa_events.MenuEntry("select_all", t("selection_select_all")),
+                cocoa_events.MenuEntry(
+                    "clear_selection",
+                    t("selection_clear"),
+                    enabled=bool(self._selected_names),
+                ),
+            )
+        row = cocoa_events.table_row_at(self.table, location)
+        if row is None or not 0 <= row < len(self._filtered_clones):
             return ()
-        hit = cocoa_events.hit_test_view(self, location)
-        if cocoa_events.is_control_view(hit):
-            return ()
-        name = self._card_at_location(location)
-        if name is not None and name in self._selected_names and len(self._selected_names) > 1:
+        record = self._filtered_clones[row]
+        selected = self.selected_records()
+        if len(selected) > 1 and record.clone_name in {r.clone_name for r in selected}:
             return self._card_batch_entries()
+        self._menu_record = record
+        return self._table_menu_entries(record)
+
+    def _table_menu_entries(self, record: CloneRecord) -> tuple[cocoa_events.MenuEntry, ...]:
+        """Per-clone menu of one table row, mirroring the card menu."""
+        busy = record.clone_name in self._busy_clones
+        running = record.clone_name in self._running_clones
         return (
-            cocoa_events.MenuEntry("select_all", t("selection_select_all")),
+            cocoa_events.MenuEntry("launch", t("btn_launch"), enabled=not busy),
+            cocoa_events.MenuEntry("open_dir", t("btn_open_dir_short")),
+            cocoa_events.MenuEntry("open_data_dir", t("btn_open_data_dir_short")),
             cocoa_events.MenuEntry(
-                "clear_selection",
-                t("selection_clear"),
-                enabled=bool(self._selected_names),
+                "update",
+                t("btn_update_short"),
+                enabled=not busy and not running,
+                separator=True,
+            ),
+            cocoa_events.MenuEntry("edit", t("btn_edit_short"), enabled=not busy),
+            cocoa_events.MenuEntry("detail", t("btn_detail_short")),
+            cocoa_events.MenuEntry(
+                "delete",
+                t("btn_delete_short"),
+                enabled=not busy and not running,
+                separator=True,
             ),
         )
 
     def _handle_card_menu(self, key: str) -> None:
+        record = self._menu_record
+        self._menu_record = None
+        if record is not None and key in _SINGLE_MENU_KEYS:
+            self._handle_single_menu(key, record)
+            return
         if key == "select_all":
             self._select_all_cards()
         elif key == "clear_selection":
             self.clear_selection()
         else:
             self._handle_card_batch(key)
+
+    def _handle_single_menu(self, key: str, record: CloneRecord) -> None:
+        """Dispatch one per-clone menu action against the clicked row/card."""
+        if key == "launch":
+            self._spawn(self.on_launch_clone(record))
+        elif key == "open_dir":
+            self._spawn(self.on_open_clone_dir(record))
+        elif key == "open_data_dir":
+            self._spawn(self.on_open_data_dir(record))
+        elif key == "update":
+            self._spawn(self.on_update_clone(record))
+        elif key == "edit":
+            self._spawn(self.on_edit_clone(record))
+        elif key == "detail":
+            self._spawn(self.on_detail_clone(record))
+        elif key == "delete":
+            self._spawn(self.on_delete_clone(record))
 
     def _attach_card_selection(self, card: CloneCard) -> None:
         """Turn a card header into a selection surface (click; drag is global)."""
@@ -1421,12 +1558,12 @@ class CloneListView(toga.Box):
             self._apply_marquee(location)
 
     def _handle_key(self, key: str, flags: int) -> bool:
-        """⌘A selects every card; Esc clears the selection or the rubber band."""
+        """⌘A selects everything; Esc clears the selection or the rubber band."""
+        if flags & cocoa_events.COMMAND_MODIFIER and key.lower() == "a":
+            self.select_all()
+            return True
         if self.view_mode != "grid":
             return False
-        if flags & cocoa_events.COMMAND_MODIFIER and key.lower() == "a":
-            self._select_all_cards()
-            return True
         if key == "\x1b":
             if self._drag_active:
                 self._cancel_marquee()
@@ -1550,6 +1687,29 @@ class CloneListView(toga.Box):
                     )
         except Exception as e:
             logger.error(f"Failed to open directory for clone '{record.clone_name}': {e}")
+            if self.app_instance and hasattr(self.app_instance, "main_window"):
+                await self.app_instance.main_window.error_dialog(t("dialog_launch_error_title"), str(e))
+
+    async def on_open_data_dir(self, record: Optional[CloneRecord]):
+        """Reveal the clone's isolated data directory in Finder."""
+        if not record:
+            return
+        data_dir = Path(str(record.data_dir or ""))
+        if not data_dir.exists():
+            logger.info(
+                "Data dir of clone '%s' does not exist yet: '%s'",
+                record.clone_name,
+                data_dir,
+            )
+            return
+        logger.info(f"Opening data directory for clone '{record.clone_name}' at '{data_dir}'")
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(
+                None, lambda: subprocess.Popen(["open", "-R", str(data_dir)])
+            )
+        except Exception as e:
+            logger.error(f"Failed to open data directory for clone '{record.clone_name}': {e}")
             if self.app_instance and hasattr(self.app_instance, "main_window"):
                 await self.app_instance.main_window.error_dialog(t("dialog_launch_error_title"), str(e))
 
@@ -1698,9 +1858,31 @@ class CloneListView(toga.Box):
         if not records:
             return
 
-        active_records = [r for r in records if r.clone_name not in self._busy_clones]
+        running_records = [r for r in records if r.clone_name in self._running_clones]
+        active_records = [
+            r
+            for r in records
+            if r.clone_name not in self._busy_clones and r.clone_name not in self._running_clones
+        ]
         if not active_records:
             return
+
+        # The core refuses to rebuild a running clone, so confirm up front with
+        # the full picture instead of failing per item afterwards.
+        if self.app_instance and hasattr(self.app_instance, "main_window"):
+            confirmed = await cocoa_events.confirm_with_labels(
+                self.app_instance.main_window,
+                t("sources_update_title"),
+                t(
+                    "sources_update_confirm",
+                    apps=self._names_summary(active_records),
+                )
+                + self._skipped_running_note(running_records),
+                t("btn_update"),
+                t("btn_cancel"),
+            )
+            if not confirmed:
+                return
 
         for r in active_records:
             self._busy_clones.add(r.clone_name)
@@ -1718,15 +1900,18 @@ class CloneListView(toga.Box):
                         self.btn_update_table.text = t("btn_updating_progress", current=idx, total=total)
                     else:
                         self.btn_update_table.text = t("btn_updating")
+                self._set_card_operation(r.clone_name, t("card_status_updating"))
                 try:
                     await self.clone_service.update_clone(r.clone_name)
                 except Exception as e:
                     logger.error(f"Failed to update clone '{r.clone_name}': {e}")
                     failed_list.append((r.clone_name, str(e)))
-                    continue
-                # Clear this clone's badge now instead of waiting for the rest
-                # of the batch: the row it occupies is already up to date.
-                await self._refresh_clone_status(r)
+                else:
+                    # Clear this clone's badge now instead of waiting for the rest
+                    # of the batch: the row it occupies is already up to date.
+                    await self._refresh_clone_status(r)
+                finally:
+                    self._set_card_operation(r.clone_name, "")
             await self.refresh_clones()
         finally:
             for r in active_records:
@@ -1749,6 +1934,28 @@ class CloneListView(toga.Box):
                     failed_list[0][1],
                 )
 
+    def _names_summary(self, records: list[CloneRecord]) -> str:
+        """Comma separated clone names for a confirmation dialog (capped)."""
+        names = [r.clone_name for r in records[:6]]
+        if len(records) > 6:
+            names.append(f"... (+{len(records) - 6})")
+        return ", ".join(names)
+
+    def _skipped_running_note(self, records: list[CloneRecord]) -> str:
+        """Confirm-dialog suffix naming the clones skipped because they run."""
+        if not records:
+            return ""
+        return t(
+            "environment_update_skipped_running",
+            apps=self._names_summary(records),
+        )
+
+    def _set_card_operation(self, clone_name: str, text: str) -> None:
+        """Show a transient "updating/deleting" caption on a mounted grid card."""
+        entry = self._card_pool.get(clone_name)
+        if entry is not None:
+            entry[0].set_operation(text)
+
     async def on_delete_clone(self, target: Optional[CloneRecord | list[CloneRecord]] = None):
         if target is None:
             records = self.selected_records()
@@ -1760,7 +1967,12 @@ class CloneListView(toga.Box):
         if not records:
             return
 
-        active_records = [r for r in records if r.clone_name not in self._busy_clones]
+        running_records = [r for r in records if r.clone_name in self._running_clones]
+        active_records = [
+            r
+            for r in records
+            if r.clone_name not in self._busy_clones and r.clone_name not in self._running_clones
+        ]
         if not active_records:
             return
 
@@ -1768,7 +1980,7 @@ class CloneListView(toga.Box):
         delete_data = False
 
         if self.app_instance and hasattr(self.app_instance, "main_window"):
-            if total == 1:
+            if len(records) == 1:
                 record = active_records[0]
                 confirmed = await self.app_instance.main_window.confirm_dialog(
                     t("dialog_delete_confirm_title"),
@@ -1782,12 +1994,16 @@ class CloneListView(toga.Box):
                     t("dialog_delete_data_confirm_msg", path=record.data_dir),
                 )
             else:
-                names_summary = ", ".join(r.clone_name for r in active_records[:6])
-                if total > 6:
-                    names_summary += f" ... (+{total - 6})"
+                # A multi-selection keeps the batch dialog even when running
+                # apps shrink the target list, so the skipped apps are named.
                 confirmed = await self.app_instance.main_window.confirm_dialog(
                     t("dialog_batch_delete_confirm_title"),
-                    t("dialog_batch_delete_confirm_msg", count=total, names=names_summary),
+                    t(
+                        "dialog_batch_delete_confirm_msg",
+                        count=total,
+                        names=self._names_summary(active_records),
+                    )
+                    + self._skipped_running_note(running_records),
                 )
                 if not confirmed:
                     return
@@ -1811,11 +2027,14 @@ class CloneListView(toga.Box):
                         self.btn_delete_table.text = t("btn_deleting_progress", current=idx, total=total)
                     else:
                         self.btn_delete_table.text = t("btn_delete")
+                self._set_card_operation(r.clone_name, t("card_status_deleting"))
                 try:
                     await self.clone_service.remove_clone(r.clone_name, with_data=delete_data)
                 except Exception as e:
                     logger.error(f"Failed to delete clone '{r.clone_name}': {e}")
                     failed_list.append((r.clone_name, str(e)))
+                finally:
+                    self._set_card_operation(r.clone_name, "")
             await self.refresh_clones()
         finally:
             for r in active_records:

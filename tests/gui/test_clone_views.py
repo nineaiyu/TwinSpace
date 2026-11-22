@@ -647,6 +647,7 @@ def test_grid_cards_support_a_multi_selection():
         "card_batch_open",
         "card_batch_close",
         "card_batch_update",
+        "card_batch_delete",
         "card_batch_clear",
     ]
 
@@ -799,12 +800,15 @@ def test_grid_shortcuts_select_all_and_escape(monkeypatch):
     assert view._selected_names == set()
 
 
-def test_grid_shortcuts_are_ignored_in_list_mode(monkeypatch):
+def test_list_mode_keys_select_all_but_skip_grid_esc(monkeypatch):
     from twinspace.gui import cocoa_events
 
     view = _grid_view_with_frames(monkeypatch)
     view.view_mode = "list"
-    assert view._handle_key("a", cocoa_events.COMMAND_MODIFIER) is False
+    # ⌘A works in both modes (native table selection in list mode).
+    assert view._handle_key("a", cocoa_events.COMMAND_MODIFIER) is True
+    # Esc belongs to the grid; the native table handles its own keys.
+    assert view._handle_key("\x1b", 0) is False
 
 
 def test_selected_cards_expose_the_batch_menu(monkeypatch):
@@ -812,8 +816,8 @@ def test_selected_cards_expose_the_batch_menu(monkeypatch):
 
     view = _grid_view_with_frames(monkeypatch)
     view._on_card_click("App1")
-    # A single card has no batch menu.
-    assert view._card_menu_entries_at((150.0, 150.0))[0].key == "select_all"
+    # A single card passes through: it carries its own per-clone menu.
+    assert view._card_menu_entries_at((150.0, 150.0)) == ()
 
     view._on_card_click("App2", cocoa_events.SELECT_TOGGLE)
     entries = view._card_menu_entries_at((150.0, 150.0))
@@ -821,10 +825,206 @@ def test_selected_cards_expose_the_batch_menu(monkeypatch):
         "card_batch_open",
         "card_batch_close",
         "card_batch_update",
+        "card_batch_delete",
         "card_batch_clear",
     ]
     # Empty grid space keeps the select-all menu.
     assert view._card_menu_entries_at((1500.0, 40.0))[0].key == "select_all"
+
+
+def test_table_rows_get_a_context_menu(monkeypatch):
+    from twinspace.gui import cocoa_events
+
+    view = _grid_view_with_frames(monkeypatch)
+    view.view_mode = "list"
+    monkeypatch.setattr(cocoa_events, "table_row_at", lambda table, location: 0)
+
+    entries = {entry.key: entry for entry in view._card_menu_entries_at((100.0, 200.0))}
+    assert set(entries) == {
+        "launch",
+        "open_dir",
+        "open_data_dir",
+        "update",
+        "edit",
+        "detail",
+        "delete",
+    }
+    assert entries["delete"].enabled is True
+
+    # A row belonging to the native multi-selection offers the batch menu.
+    view._selected_names = {r.clone_name for r in view._filtered_clones}
+    entries = [entry.key for entry in view._card_menu_entries_at((100.0, 200.0))]
+    assert entries == [
+        "card_batch_open",
+        "card_batch_close",
+        "card_batch_update",
+        "card_batch_delete",
+        "card_batch_clear",
+    ]
+
+    # Off any row the menu passes through.
+    monkeypatch.setattr(cocoa_events, "table_row_at", lambda table, location: None)
+    assert view._card_menu_entries_at((100.0, 200.0)) == ()
+
+
+def test_table_menu_dispatches_to_the_clicked_record(monkeypatch):
+    from twinspace.gui import cocoa_events
+
+    view = _grid_view_with_frames(monkeypatch)
+    view.view_mode = "list"
+    monkeypatch.setattr(cocoa_events, "table_row_at", lambda table, location: 1)
+    view._card_menu_entries_at((100.0, 200.0))
+
+    view.on_delete_clone = MagicMock()
+    view._handle_card_menu("delete")
+    view.on_delete_clone.assert_called_once_with(view._filtered_clones[1])
+
+
+def test_update_clone_confirms_and_skips_running(monkeypatch):
+    from twinspace.gui import cocoa_events
+
+    view = _grid_view_with_frames(monkeypatch)
+    view.app_instance = MagicMock()
+    view._running_clones = {"App2"}
+    records = view._filtered_clones[:2]  # App1 idle, App2 running
+    view.clone_service.update_clone = AsyncMock(return_value=records[0])
+    view._refresh_clone_status = AsyncMock()
+    view.refresh_clones = AsyncMock()
+    messages: list[str] = []
+
+    async def fake_confirm(window, title, message, ok_label, cancel_label):
+        messages.append(message)
+        return True
+
+    monkeypatch.setattr(cocoa_events, "confirm_with_labels", fake_confirm)
+
+    asyncio.run(view.on_update_clone(records))
+
+    view.clone_service.update_clone.assert_awaited_once_with("App1")
+    assert "App1" in messages[0]
+    assert "App2" in messages[0]  # skipped-running note
+
+
+def test_update_clone_cancelled_keeps_everything(monkeypatch):
+    from twinspace.gui import cocoa_events
+
+    view = _grid_view_with_frames(monkeypatch)
+    view.app_instance = MagicMock()
+    view.clone_service.update_clone = AsyncMock()
+    view.refresh_clones = AsyncMock()
+
+    async def fake_confirm(window, title, message, ok_label, cancel_label):
+        return False
+
+    monkeypatch.setattr(cocoa_events, "confirm_with_labels", fake_confirm)
+
+    asyncio.run(view.on_update_clone(view._filtered_clones[:1]))
+
+    view.clone_service.update_clone.assert_not_awaited()
+    view.refresh_clones.assert_not_awaited()
+
+
+def test_delete_clone_skips_running_clones(monkeypatch):
+    view = _grid_view_with_frames(monkeypatch)
+    view._running_clones = {"App1"}
+    view.clone_service.remove_clone = AsyncMock(return_value=True)
+    view.refresh_clones = AsyncMock()
+
+    asyncio.run(view.on_delete_clone(view._filtered_clones[:1]))
+
+    view.clone_service.remove_clone.assert_not_awaited()
+
+    asyncio.run(view.on_delete_clone(view._filtered_clones[1:2]))
+
+    view.clone_service.remove_clone.assert_awaited_once_with("App2", with_data=False)
+
+
+def test_batch_delete_names_running_clones_as_skipped(monkeypatch):
+    view = _grid_view_with_frames(monkeypatch)
+    view._running_clones = {"App2"}
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view.app_instance.main_window.error_dialog = AsyncMock()
+    view.clone_service.remove_clone = AsyncMock(return_value=True)
+    view.refresh_clones = AsyncMock()
+
+    asyncio.run(view.on_delete_clone(view._filtered_clones[:2]))
+
+    view.clone_service.remove_clone.assert_awaited_once_with("App1", with_data=True)
+    message = view.app_instance.main_window.confirm_dialog.await_args_list[0].args[1]
+    assert "App2" in message
+
+
+def test_operation_captions_reach_the_grid_cards(monkeypatch):
+    view = _grid_view_with_frames(monkeypatch)
+    record = view._filtered_clones[0]
+    view._refresh_clone_status = AsyncMock()
+    view.refresh_clones = AsyncMock()
+    seen: dict[str, str] = {}
+
+    async def spy(name):
+        seen["caption"] = view._grid_cards[0].label_running.text
+        return record
+
+    view.clone_service.update_clone = spy
+
+    asyncio.run(view.on_update_clone([record]))
+
+    assert "Updating" in seen["caption"]
+    assert view._grid_cards[0].label_running.text == ""
+
+
+def test_compute_sizes_reports_progress(monkeypatch):
+    from twinspace.core.i18n import t
+
+    view = _grid_view_with_frames(monkeypatch)
+    view.view_mode = "list"
+    view._raw_clones = list(view._filtered_clones)
+    measured = iter(range(100, 100 + len(view._raw_clones)))
+    monkeypatch.setattr(
+        "twinspace.gui.views.clone_list.data_size", lambda path: next(measured)
+    )
+
+    asyncio.run(view._compute_sizes())
+
+    assert view._sizes["App1"] == 100
+    assert view.top_bar.btn_secondary.text == t("btn_compute_sizes")
+    assert view.top_bar.btn_secondary.enabled is True
+
+
+def test_clone_card_menu_greys_delete_while_running(toga_app):
+    from twinspace.core.i18n import t
+    from twinspace.gui.components.clone_card import CloneCard
+
+    record = CloneRecord(
+        clone_name="App1",
+        source_app="A1",
+        source_path="/p1",
+        bundle_id="b1",
+        strategy="hard_clone",
+        dest_path="/d1",
+        data_dir="/data1",
+        created_at="2026-08-20T10:00:00",
+    )
+    card = CloneCard(record=record)
+
+    entries = {entry.key: entry for entry in card._menu_entries()}
+    assert "open_data_dir" in entries
+    assert entries["delete"].enabled is True
+
+    card.set_running(True)
+    entries = {entry.key: entry for entry in card._menu_entries()}
+    assert entries["delete"].enabled is False
+
+    card.set_operation(t("card_status_updating"))
+    assert card.label_running.text == t("card_status_updating")
+    card.set_operation("")
+    assert card.label_running.text == "● " + t("environment_running")  # still running
+
+    card.set_running(False)
+    card.set_operation(t("card_status_deleting"))
+    card.set_operation("")
+    assert card.label_running.text == ""
 
 
 def _versioned_records() -> list[CloneRecord]:

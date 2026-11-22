@@ -624,6 +624,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Failed: {app}",
         "zh": "更新失败：{app}",
     },
+    "environment_progress_deleting": {
+        "en": "Deleting {current}/{total} · {app}",
+        "zh": "删除中 {current}/{total} · {app}",
+    },
     "environment_update_error": {
         "en": "Some apps failed to update:\n{errors}",
         "zh": "部分 App 更新失败：\n{errors}",
@@ -1823,6 +1827,18 @@ MESSAGES: dict[str, dict[str, str]] = {
     "btn_delete_short": {
         "en": "Delete",
         "zh": "删除",
+    },
+    "btn_open_data_dir_short": {
+        "en": "Data Dir",
+        "zh": "数据目录",
+    },
+    "card_status_updating": {
+        "en": "↻ Updating…",
+        "zh": "↻ 更新中…",
+    },
+    "card_status_deleting": {
+        "en": "↻ Deleting…",
+        "zh": "↻ 删除中…",
     },
     "clone_close_none_title": {
         "en": "Nothing to close",

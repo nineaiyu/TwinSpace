@@ -840,6 +840,7 @@ def test_multi_selection_swaps_the_tile_menu_for_batch_actions(toga_app, tmp_pat
         "batch_close",
         "batch_update",
         "batch_rebuild",
+        "batch_delete",
         "batch_clear",
     ]
     # A tile outside the selection keeps its regular menu.
@@ -1005,6 +1006,210 @@ def test_batch_rebuild_reports_when_every_selected_app_runs(toga_app, tmp_path):
     view.app_instance.main_window.info_dialog.assert_awaited_once_with(
         t("environment_done_title"), t("environment_batch_update_all_running")
     )
+
+
+def test_tile_menu_offers_delete_only_with_callback(toga_app):
+    plain_entries = {entry.key: entry for entry in _make_tile()._menu_entries()}
+    assert "delete" not in plain_entries
+
+    deletable = _make_tile(on_delete=lambda: None)
+    idle_entries = {entry.key: entry for entry in deletable._menu_entries()}
+    assert idle_entries["delete"].enabled is True
+
+    running_entries = {
+        entry.key: entry for entry in _make_tile(running=True, on_delete=lambda: None)._menu_entries()
+    }
+    assert running_entries["delete"].enabled is False
+
+
+def test_env_tile_menu_offers_detail_and_delete(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    tile = view._cards["phone1"].tiles["Chrome-phone1"]
+
+    entries = {entry.key: entry for entry in tile._menu_entries()}
+    assert "detail" in entries
+    assert entries["delete"].enabled is True
+
+    tile.set_running(True)
+    entries = {entry.key: entry for entry in tile._menu_entries()}
+    assert entries["detail"].enabled is True
+    assert entries["delete"].enabled is False
+
+
+def test_env_card_body_right_click_opens_the_env_menu(toga_app, tmp_path, monkeypatch):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._render()
+    monkeypatch.setattr(cocoa_events, "hit_test_view", lambda owner, location: None)
+    monkeypatch.setattr(view, "_tile_at_location", lambda location: None)
+
+    def frame_of(widget):
+        if widget is view:
+            return (0.0, 0.0, 900.0, 700.0)
+        for state in view._cards.values():
+            if widget is state.card:
+                return (0.0, 0.0, 900.0, 700.0)
+        return None
+
+    monkeypatch.setattr(cocoa_events, "window_frame", frame_of)
+
+    entries = view._blank_menu_entries_at((10.0, 10.0))
+    assert [entry.key for entry in entries] == [
+        "open_all",
+        "switch_to",
+        "update_all",
+        "rebuild_all",
+        "backup",
+        "export",
+        "restore",
+        "clone_env",
+        "backups",
+        "cleanup",
+        "device",
+        "reveal",
+        "remove",
+    ]
+    env = view._menu_env
+    assert env is not None
+
+    handled: list[tuple[str, str]] = []
+    monkeypatch.setattr(view, "_handle_env_menu", lambda e, key: handled.append((e.name, key)))
+    view._handle_blank_menu("open_all")
+    assert handled == [(env.name, "open_all")]
+    assert view._menu_env is None
+
+
+def test_delete_clones_reports_progress_on_the_card(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.clone_service.remove_clone = AsyncMock(return_value=True)
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view._on_environment_changed = AsyncMock()
+    view._environments = service.list_environments()
+    view._rebuild_path_index()
+    view._render()
+    record = next(
+        r for env in view._environments for r in env.records
+        if r.clone_name == "Chrome-phone1"
+    )
+    seen: dict[str, str] = {}
+
+    async def spy(clone_name, with_data=False):
+        seen["pill"] = view._cards["phone1"].status_text.text
+        return True
+
+    service.clone_service.remove_clone = spy
+
+    asyncio.run(view._delete_clones([record]))
+
+    assert "Deleting 1/1" in seen["pill"]
+    assert "Google Chrome" in seen["pill"]
+
+
+def test_batch_delete_entry_is_disabled_while_every_selected_app_runs(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    view = EnvironmentListView(environment_service=service)
+    view._environments = service.list_environments()
+    view._running_clones = {"Chrome-phone1", "ZCode-phone1"}
+    view._render()
+
+    tiles = view._cards["phone1"].tiles
+    view._select_tile(tiles["Chrome-phone1"], cocoa_events.SELECT_TOGGLE)
+    view._select_tile(tiles["ZCode-phone1"], cocoa_events.SELECT_TOGGLE)
+
+    entries = {entry.key: entry for entry in view._batch_menu_entries()}
+    assert entries["batch_delete"].enabled is False
+
+    view._running_clones = set()
+    entries = {entry.key: entry for entry in view._batch_menu_entries()}
+    assert entries["batch_delete"].enabled is True
+
+
+def _view_for_delete_tests(toga_app, tmp_path):
+    service = EnvironmentService(state_manager=_environment_state(tmp_path))
+    service.clone_service.remove_clone = AsyncMock(return_value=True)
+    view = EnvironmentListView(environment_service=service)
+    view.app_instance = MagicMock()
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=True)
+    view.app_instance.main_window.error_dialog = AsyncMock()
+    view._on_environment_changed = AsyncMock()
+    view._environments = service.list_environments()
+    view._render()
+    return view
+
+
+def test_delete_clones_confirms_and_removes_the_clone(toga_app, tmp_path):
+    view = _view_for_delete_tests(toga_app, tmp_path)
+    record = next(
+        r for env in view._environments for r in env.records
+        if r.clone_name == "ZCode-phone1"
+    )
+
+    asyncio.run(view._delete_clones([record]))
+
+    service = view.environment_service
+    service.clone_service.remove_clone.assert_awaited_once_with(
+        "ZCode-phone1", with_data=True
+    )
+    view._on_environment_changed.assert_awaited_once()
+    view.app_instance.main_window.error_dialog.assert_not_awaited()
+
+
+def test_delete_clones_cancelled_keeps_the_clone(toga_app, tmp_path):
+    view = _view_for_delete_tests(toga_app, tmp_path)
+    view.app_instance.main_window.confirm_dialog = AsyncMock(return_value=False)
+    record = next(
+        r for env in view._environments for r in env.records
+        if r.clone_name == "ZCode-phone1"
+    )
+
+    asyncio.run(view._delete_clones([record]))
+
+    view.environment_service.clone_service.remove_clone.assert_not_awaited()
+    view._on_environment_changed.assert_not_awaited()
+
+
+def test_delete_clones_skips_running_clones(toga_app, tmp_path):
+    view = _view_for_delete_tests(toga_app, tmp_path)
+    view._running_clones = {"WorkBuddy-phone1"}
+    records = [
+        r for env in view._environments for r in env.records
+        if r.clone_name in ("ZCode-phone1", "WorkBuddy-phone1")
+    ]
+
+    asyncio.run(view._delete_clones(records))
+
+    service = view.environment_service
+    service.clone_service.remove_clone.assert_awaited_once_with(
+        "ZCode-phone1", with_data=True
+    )
+    message = view.app_instance.main_window.confirm_dialog.await_args_list[0].args[1]
+    assert "WorkBuddy" in message  # skipped-running note
+
+
+def test_delete_clones_reports_partial_failures(toga_app, tmp_path):
+    view = _view_for_delete_tests(toga_app, tmp_path)
+    service = view.environment_service
+    service.clone_service.remove_clone = AsyncMock(
+        side_effect=[RuntimeError("boom"), True]
+    )
+    records = [
+        r for env in view._environments for r in env.records
+        if r.clone_name in ("Chrome-phone1", "ZCode-phone1")
+    ]
+
+    asyncio.run(view._delete_clones(records))
+
+    assert service.clone_service.remove_clone.await_count == 2
+    view._on_environment_changed.assert_awaited_once()
+    view.app_instance.main_window.error_dialog.assert_awaited_once()
+    message = view.app_instance.main_window.error_dialog.await_args.args[1]
+    assert "Chrome-phone1" in message and "boom" in message
 
 
 def test_command_a_selects_every_tile(toga_app, tmp_path):
@@ -1214,6 +1419,7 @@ def test_blank_area_menu_offers_select_all_and_clear(toga_app, tmp_path, monkeyp
     monkeypatch.setattr(cocoa_events, "window_frame", lambda widget: (0.0, 0.0, 900.0, 700.0))
     monkeypatch.setattr(cocoa_events, "hit_test_view", lambda owner, location: None)
     monkeypatch.setattr(view, "_tile_at_location", lambda location: None)
+    monkeypatch.setattr(view, "_env_card_at", lambda location: None)
 
     entries = view._blank_menu_entries_at((10.0, 10.0))
     assert [entry.key for entry in entries] == ["select_all", "clear_selection"]

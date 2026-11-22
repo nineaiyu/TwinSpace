@@ -1001,6 +1001,31 @@ def hit_test_view(owner: Any, location: tuple[float, float]) -> Any | None:
         return None
 
 
+def table_row_at(widget: Any, location: tuple[float, float]) -> int | None:
+    """Table row index under a window-space point, or ``None`` when outside.
+
+    Mirrors ``hit_test_view``'s coordinate contract: the context-menu monitor
+    works on window coordinates, while ``NSTableView.rowAtPoint:`` wants the
+    table's own coordinates.
+    """
+    native = getattr(getattr(widget, "_impl", None), "native_table", None)
+    if native is None:
+        native = native_of(widget)
+    if native is None:
+        return None
+    try:
+        from rubicon.objc.types import NSMakePoint
+
+        point = native.convertPoint_fromView_(
+            NSMakePoint(location[0], location[1]), None
+        )
+        row = int(native.rowAtPoint_(point))
+    except Exception:
+        logger.debug("Could not hit-test the table row", exc_info=True)
+        return None
+    return row if row >= 0 else None
+
+
 def is_control_view(view: Any) -> bool:
     """True when a native view is (or lives inside) a button-like ``NSControl``."""
     try:

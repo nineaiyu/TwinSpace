@@ -163,6 +163,8 @@ class EnvironmentListView(toga.Box):
         self._marquee_origin: tuple[float, float] | None = None
         self._marquee_location: tuple[float, float] | None = None
         self._marquee_base: set[str] = set()
+        # Environment resolved by the blank-menu provider before the menu pops.
+        self._menu_env: EnvironmentInfo | None = None
         # One long-running update/rebuild at a time.
         self._busy_operation: str | None = None
         self._last_status_refresh = 0.0
@@ -1006,6 +1008,8 @@ class EnvironmentListView(toga.Box):
             on_open=lambda: self._schedule(self._toggle_app(env.name, key, False)),
             on_close=lambda: self._schedule(self._toggle_app(env.name, key, True)),
             on_edit=lambda: self._edit_app(record),
+            on_detail=lambda: self._schedule(self._detail_app(record)),
+            on_delete=lambda: self._schedule(self._delete_clones([record])),
             on_reveal=lambda: self._schedule(self._reveal_path(record.dest_path)),
             on_update=lambda: self._schedule(
                 self._update_app(env.name, key, record.clone_name)
@@ -1094,10 +1098,21 @@ class EnvironmentListView(toga.Box):
             None,
         )
 
+    def _env_card_at(self, location: tuple[float, float]) -> EnvironmentInfo | None:
+        """Environment whose card body (non-tile area) contains ``location``."""
+        for env in self._environments:
+            state = self._cards.get(env.name)
+            if state is None:
+                continue
+            frame = cocoa_events.window_frame(state.card)
+            if frame is not None and cocoa_events.frame_contains(frame, location):
+                return env
+        return None
+
     def _blank_menu_entries_at(
         self, location: tuple[float, float]
     ) -> tuple[cocoa_events.MenuEntry, ...]:
-        """Menu shown when a right click lands on the page background."""
+        """Menu shown when a right click lands outside an app tile."""
         frame = cocoa_events.window_frame(self)
         if frame is None or not cocoa_events.frame_contains(frame, location):
             return ()
@@ -1106,6 +1121,14 @@ class EnvironmentListView(toga.Box):
         hit = cocoa_events.hit_test_view(self, location)
         if cocoa_events.is_control_view(hit):
             return ()
+        # Right-clicking a card's header/footer/gaps opens that environment's
+        # menu — the "⋯" button's actions, discoverable where you clicked.
+        env = self._env_card_at(location)
+        if env is not None:
+            self._menu_env = env
+            running = any(self._is_running(r.clone_name) for r in env.records)
+            return self._env_menu_entries(running)
+        self._menu_env = None
         return (
             cocoa_events.MenuEntry("select_all", t("selection_select_all")),
             cocoa_events.MenuEntry(
@@ -1116,7 +1139,11 @@ class EnvironmentListView(toga.Box):
         )
 
     def _handle_blank_menu(self, key: str) -> None:
-        if key == "select_all":
+        env = self._menu_env
+        self._menu_env = None
+        if env is not None:
+            self._handle_env_menu(env, key)
+        elif key == "select_all":
             self._select_all_tiles()
         elif key == "clear_selection":
             self.clear_selection()
@@ -1193,6 +1220,12 @@ class EnvironmentListView(toga.Box):
                 t("environment_menu_batch_rebuild", count=count),
                 enabled=count - running > 0,
             ),
+            cocoa_events.MenuEntry(
+                "batch_delete",
+                t("btn_batch_delete", count=count),
+                enabled=count - running > 0,
+                separator=True,
+            ),
             cocoa_events.MenuEntry("batch_clear", t("selection_clear"), separator=True),
         )
 
@@ -1206,6 +1239,8 @@ class EnvironmentListView(toga.Box):
             self._schedule(self._batch_update_selected())
         elif key == "batch_rebuild":
             self._schedule(self._batch_rebuild_selected())
+        elif key == "batch_delete":
+            self._schedule(self._delete_clones(self._selected_records()))
         elif key == "batch_clear":
             self.clear_selection()
 
@@ -1709,6 +1744,17 @@ class EnvironmentListView(toga.Box):
         window = CloneEditWindow(record=record, on_save=_save_cb)
         window.show()
 
+    async def _detail_app(self, record: CloneRecord) -> None:
+        """Open the clone detail window through the All-Clones page.
+
+        The window wires its buttons to that page's edit/update/reveal flows,
+        so reusing them keeps every page acting on the same record in the same
+        way (the source-apps page delegates the same way).
+        """
+        clone_view = getattr(self.app_instance, "clone_view", None) if self.app_instance else None
+        if clone_view is not None:
+            await clone_view.on_detail_clone(record)
+
     @_exclusive("update")
     async def _update_app(self, env_name: str, app_key: str, clone_name: str) -> None:
         """Rebuild a single app of an environment from its current source app."""
@@ -1977,6 +2023,85 @@ class EnvironmentListView(toga.Box):
                 t("environment_batch_rebuild_done", count=rebuilt),
             )
 
+    @_exclusive("delete")
+    async def _delete_clones(self, records: list[CloneRecord]) -> None:
+        """Delete app clones from an environment card, mirroring the All-Clones page.
+
+        Reachable from a tile's right-click menu (one record) and from the
+        batch menu of a multi-selection. Running apps are skipped: the core
+        refuses to remove them anyway, and the menus grey the entry out.
+        """
+        if not self.app_instance or not records:
+            return
+        window = self.app_instance.main_window
+        active = [r for r in records if not self._is_running(r.clone_name)]
+        skipped = [r for r in records if self._is_running(r.clone_name)]
+        if not active:
+            return
+        total = len(active)
+        delete_data = False
+        # A multi-selection keeps the batch dialog even when running apps
+        # shrink the target list, so the skipped apps are explained instead
+        # of silently disappearing from the confirmation.
+        if len(records) == 1:
+            record = active[0]
+            confirmed = await window.confirm_dialog(
+                t("dialog_delete_confirm_title"),
+                t("dialog_delete_confirm_msg", name=record.clone_name),
+            )
+            if not confirmed:
+                return
+            delete_data = await window.confirm_dialog(
+                t("dialog_delete_data_confirm_title"),
+                t("dialog_delete_data_confirm_msg", path=record.data_dir),
+            )
+        else:
+            confirmed = await window.confirm_dialog(
+                t("dialog_batch_delete_confirm_title"),
+                t("dialog_batch_delete_confirm_msg", count=total, names=self._app_list_text(active))
+                + self._skipped_running_text(skipped),
+            )
+            if not confirmed:
+                return
+            delete_data = await window.confirm_dialog(
+                t("dialog_batch_delete_data_confirm_title"),
+                t("dialog_batch_delete_data_confirm_msg", count=total),
+            )
+
+        failed_list: list[tuple[str, str]] = []
+        for index, record in enumerate(active, 1):
+            # Report progress on the environment card the app belongs to (the
+            # same pill update/rebuild use); the refresh below repaints it.
+            self._show_card_progress(
+                record.clone_name,
+                t("environment_progress_deleting", current=index, total=total, app=self._app_label(record)),
+            )
+            try:
+                await self.environment_service.clone_service.remove_clone(
+                    record.clone_name, with_data=delete_data
+                )
+            except Exception as exc:
+                logger.error("Failed to delete clone '%s': %s", record.clone_name, exc)
+                failed_list.append((record.clone_name, str(exc)))
+        await self._on_environment_changed()
+
+        if not failed_list:
+            return
+        succ_count = total - len(failed_list)
+        if total > 1:
+            err_details = "\n".join(f"- {name}: {err}" for name, err in failed_list)
+            await window.error_dialog(
+                t("dialog_batch_summary_title"),
+                t(
+                    "dialog_batch_summary_msg",
+                    success=succ_count,
+                    failed=len(failed_list),
+                    errors=err_details,
+                ),
+            )
+        else:
+            await window.error_dialog(t("dialog_error_title"), failed_list[0][1])
+
     async def _reveal_path(self, path: str | Path) -> None:
         target = Path(path)
         if not target.exists():
@@ -2182,6 +2307,12 @@ class EnvironmentListView(toga.Box):
         return await cocoa_events.confirm_with_labels(
             window, title, message, ok_label, t("btn_cancel")
         )
+
+    def _show_card_progress(self, clone_name: str, text: str) -> None:
+        """Write a transient progress line onto the owning environment card."""
+        state = self._cards.get(self._env_by_clone.get(clone_name, ""))
+        if state is not None and state.status_text.text != text:
+            state.status_text.text = text
 
     def _progress_reporter(self, env_name: str, message_key: str):
         """Paint "updating 2/3 · ZCode" on the card while an app is rebuilt.
