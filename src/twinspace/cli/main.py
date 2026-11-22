@@ -3,7 +3,6 @@ from rich.console import Console
 
 from twinspace import __version__
 
-from .cmd_resources import resources
 from .cmd_clone import clone
 from .cmd_doctor import doctor
 from .cmd_env import env
@@ -13,6 +12,7 @@ from .cmd_open import open_clone
 from .cmd_probe import probe
 from .cmd_recipe import recipe
 from .cmd_remove import remove
+from .cmd_resources import resources
 from .cmd_update import update
 from .cmd_version import version
 from .cmd_wizard import wizard

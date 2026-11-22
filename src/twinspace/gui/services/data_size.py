@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from typing import Any, Iterable
 
 # data_dir -> (computed_at monotonic, size in bytes)
 _SIZE_CACHE: dict[str, tuple[float, int]] = {}
@@ -48,17 +47,6 @@ def data_size(path: Path | str) -> int:
     size = dir_size(text)
     _SIZE_CACHE[text] = (now, size)
     return size
-
-
-def compute_data_sizes(records: Iterable[Any]) -> dict[str, int]:
-    """Map ``clone_name -> data size`` for the given records (cached)."""
-    result: dict[str, int] = {}
-    for record in records:
-        data_dir = str(getattr(record, "data_dir", "") or "")
-        if not data_dir:
-            continue
-        result[record.clone_name] = data_size(data_dir)
-    return result
 
 
 def invalidate_size_cache(path: Path | str | None = None) -> None:

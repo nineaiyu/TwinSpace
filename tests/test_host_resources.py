@@ -13,7 +13,6 @@ from twinspace.core.host_resources import (
     all_managed_paths,
     default_selections,
     expand_entries,
-    expand_selections_map,
     find_resource_group,
     normalize_selections,
     parse_resource_config,
